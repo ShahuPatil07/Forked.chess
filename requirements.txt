@@ -1,0 +1,28 @@
+# Core chess / engine interface
+chess>=1.10.0
+
+# HTTP requests (Chess.com / Lichess APIs)
+requests>=2.31.0
+
+# Progress bars
+tqdm>=4.66.0
+
+# Visualisation
+matplotlib>=3.8.0
+
+# Numerical
+numpy>=1.26.0
+
+# ML - Stage 2 (clustering pipeline)
+scikit-learn>=1.4.0        # includes sklearn.cluster.HDBSCAN (no separate hdbscan needed)
+umap-learn>=0.5.6
+
+# LLM labelling (cluster names via Claude API)
+anthropic>=0.30.0
+
+# Stage 3: Lichess puzzle DB decompression (.zst format)
+zstandard>=0.22.0
+
+# Backend API
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
