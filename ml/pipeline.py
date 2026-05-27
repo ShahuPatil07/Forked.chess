@@ -101,6 +101,29 @@ def _save(mistakes: list[MistakeEvent], username: str, output_dir: Path) -> Path
     return path
 
 
+def _save_game_meta(games: list[dict], username: str, output_dir: Path) -> None:
+    meta: dict = {}
+    for g in games:
+        gid = g.get("game_id", "")
+        if not gid:
+            continue
+        white = g.get("white_username", "")
+        black = g.get("black_username", "")
+        user_color = g.get("user_color", "white")
+        opponent = black if user_color == "white" else white
+        meta[gid] = {
+            "white": white,
+            "black": black,
+            "user_color": user_color,
+            "opponent": opponent,
+            "url": g.get("url", ""),
+            "time_control": g.get("time_control", ""),
+        }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(output_dir / f"{username}_game_meta.json", "w", encoding="utf-8") as fh:
+        json.dump(meta, fh, indent=2)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -129,7 +152,7 @@ def run_ingestion(
         )
 
     print(f"\n{'='*60}")
-    print(f"  Pawnprint ingestion pipeline")
+    print(f"  Forked ingestion pipeline")
     print(f"  User: {username}  |  Platform: {platform}  |  Min games: {min_games}")
     print(f"{'='*60}\n")
 
@@ -141,6 +164,8 @@ def run_ingestion(
     if not games:
         print("No games found. Check the username and platform.")
         return []
+
+    _save_game_meta(games, username, output_dir)
 
     # ── 2. Annotate & extract mistakes ─────────────────────────────────────
     print(f"[2/3] Annotating with Stockfish ({sf_path.name})...")

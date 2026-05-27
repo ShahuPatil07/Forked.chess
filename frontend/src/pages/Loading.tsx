@@ -6,7 +6,7 @@ import { subscribeToIngest } from '../api'
 import type { IngestProgress } from '../types'
 
 const TIPS = [
-  'Pawnprint clusters your mistakes, not just counts them.',
+  'Forked clusters your mistakes, not just counts them.',
   'The "other" category often hides the most interesting patterns.',
   'Back-rank weaknesses are the most common blindspot after 1400 ELO.',
   'Spaced repetition beats marathon sessions for tactical memory.',
@@ -44,8 +44,8 @@ export default function Loading() {
 
   // SSE subscription
   useEffect(() => {
-    if (!jobId) return
-    const unsubscribe = subscribeToIngest(jobId, (evt) => {
+    if (!jobId || !username) return
+    const unsubscribe = subscribeToIngest(jobId, username, (evt) => {
       setProgress(evt)
       if (evt.type === 'done') {
         setUser({ activeJobId: null })
@@ -56,7 +56,7 @@ export default function Loading() {
       }
     })
     return unsubscribe
-  }, [jobId, navigate, setUser])
+  }, [jobId, username, navigate, setUser])
 
   const pct = progress.pct ?? 0
   const isError = progress.type === 'error'
@@ -85,9 +85,11 @@ export default function Loading() {
       >
         {/* Logo */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-accent/15 border border-accent/30 text-2xl mb-3">
-            ♞
-          </div>
+          <img
+            src="/logo.png"
+            alt="Forked"
+            className="h-16 w-auto mx-auto mb-4 drop-shadow-[0_0_16px_rgba(123,97,255,0.3)]"
+          />
           <h1 className="text-xl font-semibold text-text-0">
             {isDone ? 'Your profile is ready!' : 'Learning how you play...'}
           </h1>
@@ -159,7 +161,7 @@ export default function Loading() {
           {isError && (
             <div className="space-y-3">
               <p className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-md px-3 py-2">
-                {progress.message}
+                {progress.message || 'An unexpected error occurred. Check the backend terminal for the full traceback.'}
               </p>
               <button
                 onClick={() => navigate('/')}

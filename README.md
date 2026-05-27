@@ -1,14 +1,14 @@
-# Pawnprint
+# Forked
 
 > **"A coach who knows exactly how you lose."**
 
-Pawnprint watches your real game history, finds your specific recurring tactical blindspots using ML clustering, and serves targeted drills that fix exactly those patterns — not generic puzzles.
+Forked watches your real game history, finds your specific recurring tactical blindspots using ML clustering, and serves targeted drills that fix exactly those patterns — not generic puzzles.
 
 ---
 
 ## The Problem
 
-Chess.com and Lichess both have puzzle trainers. Neither knows that *you* personally have missed a back-rank checkmate 23 times this month. They serve the same static puzzle pool to everyone. Pawnprint changes that.
+Chess.com and Lichess both have puzzle trainers. Neither knows that *you* personally have missed a back-rank checkmate 23 times this month. They serve the same static puzzle pool to everyone. Forked changes that.
 
 ---
 
@@ -52,7 +52,7 @@ Your Lichess / Chess.com username
 ## Project Structure
 
 ```
-PawnPrint/
+Forked/
 ├── requirements.txt
 ├── scripts/
 │   ├── setup_stockfish.py        # Download Stockfish binary from GitHub
@@ -434,7 +434,7 @@ Assembles a drill session from the puzzle index.
 ### Step 1 — Virtual environment
 
 ```powershell
-cd PawnPrint
+cd Forked
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 # source .venv/bin/activate     # macOS / Linux
@@ -701,7 +701,7 @@ Maia2's ResNet backbone converts the board into patch embeddings before the skil
 
 ## Competitive Context
 
-| | Pawnprint | Chess.com Learn | Lichess Puzzles | Chessable |
+| | Forked | Chess.com Learn | Lichess Puzzles | Chessable |
 |---|---|---|---|---|
 | Uses your real games | Yes | No | No | No |
 | Detects personal blindspots | Yes | No | No | No |

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-CLI entry point for the Pawnprint Stage-1 pipeline.
+CLI entry point for the Forked Stage-1 pipeline.
 
 Examples:
     python scripts/run_analysis.py hikaru --platform chesscom
@@ -20,7 +20,7 @@ from ml.config import DATA_DIR
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Pawnprint — analyse your chess games and surface blindspots."
+        description="Forked — analyse your chess games and surface blindspots."
     )
     p.add_argument("username", help="Chess.com or Lichess username")
     p.add_argument(

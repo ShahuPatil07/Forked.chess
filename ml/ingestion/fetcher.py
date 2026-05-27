@@ -30,6 +30,7 @@ def fetch_chesscom_games(username: str, min_games: int = 200) -> list[dict]:
     games: list[dict] = []
     now = datetime.utcnow()
     year, month = now.year, now.month
+    first_request = True
 
     # Chess.com rate-limit is lenient but add a small delay between requests
     while len(games) < min_games:
@@ -38,8 +39,13 @@ def fetch_chesscom_games(username: str, min_games: int = 200) -> list[dict]:
             resp = _get(url)
         except requests.HTTPError as exc:
             if exc.response is not None and exc.response.status_code == 404:
+                if first_request:
+                    raise ValueError(
+                        f"Chess.com user '{username}' not found. Check the username and platform."
+                    ) from exc
                 break  # No more months available
             raise
+        first_request = False
 
         month_games = resp.json().get("games", [])
         games.extend(month_games)
@@ -113,6 +119,8 @@ def fetch_lichess_games(username: str, min_games: int = 200) -> list[dict]:
         stream=True,
         timeout=60,
     )
+    if resp.status_code == 404:
+        raise ValueError(f"Lichess user '{username}' not found. Check the username and platform.")
     resp.raise_for_status()
 
     import json

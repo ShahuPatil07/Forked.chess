@@ -30,5 +30,5 @@ CHESS_COM_API_BASE = "https://api.chess.com/pub/player"
 LICHESS_API_BASE   = "https://lichess.org/api"
 
 REQUEST_HEADERS = {
-    "User-Agent": "Pawnprint/0.1 (github.com/pawnprint; shahuwncc@gmail.com)"
+    "User-Agent": "Forked/0.1 (github.com/ShahuPatil07/Forked; shahuwncc@gmail.com)"
 }

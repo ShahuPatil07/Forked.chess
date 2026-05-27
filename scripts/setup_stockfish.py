@@ -63,7 +63,7 @@ def download_stockfish(dest_dir: Path) -> Path:
         raise RuntimeError(f"Unsupported platform: {sys.platform}")
 
     print("Querying GitHub for latest Stockfish release...")
-    resp = requests.get(RELEASES_API, timeout=30, headers={"User-Agent": "Pawnprint/0.1"})
+    resp = requests.get(RELEASES_API, timeout=30, headers={"User-Agent": "Forked/0.1"})
     resp.raise_for_status()
     release = resp.json()
     tag = release["tag_name"]
@@ -73,7 +73,7 @@ def download_stockfish(dest_dir: Path) -> Path:
     filename = asset["name"]
     print(f"Downloading {filename} ({tag})...")
 
-    resp = requests.get(url, stream=True, timeout=120, headers={"User-Agent": "Pawnprint/0.1"})
+    resp = requests.get(url, stream=True, timeout=120, headers={"User-Agent": "Forked/0.1"})
     resp.raise_for_status()
 
     total = int(resp.headers.get("content-length", 0))

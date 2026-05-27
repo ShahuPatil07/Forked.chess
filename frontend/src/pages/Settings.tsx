@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Save, RefreshCw, AlertCircle, Check } from 'lucide-react'
+import { Save, RefreshCw, AlertCircle, Check, LogOut } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 
 type Platform = 'lichess' | 'chesscom'
 
 export default function Settings() {
-  const { username, platform: storedPlatform, elo: storedElo, setUser } = useUserStore()
+  const { username, platform: storedPlatform, elo: storedElo, setUser, clearUser } = useUserStore()
   const navigate   = useNavigate()
   const queryClient = useQueryClient()
 
@@ -132,6 +132,20 @@ export default function Settings() {
             className="btn-ghost flex items-center gap-2 text-sm w-full justify-center border-danger/30 text-danger hover:bg-danger/10"
           >
             <RefreshCw size={13} /> Re-analyse my games
+          </button>
+        </div>
+
+        {/* Switch account */}
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold text-text-0 mb-1">Switch account</h2>
+          <p className="text-xs text-text-2 mb-4">
+            Analyse a different Chess.com or Lichess username.
+          </p>
+          <button
+            onClick={() => { clearUser(); navigate('/') }}
+            className="btn-ghost flex items-center gap-2 text-sm w-full justify-center"
+          >
+            <LogOut size={13} /> Switch user
           </button>
         </div>
       </div>

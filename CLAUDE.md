@@ -1,12 +1,12 @@
-# Pawnprint — Claude Code context
+# Forked — Claude Code context
 
 ## What we're building
 
-Adaptive chess curriculum app. The core insight: Chess.com and Lichess give you puzzles, but they're static and disconnected from your actual games. Pawnprint watches your game history, detects *your specific recurring blindspots* using ML clustering, and generates targeted drills that fix exactly those patterns.
+Adaptive chess curriculum app. The core insight: Chess.com and Lichess give you puzzles, but they're static and disconnected from your actual games. Forked watches your game history, detects *your specific recurring blindspots* using ML clustering, and generates targeted drills that fix exactly those patterns.
 
 The user connects their Chess.com or Lichess account (username only — no OAuth needed, both have public APIs), we pull their last 200+ games, annotate every move with Stockfish, cluster the mistake events, surface their top blindspots by name ("Back-rank threats — missed 23 times"), and serve personalized puzzle sequences with spaced repetition.
 
-Product name: **Pawnprint**. Working tagline: "A coach who knows exactly how you lose."
+Product name: **Forked**. Working tagline: "A coach who knows exactly how you lose."
 
 ---
 

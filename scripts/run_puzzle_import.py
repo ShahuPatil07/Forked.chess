@@ -19,7 +19,7 @@ from ml.puzzles.importer import build_puzzle_index, PUZZLE_DIR
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Pawnprint Stage 3 -- download and index Lichess puzzles."
+        description="Forked Stage 3 -- download and index Lichess puzzles."
     )
     p.add_argument("username", help="Username whose scaler/reducer to use (must have run Stage 2 first)")
     p.add_argument("--puzzles",    type=int, default=100_000, help="Max puzzles to download (default 100000)")

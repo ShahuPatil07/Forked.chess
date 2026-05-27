@@ -166,6 +166,10 @@ def run_clustering(
             "  No clusters found. This usually means too few events or too high "
             "min_cluster_size. Try --games 100+ or --min-cluster-size 8."
         )
+        if output_dir:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            with open(output_dir / f"{username}_clusters.json", "w") as fh:
+                json.dump([], fh)
         return []
 
     # ── 5. Build cluster objects ─────────────────────────────────────────────

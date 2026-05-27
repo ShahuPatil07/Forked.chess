@@ -21,6 +21,6 @@ export const useUserStore = create<UserStore>()(
       setUser: (u) => set((s) => ({ ...s, ...u })),
       clearUser: () => set(defaults),
     }),
-    { name: 'pawnprint-user' }
+    { name: 'forked-user' }
   )
 )

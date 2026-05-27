@@ -69,6 +69,10 @@ function GameRow({ game, idx }: { game: GameSummary; idx: number }) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
 
+  const displayTitle = game.white_username && game.black_username
+    ? `${game.white_username} vs ${game.black_username}`
+    : game.game_id.slice(-8)
+
   function openAnalysis(clickedIdx: number) {
     const positions = (game.mistakes ?? []).map((m) => ({
       fen: m.fen,
@@ -80,10 +84,12 @@ function GameRow({ game, idx }: { game: GameSummary; idx: number }) {
       state: {
         positions,
         index: clickedIdx,
-        title: `Game ${game.game_id.slice(-8)} · ${game.mistake_count} mistakes`,
+        title: `${displayTitle} · ${game.mistake_count} mistakes`,
       },
     })
   }
+
+  const gameLink = game.game_url || game.lichess_url
 
   return (
     <motion.div
@@ -98,16 +104,16 @@ function GameRow({ game, idx }: { game: GameSummary; idx: number }) {
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-text-0 font-mono truncate max-w-[200px]">
-              {game.game_id.slice(-8)}
+            <span className="text-sm text-text-0 truncate max-w-[260px]">
+              {displayTitle}
             </span>
-            {game.lichess_url && (
+            {gameLink && (
               <a
-                href={game.lichess_url}
+                href={gameLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="text-accent hover:text-accent/70 transition-colors"
+                className="text-accent hover:text-accent/70 transition-colors flex-shrink-0"
               >
                 <ExternalLink size={11} />
               </a>
@@ -185,7 +191,13 @@ export default function GameHistory() {
 
   const games = data.games ?? []
   const filtered = search
-    ? games.filter(g => g.game_id.toLowerCase().includes(search.toLowerCase()))
+    ? games.filter(g => {
+        const q = search.toLowerCase()
+        return g.game_id.toLowerCase().includes(q)
+          || (g.white_username ?? '').toLowerCase().includes(q)
+          || (g.black_username ?? '').toLowerCase().includes(q)
+          || (g.opponent ?? '').toLowerCase().includes(q)
+      })
     : games
 
   return (
@@ -197,7 +209,7 @@ export default function GameHistory() {
         </div>
         <input
           className="input w-48 text-sm"
-          placeholder="Search game ID..."
+          placeholder="Search opponent or game ID..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />

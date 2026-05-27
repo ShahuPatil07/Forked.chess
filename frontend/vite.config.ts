@@ -9,6 +9,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        timeout: 0,          // no timeout — needed for long SSE streams
+        proxyTimeout: 0,
       },
     },
   },

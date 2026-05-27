@@ -35,7 +35,7 @@ def load_clusters(path: Path) -> list[BlindspotCluster]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Pawnprint Stage 3 -- run a blindspot drill session."
+        description="Forked Stage 3 -- run a blindspot drill session."
     )
     p.add_argument("username", help="Username (must have run Stage 2 and Stage 3 import)")
     p.add_argument("--elo",      type=int, default=1500, help="Your rating (for puzzle difficulty matching)")

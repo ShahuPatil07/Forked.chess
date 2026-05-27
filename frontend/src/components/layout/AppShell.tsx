@@ -17,16 +17,13 @@ export default function AppShell() {
       {/* Sidebar */}
       <aside className="w-[220px] flex-shrink-0 flex flex-col border-r border-border bg-bg-0 h-screen sticky top-0">
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center text-sm">
-              ♞
-            </div>
-            <span className="font-semibold text-text-0 tracking-tight">Pawnprint</span>
-          </div>
-          <p className="text-xs text-text-2 mt-1.5 leading-tight">
-            {username}
-          </p>
+        <div className="px-5 py-4 border-b border-border">
+          <img
+            src="/logo.png"
+            alt="Forked"
+            className="h-10 w-auto mb-2"
+          />
+          <p className="text-xs text-text-2 leading-tight">{username}</p>
         </div>
 
         {/* Nav */}
@@ -55,7 +52,7 @@ export default function AppShell() {
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-border">
-          <p className="text-xs text-text-2">Pawnprint v0.1</p>
+          <p className="text-xs text-text-2">Forked v0.1</p>
         </div>
       </aside>
 

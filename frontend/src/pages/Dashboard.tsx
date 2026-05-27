@@ -3,9 +3,44 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Zap, Target, BookOpen, TrendingUp, ChevronRight, AlertCircle } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  PieChart, Pie, ScatterChart, Scatter, ZAxis,
+} from 'recharts'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
-import type { ClusterSummary } from '../types'
+import type { ClusterSummary, AnalyticsData } from '../types'
+
+// ── Palette ──────────────────────────────────────────────────────────────────
+
+const ACCENT    = '#7B61FF'
+const PURPLE400 = '#a78bfa'
+const PURPLE300 = '#c4b5fd'
+const DANGER    = '#f87171'
+const SUCCESS   = '#4ade80'
+const GRID      = '#242436'
+const TEXT2     = '#A0A0B8'
+
+const THREAT_PALETTE = [ACCENT, PURPLE400, PURPLE300, '#818cf8', '#6366f1', '#a5b4fc', '#ddd6fe']
+const PHASE_PALETTE  = { opening: ACCENT, middlegame: PURPLE400, endgame: PURPLE300 }
+
+// ── Reusable chart tooltip ────────────────────────────────────────────────────
+
+function DarkTooltip({ active, payload, label, formatter }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
+      {label !== undefined && <p className="text-text-2 mb-1">{label}</p>}
+      {payload.map((p: any, i: number) => (
+        <p key={i} style={{ color: p.color ?? TEXT2 }}>
+          {formatter ? formatter(p.name, p.value) : `${p.name}: ${p.value}`}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+// ── Dashboard sub-components ──────────────────────────────────────────────────
 
 function UrgencyBar({ score }: { score: number }) {
   const pct = Math.min(100, Math.round(score * 100))
@@ -69,6 +104,217 @@ function BlindspotRow({ cluster, idx }: { cluster: ClusterSummary; idx: number }
   )
 }
 
+// ── Analytics section ─────────────────────────────────────────────────────────
+
+function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div className="card p-5">
+      <p className="text-xs font-semibold text-text-2 uppercase tracking-wider mb-0.5">{title}</p>
+      {subtitle && <p className="text-xs text-text-2 mb-4">{subtitle}</p>}
+      {!subtitle && <div className="mb-4" />}
+      {children}
+    </div>
+  )
+}
+
+function AnalyticsSection({ data }: { data: AnalyticsData }) {
+  // ── Phase donut ───────────────────────────────────────────────────────────
+  const phaseColors: Record<string, string> = PHASE_PALETTE
+  const phaseData = data.phase_breakdown.map(d => ({
+    ...d,
+    fill: phaseColors[d.phase] ?? PURPLE300,
+    label: d.phase.charAt(0).toUpperCase() + d.phase.slice(1),
+  }))
+
+  // ── Threat bars ───────────────────────────────────────────────────────────
+  const threatData = data.threat_stats.slice(0, 8).map((t, i) => ({
+    ...t,
+    label: t.threat.replace(/_/g, ' '),
+    fill: THREAT_PALETTE[i % THREAT_PALETTE.length],
+  }))
+
+  // ── Move bucket bars ──────────────────────────────────────────────────────
+  const moveBuckets = data.moves_aggregated.slice(0, 14)
+
+  // ── Scatter ───────────────────────────────────────────────────────────────
+  const scatterByPhase: Record<string, { x: number; y: number }[]> = {}
+  for (const pt of data.scatter) {
+    if (!scatterByPhase[pt.game_phase]) scatterByPhase[pt.game_phase] = []
+    scatterByPhase[pt.game_phase].push({ x: pt.move_number, y: pt.eval_drop_cp })
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2, duration: 0.4 }}
+      className="mt-10"
+    >
+      <h2 className="text-xs font-semibold text-text-2 uppercase tracking-wider mb-5">Analytics</h2>
+
+      <div className="grid grid-cols-2 gap-5">
+        {/* Mistakes by game phase — donut */}
+        <ChartCard title="Mistakes by phase" subtitle="Distribution across game stages">
+          <div className="flex items-center gap-4">
+            <ResponsiveContainer width={140} height={140}>
+              <PieChart>
+                <Pie
+                  data={phaseData}
+                  dataKey="count"
+                  nameKey="label"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={42}
+                  outerRadius={62}
+                  paddingAngle={3}
+                  strokeWidth={0}
+                >
+                  {phaseData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                </Pie>
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const d = payload[0].payload
+                    return (
+                      <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
+                        <p style={{ color: d.fill }}>{d.label}</p>
+                        <p className="text-text-0 font-semibold">{d.count} mistakes</p>
+                      </div>
+                    )
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex flex-col gap-2">
+              {phaseData.map(d => (
+                <div key={d.phase} className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: d.fill }} />
+                  <span className="text-xs text-text-2 capitalize">{d.label}</span>
+                  <span className="text-xs font-semibold text-text-0 ml-1">{d.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </ChartCard>
+
+        {/* Threat types — avg eval drop */}
+        <ChartCard title="Threat type severity" subtitle="Average centipawn loss per threat">
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={threatData} layout="vertical" margin={{ left: 4, right: 8 }}>
+              <XAxis type="number" tick={{ fill: TEXT2, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis dataKey="label" type="category" width={90} tick={{ fill: TEXT2, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null
+                  const d = payload[0].payload
+                  return (
+                    <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
+                      <p style={{ color: d.fill }} className="capitalize">{d.label}</p>
+                      <p className="text-text-0">avg drop: <span className="font-semibold text-danger">{d.avg_drop}cp</span></p>
+                      <p className="text-text-2">{d.count} mistakes</p>
+                    </div>
+                  )
+                }}
+                cursor={{ fill: GRID }}
+              />
+              <Bar dataKey="avg_drop" radius={[0, 3, 3, 0]}>
+                {threatData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        {/* Eval drop by move bucket — bar chart */}
+        <ChartCard title="Mistakes by move number" subtitle="5-move buckets — count and average eval loss">
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={moveBuckets} margin={{ left: -16, right: 4 }}>
+              <XAxis dataKey="label" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="count" orientation="left" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="drop" orientation="right" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null
+                  return (
+                    <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
+                      <p className="text-text-2 mb-1">Moves {label}</p>
+                      {payload.map((p: any, i: number) => (
+                        <p key={i} style={{ color: p.color }}>{p.name}: {p.value}{p.name === 'avg drop' ? 'cp' : ''}</p>
+                      ))}
+                    </div>
+                  )
+                }}
+                cursor={{ fill: GRID }}
+              />
+              <Bar yAxisId="count" dataKey="count" name="mistakes" fill={ACCENT} opacity={0.85} radius={[3, 3, 0, 0]} />
+              <Bar yAxisId="drop" dataKey="avg_drop" name="avg drop" fill={DANGER} opacity={0.7} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-4 mt-2">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ACCENT }} />
+              <span className="text-xs text-text-2">Mistake count</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: DANGER }} />
+              <span className="text-xs text-text-2">Avg eval drop (cp)</span>
+            </div>
+          </div>
+        </ChartCard>
+
+        {/* Scatter: eval drop vs move number */}
+        <ChartCard title="Eval drop vs move number" subtitle="Each dot is one mistake — coloured by game phase">
+          <ResponsiveContainer width="100%" height={180}>
+            <ScatterChart margin={{ left: -16, right: 4, bottom: 0 }}>
+              <XAxis
+                dataKey="x" name="Move" type="number"
+                tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false}
+                label={{ value: 'Move #', fill: TEXT2, fontSize: 9, position: 'insideBottom', offset: -2 }}
+              />
+              <YAxis
+                dataKey="y" name="Drop (cp)" type="number"
+                tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false}
+              />
+              <ZAxis range={[18, 18]} />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null
+                  const { x, y } = payload[0].payload
+                  return (
+                    <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
+                      <p className="text-text-2">Move <span className="text-text-0 font-semibold">{x}</span></p>
+                      <p className="text-danger font-semibold">−{y}cp</p>
+                    </div>
+                  )
+                }}
+                cursor={{ strokeDasharray: '3 3', stroke: GRID }}
+              />
+              {Object.entries(scatterByPhase).map(([phase, pts], i) => (
+                <Scatter
+                  key={phase}
+                  name={phase}
+                  data={pts}
+                  fill={phaseColors[phase] ?? PURPLE300}
+                  opacity={0.65}
+                />
+              ))}
+            </ScatterChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-4 mt-1">
+            {Object.entries(phaseColors).map(([phase, color]) => (
+              <div key={phase} className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                <span className="text-xs text-text-2 capitalize">{phase}</span>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
+      </div>
+    </motion.div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function Dashboard() {
   const { username, elo } = useUserStore()
   const navigate = useNavigate()
@@ -78,6 +324,13 @@ export default function Dashboard() {
     queryKey: ['profile', username],
     queryFn: () => api.getProfile(username),
     enabled: !!username,
+  })
+
+  const { data: analytics } = useQuery({
+    queryKey: ['analytics', username],
+    queryFn: () => api.getAnalytics(username),
+    enabled: !!username,
+    staleTime: 5 * 60 * 1000,
   })
 
   if (isLoading) {
@@ -216,6 +469,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Analytics charts */}
+      {analytics && <AnalyticsSection data={analytics} />}
     </div>
   )
 }

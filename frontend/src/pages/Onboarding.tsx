@@ -72,10 +72,11 @@ export default function Onboarding() {
       >
         {/* Logo */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-accent/15 border border-accent/30 text-3xl mb-4">
-            ♞
-          </div>
-          <h1 className="text-3xl font-bold text-text-0 tracking-tight">Pawnprint</h1>
+          <img
+            src="/logo.png"
+            alt="Forked"
+            className="h-24 w-auto mx-auto mb-4 drop-shadow-[0_0_24px_rgba(123,97,255,0.35)]"
+          />
           <p className="text-text-1 mt-2 text-base">A coach who knows exactly how you lose.</p>
         </div>
 

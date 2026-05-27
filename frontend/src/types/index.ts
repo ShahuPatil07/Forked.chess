@@ -49,12 +49,52 @@ export interface GameMistake {
 
 export interface GameSummary {
   game_id: string
+  white_username?: string
+  black_username?: string
+  user_color?: string
+  opponent?: string
+  time_control?: string
   played_at_unix: number | null
   mistake_count: number
   phase_breakdown: Record<string, number>
   top_threat: string
   lichess_url: string
+  game_url?: string
   mistakes: GameMistake[]
+}
+
+export interface ThreatStat {
+  threat: string
+  count: number
+  avg_drop: number
+}
+
+export interface PhaseData {
+  phase: string
+  count: number
+}
+
+export interface MoveBucket {
+  move_bucket: number
+  label: string
+  count: number
+  avg_drop: number
+}
+
+export interface ScatterPoint {
+  move_number: number
+  eval_drop_cp: number
+  threat_type: string
+  game_phase: string
+}
+
+export interface AnalyticsData {
+  username: string
+  total_mistakes: number
+  threat_stats: ThreatStat[]
+  phase_breakdown: PhaseData[]
+  moves_aggregated: MoveBucket[]
+  scatter: ScatterPoint[]
 }
 
 export interface PuzzleItem {

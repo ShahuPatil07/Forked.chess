@@ -1,7 +1,7 @@
 """
-Pawnprint FastAPI backend.
+Forked FastAPI backend.
 
-Run from the PawnPrint root directory:
+Run from the project root directory:
     uvicorn backend.main:app --reload --port 8000
 """
 import asyncio
@@ -11,6 +11,15 @@ import queue
 import sys
 import threading
 import uuid
+
+# On Windows + Python 3.12+, chess.engine.SimpleEngine.popen_uci() calls
+# asyncio.run() internally to start Stockfish. That call creates a new event
+# loop in a background thread. Without this policy set explicitly, asyncio
+# sometimes creates a SelectorEventLoop (which can't spawn subprocesses on
+# Windows) instead of ProactorEventLoop.  Setting it here and again inside
+# each worker thread guarantees Stockfish can always be started.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 from collections import Counter, defaultdict
 from dataclasses import asdict
 from pathlib import Path
@@ -25,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ml.config import DATA_DIR, STOCKFISH_PATH
 
-log = logging.getLogger("pawnprint.api")
+log = logging.getLogger("forked.api")
 
 # ── Stockfish analysis singleton ──────────────────────────────────────────────
 
@@ -44,7 +53,7 @@ def _ensure_engine():
     return _sf_engine
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 
-app = FastAPI(title="Pawnprint API", version="0.1.0")
+app = FastAPI(title="Forked API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,6 +94,11 @@ def _ingestion_worker(
     min_games: int,
     api_key: Optional[str],
 ) -> None:
+    # Re-apply on every worker thread: chess.engine spawns its own asyncio
+    # background thread and asyncio.run() there must also get ProactorEventLoop.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
     q = job.queue
 
     def _put(evt: dict) -> None:
@@ -133,11 +147,17 @@ def _ingestion_worker(
             output_dir=OUTPUT_DIR,
         )
 
+        if not clusters:
+            raise ValueError(
+                f"Analysed {len(mistakes)} mistakes but couldn't find recurring patterns. "
+                "Try fetching more games (100+) or check that the username is correct."
+            )
+
         job.status = "done"
         _put({
             "type": "done",
             "username": job.username,
-            "mistakes_count": len(mistakes),
+            "mistakes_found": len(mistakes),
             "clusters_count": len(clusters),
             "pct": 100,
             "message": f"Done! Found {len(clusters)} blindspot patterns.",
@@ -146,7 +166,8 @@ def _ingestion_worker(
     except Exception as exc:
         log.error("Job %s failed: %s", job.job_id, exc, exc_info=True)
         job.status = "error"
-        _put({"type": "error", "message": str(exc), "pct": 0})
+        msg = str(exc) or f"{type(exc).__name__} (no details — check backend terminal)"
+        _put({"type": "error", "message": msg, "pct": 0})
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -193,6 +214,10 @@ def _mistakes_path(username: str) -> Path:
 
 def _settings_path(username: str) -> Path:
     return OUTPUT_DIR / f"{username}_settings.json"
+
+
+def _game_meta_path(username: str) -> Path:
+    return OUTPUT_DIR / f"{username}_game_meta.json"
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -344,6 +369,12 @@ def get_cluster(username: str, cluster_id: str):
 def get_games(username: str):
     mistakes = _load_json(_mistakes_path(username), "Mistakes data")
 
+    game_meta: dict = {}
+    meta_path = _game_meta_path(username)
+    if meta_path.exists():
+        with open(meta_path, encoding="utf-8") as fh:
+            game_meta = json.load(fh)
+
     groups: dict[str, list] = defaultdict(list)
     for m in mistakes:
         groups[m["game_id"]].append(m)
@@ -353,17 +384,141 @@ def get_games(username: str):
                              key=lambda x: -(x[1][0].get("played_at_unix") or 0)):
         phases  = Counter(e["game_phase"]  for e in evts)
         threats = Counter(e["threat_type"] for e in evts)
+        meta = game_meta.get(gid, {})
+        url = meta.get("url", "") or f"https://lichess.org/{gid}"
         games.append({
             "game_id":          gid,
+            "white_username":   meta.get("white", ""),
+            "black_username":   meta.get("black", ""),
+            "user_color":       meta.get("user_color", "white"),
+            "opponent":         meta.get("opponent", ""),
+            "time_control":     meta.get("time_control", ""),
             "played_at_unix":   evts[0].get("played_at_unix"),
             "mistake_count":    len(evts),
             "phase_breakdown":  dict(phases.most_common()),
             "top_threat":       threats.most_common(1)[0][0],
-            "lichess_url":      f"https://lichess.org/{gid}",
+            "lichess_url":      url,
+            "game_url":         url,
             "mistakes":         evts[:5],   # preview only
         })
 
     return {"username": username, "games": games, "total_games": len(games)}
+
+
+@app.post("/api/backfill_meta/{username}")
+def backfill_game_meta(username: str, platform: str = "lichess"):
+    """Fetch opponent names from the public API for profiles missing game_meta.json."""
+    if _game_meta_path(username).exists():
+        return {"status": "already_exists"}
+
+    mistakes = _load_json(_mistakes_path(username), "Mistakes data")
+    game_ids = list({m["game_id"] for m in mistakes})
+
+    import requests as _req
+
+    meta: dict = {}
+    if platform == "lichess":
+        # Lichess batch export — up to 300 IDs per request
+        from ml.config import REQUEST_HEADERS
+        chunk = game_ids[:300]
+        try:
+            resp = _req.post(
+                "https://lichess.org/api/games/export/_ids",
+                data=",".join(chunk),
+                headers={**REQUEST_HEADERS, "Accept": "application/x-ndjson"},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                g = json.loads(line)
+                gid = g.get("id", "")
+                players = g.get("players", {})
+                white = players.get("white", {}).get("user", {}).get("name", "")
+                black = players.get("black", {}).get("user", {}).get("name", "")
+                user_color = "white" if white.lower() == username.lower() else "black"
+                opponent = black if user_color == "white" else white
+                clock = g.get("clock", {})
+                tc_initial = clock.get("initial", 0)
+                tc_inc = clock.get("increment", 0)
+                meta[gid] = {
+                    "white": white, "black": black,
+                    "user_color": user_color, "opponent": opponent,
+                    "url": f"https://lichess.org/{gid}",
+                    "time_control": f"{tc_initial}+{tc_inc}" if clock else "",
+                }
+        except Exception as exc:
+            raise HTTPException(500, f"Lichess API error: {exc}")
+    else:
+        raise HTTPException(400, "Backfill only supported for lichess currently.")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_game_meta_path(username), "w", encoding="utf-8") as fh:
+        json.dump(meta, fh, indent=2)
+    return {"status": "ok", "games_filled": len(meta)}
+
+
+@app.get("/api/analytics/{username}")
+def get_analytics(username: str):
+    mistakes = _load_json(_mistakes_path(username), "Mistakes data")
+
+    threat_drops: dict[str, list] = defaultdict(list)
+    phase_counts: Counter = Counter()
+    bucket_counts: dict[int, int] = defaultdict(int)
+    bucket_drops: dict[int, list] = defaultdict(list)
+    scatter: list[dict] = []
+
+    for m in mistakes:
+        threat   = m.get("threat_type", "other")
+        phase    = m.get("game_phase", "middlegame")
+        drop     = m.get("eval_drop_cp", 0)
+        move_no  = m.get("move_number", 1)
+
+        threat_drops[threat].append(drop)
+        phase_counts[phase] += 1
+
+        bucket = ((move_no - 1) // 5) * 5 + 1   # 1, 6, 11, 16…
+        bucket_counts[bucket] += 1
+        bucket_drops[bucket].append(drop)
+
+        scatter.append({"move_number": move_no, "eval_drop_cp": drop,
+                        "threat_type": threat, "game_phase": phase})
+
+    # Cap scatter to 600 points for frontend performance
+    import random as _rnd
+    if len(scatter) > 600:
+        scatter = _rnd.sample(scatter, 600)
+
+    threat_stats = [
+        {
+            "threat":    t,
+            "count":     len(drops),
+            "avg_drop":  round(sum(drops) / len(drops)) if drops else 0,
+        }
+        for t, drops in sorted(threat_drops.items(), key=lambda x: -len(x[1]))
+    ]
+
+    moves_aggregated = [
+        {
+            "move_bucket": b,
+            "label":       f"{b}–{b+4}",
+            "count":       bucket_counts[b],
+            "avg_drop":    round(sum(bucket_drops[b]) / len(bucket_drops[b])) if bucket_drops[b] else 0,
+        }
+        for b in sorted(bucket_counts)
+    ]
+
+    phase_data = [{"phase": p, "count": c} for p, c in phase_counts.most_common()]
+
+    return {
+        "username":        username,
+        "total_mistakes":  len(mistakes),
+        "threat_stats":    threat_stats,
+        "phase_breakdown": phase_data,
+        "moves_aggregated": moves_aggregated,
+        "scatter":         scatter,
+    }
 
 
 @app.get("/api/session/{username}")

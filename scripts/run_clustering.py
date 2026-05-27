@@ -40,7 +40,7 @@ def load_mistakes(path: Path) -> list[MistakeEvent]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Pawnprint Stage 2 — cluster mistake events into blindspot patterns."
+        description="Forked Stage 2 — cluster mistake events into blindspot patterns."
     )
     p.add_argument("username", help="Username (must match an existing mistakes JSON file)")
     p.add_argument(
