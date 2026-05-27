@@ -1,14 +1,14 @@
-# Pawnprint
+# Zugzwang
 
 > **"A coach who knows exactly how you lose."**
 
-Pawnprint watches your real game history, finds your specific recurring tactical blindspots using ML clustering, and serves targeted drills that fix exactly those patterns — not generic puzzles.
+Zugzwang watches your real game history, finds your specific recurring tactical blindspots using ML clustering, and serves targeted drills that fix exactly those patterns — not generic puzzles.
 
 ---
 
 ## The Problem
 
-Chess.com and Lichess both have puzzle trainers. Neither knows that *you* personally have missed a back-rank checkmate 23 times this month. They serve the same static puzzle pool to everyone. Pawnprint changes that.
+Chess.com and Lichess both have puzzle trainers. Neither knows that *you* personally have missed a back-rank checkmate 23 times this month. They serve the same static puzzle pool to everyone. Zugzwang changes that.
 
 ---
 
@@ -52,7 +52,7 @@ Your Lichess / Chess.com username
 ## Project Structure
 
 ```
-PawnPrint/
+Zugzwang/
 ├── requirements.txt
 ├── scripts/
 │   ├── setup_stockfish.py        # Download Stockfish binary from GitHub
