@@ -1,14 +1,26 @@
+<<<<<<< HEAD
 # Forked
 
 > **"A coach who knows exactly how you lose."**
 
 Forked watches your real game history, finds your specific recurring tactical blindspots using ML clustering, and serves targeted drills that fix exactly those patterns — not generic puzzles.
+=======
+# Zugzwang
+
+> **"A coach who knows exactly how you lose."**
+
+Zugzwang watches your real game history, finds your specific recurring tactical blindspots using ML clustering, and serves targeted drills that fix exactly those patterns — not generic puzzles.
+>>>>>>> 1700310f6cda828efb87c984d9a5fe0cd4a26c1a
 
 ---
 
 ## The Problem
 
+<<<<<<< HEAD
 Chess.com and Lichess both have puzzle trainers. Neither knows that *you* personally have missed a back-rank checkmate 23 times this month. They serve the same static puzzle pool to everyone. Forked changes that.
+=======
+Chess.com and Lichess both have puzzle trainers. Neither knows that *you* personally have missed a back-rank checkmate 23 times this month. They serve the same static puzzle pool to everyone. Zugzwang changes that.
+>>>>>>> 1700310f6cda828efb87c984d9a5fe0cd4a26c1a
 
 ---
 
@@ -52,7 +64,11 @@ Your Lichess / Chess.com username
 ## Project Structure
 
 ```
+<<<<<<< HEAD
 Forked/
+=======
+Zugzwang/
+>>>>>>> 1700310f6cda828efb87c984d9a5fe0cd4a26c1a
 ├── requirements.txt
 ├── scripts/
 │   ├── setup_stockfish.py        # Download Stockfish binary from GitHub
