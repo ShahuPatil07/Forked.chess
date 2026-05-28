@@ -1,13 +1,15 @@
 """
 Build fixed-length feature vectors from MistakeEvent objects.
 
-Vector layout (111 dimensions total):
+Vector layout (122 dimensions total):
   [0:64]    piece_map       — piece value per square from mover's perspective
   [64:74]   material        — per-piece-type balance + aggregate metrics
   [74:86]   pawn_structure  — doubled/isolated/passed pawns, open files, advancement
   [86:94]   king_safety     — king position + pawn shield + king-zone attack count
-  [94:111]  context         — eval metrics, game phase (one-hot), threat type (one-hot),
-                              time pressure, move number, move properties, mobility
+  [94:122]  context         — eval metrics, game phase (one-hot x3), threat type (one-hot x14),
+                              time pressure, move number, move properties, mobility,
+                              classification_confidence, maia2_surprise, maia2_prob_best,
+                              maia2_difficulty
 """
 from __future__ import annotations
 
@@ -21,8 +23,9 @@ _MAX_MATERIAL    = 39
 _MAX_EVAL_CP     = 500
 _MAX_MOVE_NUMBER = 60
 _MAX_CLOCK_MS    = 10 * 60 * 1_000   # 10 minutes = "plenty of time"
+_MAX_SURPRISE    = 3.0                # clip maia2_surprise to [-3, 3]
 
-FEATURE_DIM = 111
+FEATURE_DIM = 122   # 64+10+12+8 board + 28 context (14 threat types + clf_confidence + 3 maia2)
 
 
 # ---------------------------------------------------------------------------
@@ -53,11 +56,13 @@ def feature_names() -> list[str]:
     ]  # 8
     names += ["eval_drop_norm", "eval_before_norm"]                   # 2
     names += ["phase_opening", "phase_middlegame", "phase_endgame"]   # 3
-    names += [f"threat_{t}" for t in THREAT_TYPES]                   # 7
+    names += [f"threat_{t}" for t in THREAT_TYPES]                   # 14
     names += [
         "time_pressure", "move_number_norm",
         "best_move_capture", "best_move_check", "mobility_ratio",
     ]  # 5
+    names += ["clf_confidence"]                                        # 1
+    names += ["maia2_surprise", "maia2_prob_best", "maia2_difficulty"]  # 3
     assert len(names) == FEATURE_DIM, f"{len(names)} != {FEATURE_DIM}"
     return names
 
@@ -76,7 +81,7 @@ def _feature_vector(event: MistakeEvent) -> list[float]:
     feats.extend(_material(board, mover, opp))       # 10
     feats.extend(_pawn_structure(board, mover, opp)) # 12
     feats.extend(_king_safety(board, mover, opp))    # 8
-    feats.extend(_context(event, board))             # 17
+    feats.extend(_context(event, board))             # 31
     assert len(feats) == FEATURE_DIM
     return feats
 
@@ -203,7 +208,7 @@ def _king_safety(board: chess.Board, mover: chess.Color, opp: chess.Color) -> li
     return list(_one_king(board, mover, opp)) + list(_one_king(board, opp, mover))  # 8
 
 
-# ── Context (17-dim) ─────────────────────────────────────────────────────────
+# ── Context (27-dim) ─────────────────────────────────────────────────────────
 
 def _context(event: MistakeEvent, board: chess.Board) -> list[float]:
     feats: list[float] = []
@@ -217,7 +222,7 @@ def _context(event: MistakeEvent, board: chess.Board) -> list[float]:
     pv[{"opening": 0, "middlegame": 1, "endgame": 2}.get(event.game_phase, 1)] = 1.0
     feats.extend(pv)
 
-    # Threat type one-hot (7)
+    # Threat type one-hot (18)
     tv = [0.0] * len(THREAT_TYPES)
     if event.threat_type in THREAT_TYPES:
         tv[THREAT_TYPES.index(event.threat_type)] = 1.0
@@ -251,4 +256,16 @@ def _context(event: MistakeEvent, board: chess.Board) -> list[float]:
     total = own_moves + opp_moves
     feats.append(own_moves / total if total > 0 else 0.5)
 
-    return feats  # 2+3+7+1+1+2+1 = 17
+    # Classification confidence (1) — 1.0 for rule-based, model prob for ML
+    feats.append(float(event.classification_confidence) if event.classification_confidence is not None else 1.0)
+
+    # Maia2 fields (3) — default to neutral values when not available
+    surprise   = event.maia2_surprise   if event.maia2_surprise   is not None else 0.0
+    prob_best  = event.maia2_prob_best  if event.maia2_prob_best  is not None else 0.5
+    difficulty = event.maia2_difficulty if event.maia2_difficulty is not None else 0.5
+
+    feats.append(max(-1.0, min(1.0, surprise / _MAX_SURPRISE)))  # clipped to [-1, 1]
+    feats.append(float(prob_best))
+    feats.append(float(difficulty))
+
+    return feats  # 2+3+14+1+1+2+1+1+3 = 28

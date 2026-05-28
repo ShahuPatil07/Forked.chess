@@ -122,10 +122,10 @@ export default function BlindspotDetail() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/session')}
+          onClick={() => navigate('/session', { state: { clusterId: String(data.cluster_id) } })}
           className="btn-primary flex items-center gap-2 text-sm"
         >
-          <Zap size={13} /> Drill this
+          <Zap size={13} /> Drill this blindspot
         </button>
       </div>
 

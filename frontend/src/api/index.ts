@@ -43,8 +43,10 @@ export const api = {
       `/api/games/${username}`
     ),
 
-  getSession: (username: string, elo: number, n = 12) =>
-    req<SessionResponse>(`/api/session/${username}?elo=${elo}&n=${n}`),
+  getSession: (username: string, elo: number, n = 12, clusterId?: string) =>
+    req<SessionResponse>(
+      `/api/session/${username}?elo=${elo}&n=${n}${clusterId ? `&cluster_id=${clusterId}` : ''}`
+    ),
 
   completeSession: (username: string, results: { cluster_id: string; correct: boolean; time_s: number }[]) =>
     req<{ updated_clusters: string[] }>('/api/session/complete', {

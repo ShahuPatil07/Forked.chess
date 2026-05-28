@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { motion } from 'framer-motion'
-import { ExternalLink, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { ExternalLink, AlertCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 import type { GameSummary, GameMistake } from '../types'
@@ -163,14 +163,26 @@ function GameRow({ game, idx }: { game: GameSummary; idx: number }) {
 }
 
 export default function GameHistory() {
-  const { username } = useUserStore()
+  const { username, platform } = useUserStore()
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [backfilling, setBackfilling] = useState(false)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['games', username],
     queryFn: () => api.getGames(username),
     enabled: !!username,
   })
+
+  async function handleBackfill() {
+    setBackfilling(true)
+    try {
+      await fetch(`/api/backfill_meta/${username}?platform=${platform ?? 'lichess'}`, { method: 'POST' })
+      await queryClient.invalidateQueries({ queryKey: ['games', username] })
+    } finally {
+      setBackfilling(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -190,6 +202,7 @@ export default function GameHistory() {
   }
 
   const games = data.games ?? []
+  const needsBackfill = games.some(g => !g.white_username && !g.black_username)
   const filtered = search
     ? games.filter(g => {
         const q = search.toLowerCase()
@@ -207,12 +220,25 @@ export default function GameHistory() {
           <h1 className="text-2xl font-bold text-text-0">Game History</h1>
           <p className="text-text-2 text-sm mt-1">{games.length} analysed games</p>
         </div>
-        <input
-          className="input w-48 text-sm"
-          placeholder="Search opponent or game ID..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="flex items-center gap-2">
+          {needsBackfill && (
+            <button
+              onClick={handleBackfill}
+              disabled={backfilling}
+              className="btn-ghost flex items-center gap-1.5 text-xs"
+              title="Fetch opponent names from Lichess"
+            >
+              <RefreshCw size={12} className={backfilling ? 'animate-spin' : ''} />
+              {backfilling ? 'Fetching…' : 'Load opponent names'}
+            </button>
+          )}
+          <input
+            className="input w-52 text-sm"
+            placeholder="Search opponent or game ID..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
       </div>
 
       {filtered.length === 0 ? (

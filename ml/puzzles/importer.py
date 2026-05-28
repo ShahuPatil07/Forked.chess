@@ -28,43 +28,19 @@ import numpy as np
 import requests
 from tqdm import tqdm
 
+from ml.classifier.label_map import map_lichess_themes_to_ml_class, ML_CLASS_TO_THREAT
 from ml.clustering.feature_extractor import extract_features, FEATURE_DIM
 from ml.ingestion.mistake_extractor import MistakeEvent
 
 PUZZLE_CSV_URL = "https://database.lichess.org/lichess_db_puzzle.csv.zst"
 PUZZLE_DIR = Path(__file__).parent.parent.parent / "data" / "puzzles"
 
-# Map Lichess theme tags to our threat_type labels
-THEME_TO_THREAT = {
-    "backRankMate":        "back_rank",
-    "backRank":            "back_rank",
-    "fork":                "fork",
-    "doubleFork":          "fork",
-    "pin":                 "pin",
-    "absolutePin":         "pin",
-    "relativePin":         "pin",
-    "skewer":              "pin",
-    "hangingPiece":        "hanging_piece",
-    "attackingF2F7":       "king_attack",
-    "kingsideAttack":      "king_attack",
-    "mateIn1":             "king_attack",
-    "mateIn2":             "king_attack",
-    "mateIn3":             "king_attack",
-    "mateIn4":             "king_attack",
-    "mateIn5":             "king_attack",
-    "mate":                "king_attack",
-    "promotion":           "passed_pawn",
-    "underPromotion":      "passed_pawn",
-    "advancedPawn":        "passed_pawn",
-    "passedPawn":          "passed_pawn",
-}
-
 
 def _threat_from_themes(themes_str: str) -> str:
-    for tag in themes_str.split():
-        if tag in THEME_TO_THREAT:
-            return THEME_TO_THREAT[tag]
-    return "other"
+    ml_class = map_lichess_themes_to_ml_class(themes_str.split())
+    if ml_class is None:
+        return "other"
+    return ML_CLASS_TO_THREAT.get(ml_class, "other")
 
 
 def _puzzle_to_mistake(row: dict) -> Optional[MistakeEvent]:
@@ -84,7 +60,7 @@ def _puzzle_to_mistake(row: dict) -> Optional[MistakeEvent]:
         move_num = board.fullmove_number
 
         # Determine game phase from move number (simple heuristic)
-        if move_num <= 12:
+        if move_num <= 20:
             phase = "opening"
         elif len(board.piece_map()) <= 10:
             phase = "endgame"

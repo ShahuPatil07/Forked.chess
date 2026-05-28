@@ -21,8 +21,10 @@ export default function Onboarding() {
 
   const [platform, setPlatform] = useState<Platform>('lichess')
   const [username, setUsername] = useState(storedUser || '')
+  const [minGames, setMinGames] = useState(80)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [profileExists, setProfileExists] = useState(false)
 
   const fact = CHESS_FACTS[Math.floor(Date.now() / 10000) % CHESS_FACTS.length]
 
@@ -31,26 +33,46 @@ export default function Onboarding() {
     if (!username.trim()) return
     setLoading(true)
     setError('')
+    setProfileExists(false)
 
     try {
-      // Check if we already have data
       const { has_profile } = await api.check(username.trim())
       setUser({ username: username.trim(), platform })
 
       if (has_profile) {
-        navigate('/dashboard')
+        // Show choice instead of silently skipping analysis
+        setProfileExists(true)
         return
       }
 
-      // Start ingestion
-      const { job_id } = await api.startIngest(username.trim(), platform, 80)
-      setUser({ activeJobId: job_id })
-      navigate(`/loading/${job_id}`)
+      await startIngest()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
       setLoading(false)
     }
+  }
+
+  async function startIngest() {
+    const { job_id } = await api.startIngest(username.trim(), platform, minGames)
+    setUser({ activeJobId: job_id })
+    navigate(`/loading/${job_id}`)
+  }
+
+  async function handleReanalyse() {
+    setLoading(true)
+    setError('')
+    try {
+      await startIngest()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleViewDashboard() {
+    navigate('/dashboard')
   }
 
   return (
@@ -75,8 +97,9 @@ export default function Onboarding() {
           <img
             src="/logo.png"
             alt="Forked"
-            className="h-24 w-auto mx-auto mb-4 drop-shadow-[0_0_24px_rgba(123,97,255,0.35)]"
+            className="h-24 w-auto mx-auto mb-3 drop-shadow-[0_0_24px_rgba(123,97,255,0.35)]"
           />
+          <h1 className="text-3xl font-bold text-text-0 tracking-tight">Forked</h1>
           <p className="text-text-1 mt-2 text-base">A coach who knows exactly how you lose.</p>
         </div>
 
@@ -111,12 +134,31 @@ export default function Onboarding() {
                 type="text"
                 placeholder={platform === 'lichess' ? 'e.g. ShahuPatil07' : 'e.g. hikaru'}
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => { setUsername(e.target.value); setProfileExists(false) }}
                 autoFocus
               />
               <p className="text-xs text-text-2 mt-1.5">
                 No login required — public games only.
               </p>
+            </div>
+
+            {/* Games slider */}
+            <div>
+              <label className="flex items-center justify-between text-xs font-medium text-text-1 mb-2">
+                <span>Games to analyse</span>
+                <span className="text-text-0 font-semibold">{minGames}</span>
+              </label>
+              <input
+                type="range"
+                min={20} max={200} step={10}
+                value={minGames}
+                onChange={(e) => setMinGames(Number(e.target.value))}
+                className="w-full h-1.5 rounded-full accent-accent cursor-pointer"
+              />
+              <div className="flex justify-between text-xs text-text-2 mt-1">
+                <span>20 (fast)</span>
+                <span>200 (thorough)</span>
+              </div>
             </div>
 
             {error && (
@@ -125,17 +167,47 @@ export default function Onboarding() {
               </p>
             )}
 
-            <button
-              type="submit"
-              disabled={!username.trim() || loading}
-              className="btn-primary w-full flex items-center justify-center gap-2 py-2.5"
-            >
-              {loading ? (
-                <><Loader2 size={16} className="animate-spin" /> Connecting...</>
-              ) : (
-                <>Analyse my games <ArrowRight size={16} /></>
-              )}
-            </button>
+            {profileExists ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-accent/10 border border-accent/20">
+                  <div className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" />
+                  <p className="text-xs text-text-1">
+                    Profile found for <span className="text-text-0 font-semibold">{username}</span>
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleViewDashboard}
+                    className="btn-ghost py-2.5 text-sm"
+                  >
+                    View dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReanalyse}
+                    disabled={loading}
+                    className="btn-primary flex items-center justify-center gap-2 py-2.5 text-sm"
+                  >
+                    {loading
+                      ? <><Loader2 size={14} className="animate-spin" /> Starting...</>
+                      : <>Re-analyse {minGames} games <ArrowRight size={14} /></>}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                disabled={!username.trim() || loading}
+                className="btn-primary w-full flex items-center justify-center gap-2 py-2.5"
+              >
+                {loading ? (
+                  <><Loader2 size={16} className="animate-spin" /> Connecting...</>
+                ) : (
+                  <>Analyse my games <ArrowRight size={16} /></>
+                )}
+              </button>
+            )}
           </form>
         </div>
 

@@ -5,6 +5,7 @@ CLI entry point for the Forked Stage-1 pipeline.
 Examples:
     python scripts/run_analysis.py hikaru --platform chesscom
     python scripts/run_analysis.py MagnusCarlsen --platform lichess --games 300 --plot
+    python scripts/run_analysis.py ShahuPatil07 --platform lichess --exclude-opening
     python scripts/run_analysis.py hikaru --plot --game-index 0
 """
 import argparse
@@ -36,6 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for JSON output (default: data/output)"
     )
     p.add_argument(
+        "--exclude-opening", action="store_true",
+        help="Exclude opening-phase mistakes (moves 1-12) from the blindspot corpus"
+    )
+    p.add_argument(
         "--plot", action="store_true",
         help="Show visualisation plots after analysis"
     )
@@ -54,6 +59,7 @@ def main() -> None:
         platform=args.platform,
         min_games=args.games,
         output_dir=args.output,
+        exclude_opening=args.exclude_opening,
     )
 
     if not args.plot or not mistakes:

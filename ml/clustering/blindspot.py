@@ -104,4 +104,6 @@ def _event_summary(e: MistakeEvent) -> dict:
         "threat_type":    e.threat_type,
         "game_phase":     e.game_phase,
         "move_number":    e.move_number,
+        "maia2_surprise": e.maia2_surprise,    # None when Maia2 wasn't run
+        "maia2_difficulty": e.maia2_difficulty,
     }

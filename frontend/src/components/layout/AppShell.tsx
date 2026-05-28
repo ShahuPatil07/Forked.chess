@@ -18,12 +18,9 @@ export default function AppShell() {
       <aside className="w-[220px] flex-shrink-0 flex flex-col border-r border-border bg-bg-0 h-screen sticky top-0">
         {/* Logo */}
         <div className="px-5 py-4 border-b border-border">
-          <img
-            src="/logo.png"
-            alt="Forked"
-            className="h-10 w-auto mb-2"
-          />
-          <p className="text-xs text-text-2 leading-tight">{username}</p>
+          <img src="/logo.png" alt="Forked" className="h-9 w-auto mb-1" />
+          <p className="text-sm font-bold text-text-0 tracking-tight leading-tight">Forked</p>
+          <p className="text-xs text-text-2 mt-0.5 leading-tight">{username}</p>
         </div>
 
         {/* Nav */}

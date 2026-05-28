@@ -20,6 +20,10 @@ import uuid
 # each worker thread guarantees Stockfish can always be started.
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+from dotenv import load_dotenv
+load_dotenv()   # loads .env from project root into os.environ
+
 from collections import Counter, defaultdict
 from dataclasses import asdict
 from pathlib import Path
@@ -142,8 +146,7 @@ def _ingestion_worker(
         clusters = run_clustering(
             mistakes=mistakes,
             username=job.username,
-            min_cluster_size=8,
-            api_key=api_key,
+            # min_cluster_size auto-scaled from mistake count (see pipeline.py)
             output_dir=OUTPUT_DIR,
         )
 
@@ -522,7 +525,7 @@ def get_analytics(username: str):
 
 
 @app.get("/api/session/{username}")
-def get_session(username: str, elo: int = 1500, n: int = 12):
+def get_session(username: str, elo: int = 1500, n: int = 12, cluster_id: Optional[str] = None):
     clusters_raw = _load_json(_clusters_path(username), "Cluster profile")
 
     try:
@@ -543,6 +546,10 @@ def get_session(username: str, elo: int = 1500, n: int = 12):
             }))
         except Exception:
             pass
+
+    # Filter to a specific blindspot if requested
+    if cluster_id is not None:
+        clusters = [c for c in clusters if str(c.cluster_id) == cluster_id]
 
     from ml.srs.session import build_session
     items = build_session(username=username, clusters=clusters,

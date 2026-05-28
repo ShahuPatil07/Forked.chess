@@ -13,6 +13,24 @@ env/
 # Stockfish binary (109 MB — download from https://stockfishchess.org/download/)
 data/stockfish/
 
+# Maia2 model weights (downloaded automatically by pip install maia2)
+maia2_models/
+
+# pip install artifacts (e.g. leftover file from `pip install maia2==0.9.0`)
+=*
+
+# Raw Lichess puzzle DB download (~700MB .zst, never commit)
+data/raw/
+
+# Processed training parquet files (recreated by build_training_data.py)
+data/processed/
+
+# Trained ML model artifacts (recreated by train_classifier.py)
+models/
+
+# Evaluation outputs (recreated by evaluate_classifier.py)
+results/
+
 # Per-user pipeline outputs (recreated with: python ml/pipeline.py <username>)
 data/output/
 

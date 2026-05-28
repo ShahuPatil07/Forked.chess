@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Lightbulb, Check, X, ChevronRight, Zap, RotateCcw } from 'lucide-react'
+import { Lightbulb, Check, X, ChevronRight, ChevronLeft, Zap, RotateCcw } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 import type { Square } from 'chess.js'
@@ -22,93 +22,23 @@ function applyUci(chess: Chess, uci: string): boolean {
 }
 
 function getBoardOrientation(item: SessionItem): 'white' | 'black' {
-  // Apply trigger move; the resulting turn is opponent's. User plays the opposite.
   const chess = new Chess(item.puzzle.fen)
-  const triggerUci = item.puzzle.moves.split(' ')[0]
-  applyUci(chess, triggerUci)
+  applyUci(chess, item.puzzle.moves.split(' ')[0])
   return chess.turn() === 'w' ? 'black' : 'white'
+}
+
+function makeHighlight(uci: string): Record<string, object> {
+  if (!uci || uci.length < 4) return {}
+  return {
+    [uci.slice(0, 2)]: { backgroundColor: 'rgba(123,97,255,0.25)' },
+    [uci.slice(2, 4)]: { backgroundColor: 'rgba(123,97,255,0.35)' },
+  }
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Phase = 'waiting' | 'correct_flash' | 'wrong_flash' | 'failed' | 'solved'
-
-interface Attempt { cluster_id: string; correct: boolean; time_s: number }
-
-// ── Custom board square styles for last move highlight ───────────────────────
-
-function makeHighlight(uci: string) {
-  if (!uci || uci.length < 4) return {}
-  const from = uci.slice(0, 2)
-  const to   = uci.slice(2, 4)
-  return {
-    [from]: { backgroundColor: 'rgba(123,97,255,0.25)' },
-    [to]:   { backgroundColor: 'rgba(123,97,255,0.35)' },
-  }
-}
-
-// ── Sub-components ───────────────────────────────────────────────────────────
-
-function ContextPanel({ item, puzzleIdx, total }: { item: SessionItem; puzzleIdx: number; total: number }) {
-  return (
-    <div className="space-y-4">
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="badge bg-accent/15 text-accent border border-accent/20">#{item.blindspot_rank} Blindspot</span>
-          <span className="text-xs text-text-2">{puzzleIdx + 1}/{total}</span>
-        </div>
-        <h2 className="text-base font-semibold text-text-0 leading-snug">{item.cluster_label}</h2>
-        <p className="text-xs text-text-2 mt-1">
-          Missed <span className="text-accent font-medium">{item.missed_count}</span> times
-        </p>
-      </div>
-
-      {item.puzzle.threat && (
-        <div className="bg-bg-2 rounded-md px-3 py-2">
-          <p className="text-xs text-text-2 mb-0.5">Pattern</p>
-          <p className="text-sm text-text-0 capitalize">{item.puzzle.threat.replace(/_/g, ' ')}</p>
-        </div>
-      )}
-
-      {item.puzzle.game_url && (
-        <div className="bg-bg-2 rounded-md px-3 py-2">
-          <p className="text-xs text-text-2 mb-0.5">Source game</p>
-          <a
-            href={item.puzzle.game_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-accent hover:underline"
-          >
-            View on Lichess
-          </a>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SessionComplete({ attempts, onRestart }: { attempts: Attempt[]; onRestart: () => void }) {
-  const correct = attempts.filter(a => a.correct).length
-  const pct = Math.round((correct / attempts.length) * 100)
-  const navigate = useNavigate()
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
-      <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center">
-        <div className="text-5xl mb-4">♞</div>
-        <h2 className="text-2xl font-bold text-text-0">Session complete</h2>
-        <p className="text-text-2 mt-2">{correct}/{attempts.length} correct · {pct}% accuracy</p>
-      </motion.div>
-      <div className="flex gap-3">
-        <button onClick={onRestart} className="btn-ghost flex items-center gap-2">
-          <RotateCcw size={14} /> Drill again
-        </button>
-        <button onClick={() => navigate('/dashboard')} className="btn-primary flex items-center gap-2">
-          Dashboard <ChevronRight size={14} />
-        </button>
-      </div>
-    </div>
-  )
-}
+interface AttemptRecord { correct: boolean; time_s: number; cluster_id: string }
 
 // ── Click-to-move helpers ─────────────────────────────────────────────────────
 
@@ -127,20 +57,79 @@ function getPuzzleMoveOptions(chess: Chess, square: Square): Record<string, obje
   return styles
 }
 
-// ── Puzzle board component ───────────────────────────────────────────────────
+// ── ContextPanel ─────────────────────────────────────────────────────────────
 
-function PuzzleBoard({
-  item,
-  onResult,
-}: {
+function ContextPanel({ item, puzzleIdx, total }: { item: SessionItem; puzzleIdx: number; total: number }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="badge bg-accent/15 text-accent border border-accent/20">
+            #{item.blindspot_rank} Blindspot
+          </span>
+          <span className="text-xs text-text-2">{puzzleIdx + 1}/{total}</span>
+        </div>
+        <h2 className="text-base font-semibold text-text-0 leading-snug">{item.cluster_label}</h2>
+        <p className="text-xs text-text-2 mt-1">
+          Missed <span className="text-accent font-medium">{item.missed_count}</span> times
+        </p>
+      </div>
+      {item.puzzle.threat && (
+        <div className="bg-bg-2 rounded-md px-3 py-2">
+          <p className="text-xs text-text-2 mb-0.5">Pattern</p>
+          <p className="text-sm text-text-0 capitalize">{item.puzzle.threat.replace(/_/g, ' ')}</p>
+        </div>
+      )}
+      {item.puzzle.game_url && (
+        <div className="bg-bg-2 rounded-md px-3 py-2">
+          <p className="text-xs text-text-2 mb-0.5">Source game</p>
+          <a href={item.puzzle.game_url} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-accent hover:underline">
+            View on Lichess
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── SessionComplete ───────────────────────────────────────────────────────────
+
+function SessionComplete({ attempts, onRestart }: { attempts: AttemptRecord[]; onRestart: () => void }) {
+  const correct = attempts.filter(a => a.correct).length
+  const pct = attempts.length ? Math.round((correct / attempts.length) * 100) : 0
+  const navigate = useNavigate()
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
+      <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center">
+        <img src="/logo.png" alt="" className="h-14 w-auto mx-auto mb-4 opacity-90" />
+        <h2 className="text-2xl font-bold text-text-0">Session complete</h2>
+        <p className="text-text-2 mt-2">{correct}/{attempts.length} correct · {pct}% accuracy</p>
+      </motion.div>
+      <div className="flex gap-3">
+        <button onClick={onRestart} className="btn-ghost flex items-center gap-2">
+          <RotateCcw size={14} /> Drill again
+        </button>
+        <button onClick={() => navigate('/dashboard')} className="btn-primary flex items-center gap-2">
+          Dashboard <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── PuzzleBoard ───────────────────────────────────────────────────────────────
+
+const MAX_WRONG = 3
+
+function PuzzleBoard({ item, onResult }: {
   item: SessionItem
   onResult: (correct: boolean, hintUsed: boolean, time_s: number) => void
 }) {
   const moves    = item.puzzle.moves.split(' ')
   const orient   = getBoardOrientation(item)
-
-  const chessRef  = useRef(new Chess(item.puzzle.fen))
-  const startTime = useRef(Date.now())
+  const chessRef = useRef(new Chess(item.puzzle.fen))
+  const startRef = useRef(Date.now())
 
   const [fen,        setFen]        = useState(item.puzzle.fen)
   const [moveIdx,    setMoveIdx]    = useState(1)
@@ -148,8 +137,6 @@ function PuzzleBoard({
   const [wrongCount, setWrongCount] = useState(0)
   const [hintUsed,   setHintUsed]   = useState(false)
   const [highlight,  setHighlight]  = useState<Record<string, object>>({})
-
-  // Click-to-move
   const [selectedSq, setSelectedSq] = useState<Square | null>(null)
   const [optionSqs,  setOptionSqs]  = useState<Record<string, object>>({})
 
@@ -165,7 +152,7 @@ function PuzzleBoard({
     setHintUsed(false)
     setSelectedSq(null)
     setOptionSqs({})
-    startTime.current = Date.now()
+    startRef.current = Date.now()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.puzzle.puzzle_id])
 
@@ -181,7 +168,7 @@ function PuzzleBoard({
         const afterIdx = nextIdx + 1
         if (afterIdx >= moves.length) {
           setPhase('solved')
-          onResult(true, hintUsed, (Date.now() - startTime.current) / 1000)
+          onResult(true, hintUsed, (Date.now() - startRef.current) / 1000)
         } else {
           setMoveIdx(afterIdx)
           setPhase('waiting')
@@ -193,13 +180,15 @@ function PuzzleBoard({
   function attemptMove(from: string, to: string, piece?: string): boolean {
     if (phase !== 'waiting') return false
 
-    const expected = moves[moveIdx]
-    const expFrom  = expected.slice(0, 2)
-    const expTo    = expected.slice(2, 4)
-    const expPromo = expected[4]
-    const userPromo = piece?.toLowerCase().slice(-1)
+    // Ignore illegal moves — don't count them as attempts
+    const legal = chessRef.current.moves({ verbose: true })
+    if (!legal.some(m => m.from === from && m.to === to)) return false
 
-    const isCorrect = from === expFrom && to === expTo && (!expPromo || userPromo === expPromo)
+    const expected = moves[moveIdx]
+    const isCorrect =
+      from === expected.slice(0, 2) &&
+      to   === expected.slice(2, 4) &&
+      (!expected[4] || (piece?.toLowerCase().slice(-1) ?? '') === expected[4])
 
     setSelectedSq(null)
     setOptionSqs({})
@@ -209,12 +198,11 @@ function PuzzleBoard({
       setFen(chessRef.current.fen())
       setHighlight(makeHighlight(expected))
       setPhase('correct_flash')
-
       const nextIdx = moveIdx + 1
       if (nextIdx >= moves.length) {
         setTimeout(() => {
           setPhase('solved')
-          onResult(true, hintUsed, (Date.now() - startTime.current) / 1000)
+          onResult(true, hintUsed, (Date.now() - startRef.current) / 1000)
         }, 300)
       } else {
         setTimeout(() => {
@@ -228,9 +216,14 @@ function PuzzleBoard({
       setWrongCount(newWrong)
       setPhase('wrong_flash')
       setTimeout(() => {
-        if (newWrong >= 2) {
+        if (newWrong >= MAX_WRONG) {
+          // Auto-reveal the correct move in green
+          setHighlight({
+            [expected.slice(0, 2)]: { backgroundColor: 'rgba(13,201,127,0.30)' },
+            [expected.slice(2, 4)]: { backgroundColor: 'rgba(13,201,127,0.45)' },
+          })
           setPhase('failed')
-          onResult(false, hintUsed, (Date.now() - startTime.current) / 1000)
+          onResult(false, hintUsed, (Date.now() - startRef.current) / 1000)
         } else {
           setPhase('waiting')
         }
@@ -245,13 +238,10 @@ function PuzzleBoard({
 
   function handleSquareClick(square: Square) {
     if (phase !== 'waiting') return
-
-    // If a destination square is clicked after selection
     if (selectedSq && optionSqs[square] !== undefined) {
       attemptMove(selectedSq, square)
       return
     }
-
     const piece = chessRef.current.get(square)
     if (piece && piece.color === chessRef.current.turn()) {
       setSelectedSq(square)
@@ -265,21 +255,14 @@ function PuzzleBoard({
   function showHint() {
     if (phase !== 'waiting' || moveIdx >= moves.length) return
     setHintUsed(true)
-    const expected = moves[moveIdx]
-    setHighlight({
-      ...makeHighlight(expected),
-      [expected.slice(0, 2)]: { backgroundColor: 'rgba(255,193,7,0.35)' },
-    })
+    const exp = moves[moveIdx]
+    setHighlight({ ...makeHighlight(exp), [exp.slice(0, 2)]: { backgroundColor: 'rgba(255,193,7,0.35)' } })
     setSelectedSq(null)
     setOptionSqs({})
   }
 
-  function revealSolution() {
-    setPhase('solved')
-    setHighlight(makeHighlight(moves[moveIdx]))
-  }
-
   const isDone = phase === 'solved' || phase === 'failed'
+  const attemptsLeft = MAX_WRONG - wrongCount
   const squareStyles = useMemo(() => ({ ...highlight, ...optionSqs }), [highlight, optionSqs])
 
   return (
@@ -298,20 +281,17 @@ function PuzzleBoard({
             initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             className="flex items-center gap-2 text-danger text-sm font-medium px-3 py-2 bg-danger/10 rounded-md border border-danger/20"
           >
-            <X size={14} /> Not quite — {2 - wrongCount} attempt{wrongCount === 1 ? '' : 's'} left
+            <X size={14} /> Not quite — {attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left
           </motion.div>
         )}
         {phase === 'failed' && (
           <motion.div key="failed"
             initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-            className="flex items-center justify-between px-3 py-2 bg-danger/10 rounded-md border border-danger/20"
+            className="px-3 py-2 bg-danger/10 rounded-md border border-danger/20"
           >
             <span className="flex items-center gap-2 text-danger text-sm font-medium">
-              <X size={14} /> Missed
+              <X size={14} /> Missed — correct move shown in green
             </span>
-            <button onClick={revealSolution} className="text-xs text-text-2 hover:text-text-0 transition-colors">
-              Show solution
-            </button>
           </motion.div>
         )}
         {phase === 'solved' && (
@@ -338,22 +318,28 @@ function PuzzleBoard({
           boardWidth={500}
           customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
           customLightSquareStyle={{ backgroundColor: '#343761' }}
-          customBoardStyle={{
-            borderRadius: '6px',
-            boxShadow: '0 0 0 1px rgba(123,97,255,0.15)',
-          }}
+          customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.15)' }}
         />
       </motion.div>
 
+      {/* Attempt dots + hint */}
       {!isDone && (
-        <button
-          onClick={showHint}
-          disabled={hintUsed}
-          className="flex items-center gap-1.5 text-xs text-text-2 hover:text-text-0 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          <Lightbulb size={12} />
-          {hintUsed ? 'Hint used' : 'Show hint'}
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1.5">
+            {Array.from({ length: MAX_WRONG }).map((_, i) => (
+              <div key={i} className={`w-2 h-2 rounded-full transition-colors
+                ${i < wrongCount ? 'bg-danger' : 'bg-bg-3'}`} />
+            ))}
+          </div>
+          <button
+            onClick={showHint}
+            disabled={hintUsed}
+            className="flex items-center gap-1.5 text-xs text-text-2 hover:text-text-0 disabled:opacity-40 transition-colors"
+          >
+            <Lightbulb size={12} />
+            {hintUsed ? 'Hint used' : 'Show hint'}
+          </button>
+        </div>
       )}
     </div>
   )
@@ -364,14 +350,17 @@ function PuzzleBoard({
 export default function PuzzleSession() {
   const { username, elo } = useUserStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  const { clusterId } = (location.state ?? {}) as { clusterId?: string }
 
-  const [puzzleIdx, setPuzzleIdx]   = useState(0)
-  const [attempts,  setAttempts]    = useState<Attempt[]>([])
-  const [complete,  setComplete]    = useState(false)
+  const [puzzleIdx,  setPuzzleIdx]  = useState(0)
+  const [attempts,   setAttempts]   = useState<Record<number, AttemptRecord>>({})
+  const [puzzleDone, setPuzzleDone] = useState(false)
+  const [complete,   setComplete]   = useState(false)
 
   const { data, isLoading, error, refetch } = useQuery<SessionResponse>({
-    queryKey: ['session', username, elo],
-    queryFn:  () => api.getSession(username, elo || 1200, 12),
+    queryKey: ['session', username, elo, clusterId ?? null],
+    queryFn:  () => api.getSession(username, elo || 1200, 12, clusterId),
     enabled:  !!username,
     staleTime: 0,
   })
@@ -379,24 +368,37 @@ export default function PuzzleSession() {
   function handleResult(correct: boolean, _hintUsed: boolean, time_s: number) {
     if (!data) return
     const item = data.items[puzzleIdx]
-    const newAttempts = [...attempts, { cluster_id: String(item.cluster_id), correct, time_s }]
-    setAttempts(newAttempts)
+    setAttempts(prev => ({
+      ...prev,
+      [puzzleIdx]: { correct, time_s, cluster_id: String(item.cluster_id) },
+    }))
+    setPuzzleDone(true)
+  }
 
-    setTimeout(() => {
-      const next = puzzleIdx + 1
-      if (next >= data.items.length) {
-        // Submit results, then show complete screen
-        api.completeSession(username, newAttempts).catch(() => {/* ignore */})
-        setComplete(true)
-      } else {
-        setPuzzleIdx(next)
-      }
-    }, 1200)
+  function goToPuzzle(i: number) {
+    if (!data || i < 0 || i >= data.items.length) return
+    setPuzzleIdx(i)
+    setPuzzleDone(attempts[i] !== undefined)
+  }
+
+  function handleNext() {
+    if (!data) return
+    const next = puzzleIdx + 1
+    if (next >= data.items.length) {
+      const allAttempts = Object.values(attempts)
+      api.completeSession(username, allAttempts.map(a => ({
+        cluster_id: a.cluster_id, correct: a.correct, time_s: a.time_s,
+      }))).catch(() => {})
+      setComplete(true)
+    } else {
+      goToPuzzle(next)
+    }
   }
 
   function handleRestart() {
-    setAttempts([])
+    setAttempts({})
     setPuzzleIdx(0)
+    setPuzzleDone(false)
     setComplete(false)
     refetch()
   }
@@ -422,30 +424,45 @@ export default function PuzzleSession() {
   }
 
   if (complete) {
-    return <SessionComplete attempts={attempts} onRestart={handleRestart} />
+    return <SessionComplete attempts={Object.values(attempts)} onRestart={handleRestart} />
   }
 
   const item = data.items[puzzleIdx]
-  const correct = attempts.filter(a => a.correct).length
+  const correctCount   = Object.values(attempts).filter(a => a.correct).length
+  const totalAttempted = Object.keys(attempts).length
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-bold text-text-0">Drill Session</h1>
+          <h1 className="text-lg font-bold text-text-0">
+            {clusterId ? 'Targeted Drill' : 'Drill Session'}
+          </h1>
           <p className="text-xs text-text-2 mt-0.5">
-            {puzzleIdx + 1} of {data.items.length} &middot; {correct} correct so far
+            {puzzleIdx + 1} of {data.items.length}
+            {totalAttempted > 0 && ` · ${correctCount}/${totalAttempted} correct`}
           </p>
         </div>
-        {/* Progress pills */}
-        <div className="flex items-center gap-1">
+
+        {/* Progress dots — clickable */}
+        <div className="flex items-center gap-1.5">
           {data.items.map((_, i) => {
             const a = attempts[i]
-            let bg = 'bg-bg-3'
-            if (a) bg = a.correct ? 'bg-success' : 'bg-danger'
-            else if (i === puzzleIdx) bg = 'bg-accent'
-            return <div key={i} className={`w-2 h-2 rounded-full ${bg} transition-colors`} />
+            const isCurrent = i === puzzleIdx
+            const color = a
+              ? (a.correct ? 'bg-success' : 'bg-danger')
+              : isCurrent ? 'bg-accent' : 'bg-bg-3'
+            return (
+              <button
+                key={i}
+                onClick={() => goToPuzzle(i)}
+                title={`Puzzle ${i + 1}`}
+                className={`rounded-full transition-all duration-150 hover:scale-125
+                  ${isCurrent ? 'w-3 h-3 scale-125' : 'w-2.5 h-2.5'}
+                  ${color}`}
+              />
+            )
           })}
         </div>
       </div>
@@ -464,19 +481,43 @@ export default function PuzzleSession() {
         <div className="col-span-2 space-y-4 pt-2">
           <ContextPanel item={item} puzzleIdx={puzzleIdx} total={data.items.length} />
 
-          {/* Accuracy tracker */}
-          {attempts.length > 0 && (
+          {/* Prev / Next — only when current puzzle is done */}
+          {puzzleDone && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex gap-2"
+            >
+              <button
+                onClick={() => goToPuzzle(puzzleIdx - 1)}
+                disabled={puzzleIdx === 0}
+                className="btn-ghost flex items-center gap-1 text-sm flex-1 justify-center disabled:opacity-30"
+              >
+                <ChevronLeft size={14} /> Prev
+              </button>
+              <button
+                onClick={handleNext}
+                className="btn-primary flex items-center gap-1 text-sm flex-1 justify-center"
+              >
+                {puzzleIdx === data.items.length - 1 ? 'Finish' : 'Next'}
+                <ChevronRight size={14} />
+              </button>
+            </motion.div>
+          )}
+
+          {/* Session accuracy */}
+          {totalAttempted > 0 && (
             <div className="card p-3">
               <p className="text-xs text-text-2 mb-1.5">Session accuracy</p>
               <div className="h-1.5 bg-bg-3 rounded-full overflow-hidden">
                 <motion.div
                   className="h-full bg-success rounded-full"
-                  animate={{ width: `${Math.round((correct / attempts.length) * 100)}%` }}
+                  animate={{ width: `${Math.round((correctCount / totalAttempted) * 100)}%` }}
                   transition={{ duration: 0.4 }}
                 />
               </div>
               <p className="text-xs text-text-1 mt-1.5">
-                {correct}/{attempts.length} &middot; {Math.round((correct / attempts.length) * 100)}%
+                {correctCount}/{totalAttempted} · {Math.round((correctCount / totalAttempted) * 100)}%
               </p>
             </div>
           )}
