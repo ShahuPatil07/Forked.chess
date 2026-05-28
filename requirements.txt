@@ -38,6 +38,11 @@ uvicorn[standard]>=0.30.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
 
-# Optional: Maia2 human-move probability model (requires PyTorch)
-# Install separately if needed: pip install maia2
-# Falls back gracefully when unavailable (USE_MAIA2=False in ml/config.py)
+# Maia2 human-move probability model
+# NOTE: torch must be installed first via the PyTorch index (CPU-only, ~300 MB):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Then install the remaining maia2 deps:
+maia2>=0.9
+gdown>=5.0
+pyzstd>=0.15
+einops>=0.7
