@@ -9,6 +9,7 @@ import GameHistory from './pages/GameHistory'
 import Settings from './pages/Settings'
 import AnalysisBoard from './pages/AnalysisBoard'
 import BotGame from './pages/BotGame'
+import OpeningExplorer from './pages/OpeningExplorer'
 import AppShell from './components/layout/AppShell'
 
 function RequireUser({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/history" element={<GameHistory />} />
           <Route path="/analysis" element={<AnalysisBoard />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/openings" element={<OpeningExplorer />} />
           <Route path="/bot-game"          element={<BotGame />} />
           <Route path="/bot-game/:gameId" element={<BotGame />} />
         </Route>

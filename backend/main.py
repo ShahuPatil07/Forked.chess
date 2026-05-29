@@ -67,6 +67,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Opening Explorer router (must be after app + middleware so prefix registers cleanly)
+from backend.openings import router as openings_router
+app.include_router(openings_router)
+
 OUTPUT_DIR    = DATA_DIR / "output"
 BOT_GAMES_DIR = DATA_DIR / "bot_games"
 
