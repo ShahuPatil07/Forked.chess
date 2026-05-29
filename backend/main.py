@@ -29,7 +29,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -67,7 +67,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OUTPUT_DIR = DATA_DIR / "output"
+OUTPUT_DIR    = DATA_DIR / "output"
+BOT_GAMES_DIR = DATA_DIR / "bot_games"
 
 
 # ── Job registry ─────────────────────────────────────────────────────────────
@@ -196,6 +197,15 @@ class AttemptsRequest(BaseModel):
 class SettingsUpdate(BaseModel):
     elo: Optional[int] = None
     platform: Optional[str] = None
+
+
+class BotGameCreate(BaseModel):
+    username: str
+    user_color: str = "random"   # "white" | "black" | "random"
+
+
+class AccuracyRequest(BaseModel):
+    moves: list[str]   # UCI move strings for the full game
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -617,3 +627,310 @@ def update_settings(username: str, req: SettingsUpdate):
     existing["username"] = username
     existing["has_profile"] = _clusters_path(username).exists()
     return existing
+
+
+# ── Game accuracy ─────────────────────────────────────────────────────────────
+
+@app.post("/api/bot-game/accuracy")
+async def compute_game_accuracy(req: AccuracyRequest):
+    """
+    Chess.com-style accuracy for both players.
+    Replays the game move-by-move, evaluates each position with Stockfish
+    at depth 12, and computes win-percentage loss per move.
+
+    Formula (matches chess.com's published approach):
+      wp(cp)       = 50 + 50 * tanh(cp / 600)
+      accuracy(wpl) = 103.1668 * exp(-0.04354 * wpl) - 3.1669  (clamped 0–100)
+    """
+    if not STOCKFISH_PATH.exists():
+        raise HTTPException(503, "Stockfish not available")
+    if not req.moves:
+        return {"white_accuracy": None, "black_accuracy": None}
+
+    def _run() -> dict:
+        import math, chess.engine as _ce
+
+        def cp_to_wp(cp: float) -> float:
+            return 50.0 + 50.0 * math.tanh(max(-3000.0, min(3000.0, cp)) / 600.0)
+
+        def accuracy(wpl: float) -> float:
+            return max(0.0, min(100.0, 103.1668 * math.exp(-0.04354 * max(0.0, wpl)) - 3.1669))
+
+        def sf_eval(engine, board) -> float:
+            info  = engine.analyse(board, _ce.Limit(depth=12))
+            score = info["score"].white()
+            if score.is_mate():
+                return 3000.0 if (score.mate() or 0) > 0 else -3000.0
+            return float(score.score() or 0)
+
+        white_accs: list[float] = []
+        black_accs:  list[float] = []
+        board = _chess.Board()
+
+        with _ce.SimpleEngine.popen_uci(str(STOCKFISH_PATH)) as sf:
+            prev_cp = sf_eval(sf, board)
+            for uci in req.moves:
+                side = board.turn
+                try:
+                    board.push(_chess.Move.from_uci(uci))
+                except Exception:
+                    break
+                curr_cp = sf_eval(sf, board)
+
+                if side == _chess.WHITE:
+                    wpl = cp_to_wp(prev_cp) - cp_to_wp(curr_cp)
+                    white_accs.append(accuracy(wpl))
+                else:
+                    # For black: win% loss = win%(before from black's POV) - win%(after)
+                    wpl = cp_to_wp(-prev_cp) - cp_to_wp(-curr_cp)
+                    black_accs.append(accuracy(wpl))
+
+                prev_cp = curr_cp
+
+        def avg(lst: list[float]):
+            return round(sum(lst) / len(lst), 1) if lst else None
+
+        return {"white_accuracy": avg(white_accs), "black_accuracy": avg(black_accs)}
+
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(None, _run)
+        return result
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ── Bot game ──────────────────────────────────────────────────────────────────
+
+import random as _random
+import datetime as _datetime
+import chess as _chess
+
+from backend.bot import maia_engine, thinking_delay
+
+# In-memory game store  {game_id -> game_dict}
+_bot_games: dict[str, dict] = {}
+
+
+def _check_game_over(board: "_chess.Board") -> tuple[bool, Optional[str], Optional[str]]:
+    """Returns (is_over, result, reason)."""
+    if board.is_checkmate():
+        result = "0-1" if board.turn == _chess.WHITE else "1-0"
+        return True, result, "checkmate"
+    if board.is_stalemate():
+        return True, "1/2-1/2", "stalemate"
+    if board.is_insufficient_material():
+        return True, "1/2-1/2", "insufficient_material"
+    if board.is_seventyfive_moves():
+        return True, "1/2-1/2", "seventy_five_moves"
+    if board.is_fivefold_repetition():
+        return True, "1/2-1/2", "fivefold_repetition"
+    return False, None, None
+
+
+def _save_bot_game(game: dict) -> None:
+    try:
+        BOT_GAMES_DIR.mkdir(parents=True, exist_ok=True)
+        path = BOT_GAMES_DIR / f"{game['game_id']}.json"
+        serialisable = {k: v for k, v in game.items() if k != "board" and k != "ws"}
+        serialisable["fen"] = game["board"].fen()
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(serialisable, fh, default=str)
+    except Exception as exc:
+        log.warning("Failed to save bot game %s: %s", game.get("game_id"), exc)
+
+
+async def _cleanup_game_after_delay(game_id: str, delay_s: int = 300) -> None:
+    await asyncio.sleep(delay_s)
+    _bot_games.pop(game_id, None)
+
+
+async def _make_bot_move(ws: "WebSocket", game: dict) -> None:
+    await ws.send_json({"type": "thinking"})
+    fen        = game["board"].fen()
+    target_elo = game["target_elo"]
+    user_elo   = game["user_elo"]
+
+    loop = asyncio.get_event_loop()
+
+    delay_coro = thinking_delay.think(fen)
+    move_coro  = loop.run_in_executor(
+        None, lambda: maia_engine.get_move(fen, target_elo, user_elo)
+    )
+
+    move_uci, _ = await asyncio.gather(move_coro, delay_coro)
+
+    board = game["board"]
+    try:
+        move = _chess.Move.from_uci(move_uci)
+        if move not in board.legal_moves:
+            raise ValueError("Illegal bot move")
+        board.push(move)
+        game["move_history"].append(move_uci)
+    except Exception as exc:
+        log.warning("Bot move error (%s), using random fallback", exc)
+        legal = list(board.legal_moves)
+        if not legal:
+            return
+        move = _random.choice(legal)
+        board.push(move)
+        move_uci = move.uci()
+        game["move_history"].append(move_uci)
+
+    # Track new position for repetition detection
+    game.setdefault("position_history", []).append(board.fen())
+
+    await ws.send_json({
+        "type": "move_made",
+        "move": move_uci,
+        "fen": board.fen(),
+        "by": "bot",
+    })
+
+    over, result, reason = _check_game_over(board)
+    if over:
+        game["status"] = "finished"
+        game["result"] = result
+        await ws.send_json({"type": "game_over", "result": result, "reason": reason})
+        _save_bot_game(game)
+
+
+@app.post("/api/bot-game/create")
+async def create_bot_game(req: BotGameCreate):
+    # Read user ELO from settings (default 1500)
+    settings_path = _settings_path(req.username)
+    user_elo = 1500
+    if settings_path.exists():
+        with open(settings_path, encoding="utf-8") as fh:
+            user_elo = json.load(fh).get("elo", 1500)
+
+    target_elo = user_elo + 50
+
+    color = req.user_color
+    if color == "random":
+        color = _random.choice(["white", "black"])
+
+    start_board = _chess.Board()
+    game_id = str(uuid.uuid4())
+    game = {
+        "game_id":          game_id,
+        "username":         req.username,
+        "board":            start_board,
+        "user_color":       color,
+        "user_elo":         user_elo,
+        "target_elo":       target_elo,
+        "status":           "active",
+        "move_history":     [],
+        "position_history": [start_board.fen()],   # tracks every FEN seen in this game
+        "result":           None,
+        "started_at":       _datetime.datetime.utcnow().isoformat(),
+        "finished_at":      None,
+    }
+    _bot_games[game_id] = game
+    return {"game_id": game_id, "user_color": color, "target_elo": target_elo}
+
+
+@app.get("/api/bot-game/{game_id}")
+async def get_bot_game(game_id: str):
+    game = _bot_games.get(game_id)
+    if game is None:
+        # Try loading from disk
+        path = BOT_GAMES_DIR / f"{game_id}.json"
+        if path.exists():
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data
+        raise HTTPException(404, f"Bot game {game_id!r} not found")
+    return {
+        "game_id":      game_id,
+        "fen":          game["board"].fen(),
+        "user_color":   game["user_color"],
+        "target_elo":   game["target_elo"],
+        "status":       game["status"],
+        "move_history": game["move_history"],
+        "result":       game["result"],
+    }
+
+
+@app.websocket("/ws/bot-game/{game_id}")
+async def bot_game_ws(websocket: WebSocket, game_id: str):
+    game = _bot_games.get(game_id)
+    if game is None:
+        await websocket.close(code=4004, reason="Game not found")
+        return
+
+    await websocket.accept()
+    game["ws"] = websocket
+
+    try:
+        await websocket.send_json({
+            "type":        "game_start",
+            "fen":         game["board"].fen(),
+            "user_color":  game["user_color"],
+            "target_elo":  game["target_elo"],
+        })
+
+        # If user is black, bot (white) moves first
+        if game["user_color"] == "black" and game["status"] == "active":
+            await _make_bot_move(websocket, game)
+
+        while True:
+            data = await websocket.receive_json()
+
+            if game["status"] == "finished":
+                continue
+
+            msg_type = data.get("type")
+
+            if msg_type == "move":
+                uci   = data.get("move", "")
+                board = game["board"]
+                try:
+                    move = _chess.Move.from_uci(uci)
+                    if move not in board.legal_moves:
+                        await websocket.send_json({"type": "error", "message": "Illegal move"})
+                        continue
+                    board.push(move)
+                    game["move_history"].append(uci)
+                    game.setdefault("position_history", []).append(board.fen())
+                except Exception:
+                    await websocket.send_json({"type": "error", "message": "Invalid move format"})
+                    continue
+
+                await websocket.send_json({
+                    "type": "move_made",
+                    "move": uci,
+                    "fen":  board.fen(),
+                    "by":   "user",
+                })
+
+                over, result, reason = _check_game_over(board)
+                if over:
+                    game["status"] = "finished"
+                    game["result"] = result
+                    game["finished_at"] = _datetime.datetime.utcnow().isoformat()
+                    await websocket.send_json({"type": "game_over", "result": result, "reason": reason})
+                    _save_bot_game(game)
+                    continue
+
+                await _make_bot_move(websocket, game)
+
+            elif msg_type == "resign":
+                result = "0-1" if game["user_color"] == "white" else "1-0"
+                game["status"]      = "finished"
+                game["result"]      = result
+                game["finished_at"] = _datetime.datetime.utcnow().isoformat()
+                await websocket.send_json({"type": "game_over", "result": result, "reason": "resignation"})
+                _save_bot_game(game)
+
+            elif msg_type == "offer_draw":
+                await websocket.send_json({"type": "error", "message": "Maia doesn't accept draw offers — keep playing!"})
+
+    except WebSocketDisconnect:
+        game.pop("ws", None)
+        asyncio.create_task(_cleanup_game_after_delay(game_id, delay_s=300))
+    except Exception as exc:
+        log.error("Bot game WS error (game=%s): %s", game_id, exc, exc_info=True)
+        try:
+            await websocket.send_json({"type": "error", "message": str(exc)})
+        except Exception:
+            pass

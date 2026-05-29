@@ -67,6 +67,24 @@ export const api = {
 
   getAnalytics: (username: string) =>
     req<AnalyticsData>(`/api/analytics/${username}`),
+
+  createBotGame: (username: string, userColor: 'white' | 'black' | 'random' = 'random') =>
+    req<{ game_id: string; user_color: string; target_elo: number }>('/api/bot-game/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, user_color: userColor }),
+    }),
+
+  getBotGame: (gameId: string) =>
+    req<{ game_id: string; fen: string; user_color: string; target_elo: number; status: string; move_history: string[]; result: string | null }>(
+      `/api/bot-game/${gameId}`
+    ),
+
+  computeAccuracy: (moves: string[]) =>
+    req<{ white_accuracy: number | null; black_accuracy: number | null }>(
+      '/api/bot-game/accuracy',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ moves }) }
+    ),
 }
 
 export function subscribeToIngest(

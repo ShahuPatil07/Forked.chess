@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, RotateCcw, Undo2, Copy, Check } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RotateCcw, Undo2, Copy, Check, FlipVertical2 } from 'lucide-react'
 import type { Square } from 'chess.js'
 import type { Arrow } from 'react-chessboard/dist/chessboard/types'
 
@@ -200,6 +200,7 @@ export default function AnalysisBoard() {
 
   // Copied FEN toast
   const [copied, setCopied] = useState(false)
+  const [orient, setOrient] = useState<'white' | 'black'>('white')
 
   function goToPosition(idx: number) {
     const newFen = positions[idx]?.fen ?? START_FEN
@@ -353,6 +354,7 @@ export default function AnalysisBoard() {
         <div className="flex-shrink-0">
           <Chessboard
             position={fen}
+            boardOrientation={orient}
             onPieceDrop={handlePieceDrop}
             onSquareClick={handleSquareClick}
             boardWidth={BOARD_SIZE}
@@ -482,6 +484,10 @@ export default function AnalysisBoard() {
             <button onClick={handleReset} disabled={sanMoves.length === 0}
               className="btn-ghost flex items-center gap-1.5 text-sm disabled:opacity-30" title="Reset">
               <RotateCcw size={13} /> Reset
+            </button>
+            <button onClick={() => setOrient(o => o === 'white' ? 'black' : 'white')}
+              className="btn-ghost flex items-center gap-1.5 text-sm" title="Flip board">
+              <FlipVertical2 size={13} /> Flip
             </button>
           </div>
 

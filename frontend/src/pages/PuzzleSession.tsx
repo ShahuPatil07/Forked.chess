@@ -7,7 +7,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Lightbulb, Check, X, ChevronRight, ChevronLeft, Zap, RotateCcw } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
+import { ForkedWordmark } from '../components/layout/AppShell'
 import type { Square } from 'chess.js'
+import type { Arrow } from 'react-chessboard/dist/chessboard/types'
 import type { SessionItem, SessionResponse } from '../types'
 
 // ── Chess helpers ────────────────────────────────────────────────────────────
@@ -24,7 +26,8 @@ function applyUci(chess: Chess, uci: string): boolean {
 function getBoardOrientation(item: SessionItem): 'white' | 'black' {
   const chess = new Chess(item.puzzle.fen)
   applyUci(chess, item.puzzle.moves.split(' ')[0])
-  return chess.turn() === 'w' ? 'black' : 'white'
+  // After the setup move, chess.turn() is the solver's color
+  return chess.turn() === 'w' ? 'white' : 'black'
 }
 
 function makeHighlight(uci: string): Record<string, object> {
@@ -103,7 +106,7 @@ function SessionComplete({ attempts, onRestart }: { attempts: AttemptRecord[]; o
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
       <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center">
         <img src="/logo.png" alt="" className="h-14 w-auto mx-auto mb-4 opacity-90" />
-        <h2 className="text-2xl font-bold text-text-0">Session complete</h2>
+        <h2 className="text-2xl font-bold text-text-0"><ForkedWordmark className="text-2xl" /> — Session complete</h2>
         <p className="text-text-2 mt-2">{correct}/{attempts.length} correct · {pct}% accuracy</p>
       </motion.div>
       <div className="flex gap-3">
@@ -131,14 +134,15 @@ function PuzzleBoard({ item, onResult }: {
   const chessRef = useRef(new Chess(item.puzzle.fen))
   const startRef = useRef(Date.now())
 
-  const [fen,        setFen]        = useState(item.puzzle.fen)
-  const [moveIdx,    setMoveIdx]    = useState(1)
-  const [phase,      setPhase]      = useState<Phase>('waiting')
-  const [wrongCount, setWrongCount] = useState(0)
-  const [hintUsed,   setHintUsed]   = useState(false)
-  const [highlight,  setHighlight]  = useState<Record<string, object>>({})
-  const [selectedSq, setSelectedSq] = useState<Square | null>(null)
-  const [optionSqs,  setOptionSqs]  = useState<Record<string, object>>({})
+  const [fen,          setFen]          = useState(item.puzzle.fen)
+  const [moveIdx,      setMoveIdx]      = useState(1)
+  const [phase,        setPhase]        = useState<Phase>('waiting')
+  const [wrongCount,   setWrongCount]   = useState(0)
+  const [hintUsed,     setHintUsed]     = useState(false)
+  const [highlight,    setHighlight]    = useState<Record<string, object>>({})
+  const [selectedSq,   setSelectedSq]   = useState<Square | null>(null)
+  const [optionSqs,    setOptionSqs]    = useState<Record<string, object>>({})
+  const [solutionArrow, setSolutionArrow] = useState<Arrow[]>([])
 
   useEffect(() => {
     const chess = new Chess(item.puzzle.fen)
@@ -152,6 +156,7 @@ function PuzzleBoard({ item, onResult }: {
     setHintUsed(false)
     setSelectedSq(null)
     setOptionSqs({})
+    setSolutionArrow([])
     startRef.current = Date.now()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.puzzle.puzzle_id])
@@ -163,6 +168,7 @@ function PuzzleBoard({ item, onResult }: {
       if (ok) {
         setFen(chessRef.current.fen())
         setHighlight(makeHighlight(moves[nextIdx]))
+        setSolutionArrow([])
         setSelectedSq(null)
         setOptionSqs({})
         const afterIdx = nextIdx + 1
@@ -176,6 +182,31 @@ function PuzzleBoard({ item, onResult }: {
       }
     }, 480)
   }, [moves, hintUsed, onResult])
+
+  // Animate the full remaining solution when the user exhausts their attempts.
+  // Alternates green arrows (user moves) and accent arrows (opponent responses).
+  const autoPlaySolution = useCallback((fromIdx: number) => {
+    let i = fromIdx
+    const step = () => {
+      if (i >= moves.length) { setSolutionArrow([]); return }
+      const uci    = moves[i]
+      const isUser = (i - fromIdx) % 2 === 0   // 0, 2, 4 = user's correct moves
+      const color  = isUser ? '#0DC97F' : '#7B61FF'
+
+      applyUci(chessRef.current, uci)
+      setFen(chessRef.current.fen())
+      setHighlight({
+        [uci.slice(0, 2)]: { backgroundColor: isUser ? 'rgba(13,201,127,0.22)' : 'rgba(123,97,255,0.18)' },
+        [uci.slice(2, 4)]: { backgroundColor: isUser ? 'rgba(13,201,127,0.38)' : 'rgba(123,97,255,0.30)' },
+      })
+      setSolutionArrow([[uci.slice(0, 2) as Square, uci.slice(2, 4) as Square, color]])
+      setSelectedSq(null); setOptionSqs({})
+      i++
+      if (i < moves.length) setTimeout(step, 950)
+      else setSolutionArrow([])
+    }
+    setTimeout(step, 750)   // short delay so the fail banner renders first
+  }, [moves])
 
   function attemptMove(from: string, to: string, piece?: string): boolean {
     if (phase !== 'waiting') return false
@@ -217,13 +248,9 @@ function PuzzleBoard({ item, onResult }: {
       setPhase('wrong_flash')
       setTimeout(() => {
         if (newWrong >= MAX_WRONG) {
-          // Auto-reveal the correct move in green
-          setHighlight({
-            [expected.slice(0, 2)]: { backgroundColor: 'rgba(13,201,127,0.30)' },
-            [expected.slice(2, 4)]: { backgroundColor: 'rgba(13,201,127,0.45)' },
-          })
           setPhase('failed')
           onResult(false, hintUsed, (Date.now() - startRef.current) / 1000)
+          autoPlaySolution(moveIdx)   // animate full remaining solution
         } else {
           setPhase('waiting')
         }
@@ -290,7 +317,7 @@ function PuzzleBoard({ item, onResult }: {
             className="px-3 py-2 bg-danger/10 rounded-md border border-danger/20"
           >
             <span className="flex items-center gap-2 text-danger text-sm font-medium">
-              <X size={14} /> Missed — correct move shown in green
+              <X size={14} /> Missed — playing solution…
             </span>
           </motion.div>
         )}
@@ -314,6 +341,7 @@ function PuzzleBoard({ item, onResult }: {
           onSquareClick={handleSquareClick}
           boardOrientation={orient}
           customSquareStyles={squareStyles}
+          customArrows={solutionArrow}
           arePiecesDraggable={phase === 'waiting'}
           boardWidth={500}
           customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
@@ -384,14 +412,25 @@ export default function PuzzleSession() {
   function handleNext() {
     if (!data) return
     const next = puzzleIdx + 1
-    if (next >= data.items.length) {
+
+    if (next < data.items.length) {
+      goToPuzzle(next)
+      return
+    }
+
+    // At the last puzzle — check for unattempted ones before wrapping up
+    const unattempted = data.items
+      .map((_, i) => i)
+      .filter(i => attempts[i] === undefined)
+
+    if (unattempted.length > 0) {
+      goToPuzzle(unattempted[0])
+    } else {
       const allAttempts = Object.values(attempts)
       api.completeSession(username, allAttempts.map(a => ({
         cluster_id: a.cluster_id, correct: a.correct, time_s: a.time_s,
       }))).catch(() => {})
       setComplete(true)
-    } else {
-      goToPuzzle(next)
     }
   }
 
@@ -499,7 +538,13 @@ export default function PuzzleSession() {
                 onClick={handleNext}
                 className="btn-primary flex items-center gap-1 text-sm flex-1 justify-center"
               >
-                {puzzleIdx === data.items.length - 1 ? 'Finish' : 'Next'}
+                {(() => {
+                  const remaining = data.items.filter((_, i) => i !== puzzleIdx && attempts[i] === undefined).length
+                  if (puzzleIdx === data.items.length - 1) {
+                    return remaining > 0 ? `${remaining} remaining` : 'Finish'
+                  }
+                  return 'Next'
+                })()}
                 <ChevronRight size={14} />
               </button>
             </motion.div>

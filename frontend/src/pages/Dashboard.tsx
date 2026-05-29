@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Zap, Target, BookOpen, TrendingUp, ChevronRight, AlertCircle } from 'lucide-react'
+import { Zap, Target, BookOpen, TrendingUp, ChevronRight, AlertCircle, Bot } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, ScatterChart, Scatter, ZAxis,
@@ -365,15 +365,26 @@ export default function Dashboard() {
             {username} &middot; {elo ? `${elo} ELO` : 'ELO unknown'}
           </p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => navigate('/session')}
-          className="btn-primary flex items-center gap-2"
-        >
-          <Zap size={14} />
-          Start drilling
-        </motion.button>
+        <div className="flex items-center gap-2">
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => navigate('/bot-game')}
+            className="btn-ghost flex items-center gap-2"
+          >
+            <Bot size={14} />
+            Play vs Maia
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => navigate('/session')}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Zap size={14} />
+            Start drilling
+          </motion.button>
+        </div>
       </div>
 
       {/* Stat cards */}
