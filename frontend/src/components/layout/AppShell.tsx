@@ -35,9 +35,9 @@ export default function AppShell() {
   const navigate     = useNavigate()
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full relative" style={{ zIndex: 1 }}>
       {/* Sidebar */}
-      <aside className="w-[220px] flex-shrink-0 flex flex-col border-r border-border bg-bg-0 h-screen sticky top-0">
+      <aside className="w-[220px] flex-shrink-0 flex flex-col border-r border-border bg-bg-0/85 backdrop-blur-md h-screen sticky top-0">
         {/* Logo */}
         <div className="px-5 py-4 border-b border-border">
           <img src="/logo.png" alt="Forked" className="h-9 w-auto mb-1" />
@@ -91,7 +91,7 @@ export default function AppShell() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto bg-bg-0 min-h-screen">
+      <main className="flex-1 overflow-y-auto min-h-screen">
         <Outlet />
       </main>
     </div>

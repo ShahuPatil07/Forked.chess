@@ -5,6 +5,7 @@ import { Chessboard } from 'react-chessboard'
 import { ArrowLeft, Target, TrendingDown, Zap, ExternalLink } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
+import { SectionHeader } from '../components/layout/SectionHeader'
 import type { RepresentativeEvent } from '../types'
 
 function MiniBoard({ event, idx, onClick }: { event: RepresentativeEvent; idx: number; onClick: () => void }) {
@@ -98,36 +99,26 @@ export default function BlindspotDetail() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      {/* Back */}
       <button
         onClick={() => navigate('/dashboard')}
-        className="flex items-center gap-1.5 text-sm text-text-2 hover:text-text-0 transition-colors mb-6"
+        className="flex items-center gap-1.5 text-sm text-text-2 hover:text-text-0 transition-colors mb-4"
       >
         <ArrowLeft size={14} /> Back to dashboard
       </button>
 
-      {/* Header */}
-      <div className="flex items-start gap-4 mb-8">
-        <div className="w-10 h-10 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center flex-shrink-0">
-          <Target size={18} className="text-accent" />
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-xl font-bold text-text-0">{data.label}</h1>
-            <span className="badge bg-accent/15 text-accent border border-accent/20">Rank #{data.rank}</span>
-          </div>
-          <p className="text-sm text-text-2">
-            {data.size} mistakes &middot; {(data.dominant_threat_type ?? '').replace(/_/g, ' ')} &middot;{' '}
-            {(data.dominant_game_phase ?? '').replace(/_/g, ' ')}
-          </p>
-        </div>
-        <button
-          onClick={() => navigate('/session', { state: { clusterId: String(data.cluster_id) } })}
-          className="btn-primary flex items-center gap-2 text-sm"
-        >
-          <Zap size={13} /> Drill this blindspot
-        </button>
-      </div>
+      <SectionHeader
+        icon={Target}
+        title={data.label}
+        description={`Rank #${data.rank} blindspot · ${data.size} mistakes · ${(data.dominant_threat_type ?? '').replace(/_/g, ' ')} · ${(data.dominant_game_phase ?? '').replace(/_/g, ' ')}`}
+        right={
+          <button
+            onClick={() => navigate('/session', { state: { clusterId: String(data.cluster_id) } })}
+            className="btn-primary flex items-center gap-2 text-sm"
+          >
+            <Zap size={13} /> Drill this blindspot
+          </button>
+        }
+      />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4 mb-8">

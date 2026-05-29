@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Save, RefreshCw, AlertCircle, Check, LogOut } from 'lucide-react'
+import { Save, RefreshCw, AlertCircle, Check, LogOut, Settings as SettingsIcon } from 'lucide-react'
+import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 
@@ -54,10 +55,12 @@ export default function Settings() {
 
   return (
     <div className="p-8 max-w-xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-text-0">Settings</h1>
-        <p className="text-text-2 text-sm mt-1">{username}</p>
-      </div>
+      <SectionHeader
+        icon={SettingsIcon}
+        title="Settings"
+        description="Manage your platform, rating, and trigger a fresh game re-analysis"
+        right={<SectionHeaderStat label="Profile" value={username} />}
+      />
 
       <div className="space-y-6">
         {/* Platform */}

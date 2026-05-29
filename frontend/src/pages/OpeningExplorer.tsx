@@ -6,13 +6,102 @@ import { useUserStore } from '../store/userStore'
 import { openingsApi, START_FEN, type OpeningMove, type ExploreResponse } from '../api/openings'
 import { OpeningTree } from '../components/openings/OpeningTree'
 import { OpeningDetail } from '../components/openings/OpeningDetail'
-import { ForkedWordmark } from '../components/layout/AppShell'
+import { OpeningCoachChat } from '../components/openings/OpeningCoachChat'
+import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
 import openingsIndex from '../data/openings_index.json'
 
 interface IndexedOpening {
   name: string
   eco:  string
   uci:  string[]
+}
+
+// ── Fuzzy matching for search (typo-tolerant) ────────────────────────────────
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const dp = Array.from({ length: m + 1 }, (_, i) => i)
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0]
+    dp[0] = j
+    for (let i = 1; i <= m; i++) {
+      const tmp = dp[i]
+      dp[i] = a[i - 1] === b[j - 1]
+        ? prev
+        : Math.min(prev, dp[i - 1], dp[i]) + 1
+      prev = tmp
+    }
+  }
+  return dp[m]
+}
+
+/** Normalize for matching: lowercase, strip apostrophes/punctuation, collapse spaces. */
+function norm(s: string): string {
+  return s.toLowerCase().replace(/['']/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** Allowed Levenshtein distance per token length. */
+function maxDistFor(len: number): number {
+  return len <= 4 ? 1 : len <= 7 ? 2 : 3
+}
+
+/**
+ * Score how well `query` matches `name`. Higher = better. 0 = no match.
+ * Handles substring, prefix, typo-tolerant word matching, and multi-word queries.
+ */
+function fuzzyScore(query: string, name: string): number {
+  const q = norm(query)
+  const n = norm(name)
+  if (q.length === 0) return 0
+
+  // Tier 1: exact substring (best, e.g. "ruy" → "ruy lopez")
+  if (n.includes(q)) {
+    const startBonus = n.startsWith(q) ? 30 : 0
+    return 200 + startBonus - Math.abs(n.length - q.length) * 0.5
+  }
+
+  const qTokens = q.split(' ').filter(t => t.length > 0)
+  const nTokens = n.split(' ').filter(t => t.length > 0)
+
+  // Tier 2: multi-word query — all query tokens must match some name token (fuzzy)
+  if (qTokens.length > 1) {
+    let totalScore = 0
+    let allMatched = true
+    for (const qt of qTokens) {
+      let bestForToken = 0
+      for (const nt of nTokens) {
+        if (nt.includes(qt)) {
+          bestForToken = Math.max(bestForToken, nt.startsWith(qt) ? 120 : 100)
+          continue
+        }
+        if (qt.length < 3) continue
+        const dist = levenshtein(qt, nt)
+        if (dist <= maxDistFor(Math.max(qt.length, nt.length))) {
+          bestForToken = Math.max(bestForToken, 80 - dist * 15)
+        }
+      }
+      if (bestForToken === 0) { allMatched = false; break }
+      totalScore += bestForToken
+    }
+    if (allMatched) return Math.round(totalScore / qTokens.length) + 40   // multi-word bonus
+  }
+
+  // Tier 3: single-word fuzzy match against any name token
+  let best = 0
+  for (const w of nTokens) {
+    if (w.length < 3) continue
+    if (w.startsWith(q)) {
+      best = Math.max(best, 150 - Math.abs(w.length - q.length))
+      continue
+    }
+    const dist = levenshtein(q, w)
+    if (dist <= maxDistFor(Math.max(q.length, w.length))) {
+      best = Math.max(best, 100 - dist * 20)
+    }
+  }
+  return best
 }
 
 // ── FEN computation from UCI path ────────────────────────────────────────────
@@ -60,12 +149,16 @@ function SearchBar({ onPick }: { onPick: (op: IndexedOpening) => void }) {
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return []
-    return (openingsIndex as IndexedOpening[])
-      .filter(o =>
-        o.name.toLowerCase().includes(q) ||
-        o.eco.toLowerCase().startsWith(q)
-      )
-      .slice(0, 8)
+    const scored: { op: IndexedOpening; score: number }[] = []
+    for (const op of openingsIndex as IndexedOpening[]) {
+      // ECO prefix match is always strong
+      let score = op.eco.toLowerCase().startsWith(q) ? 180 : 0
+      // Fuzzy name match
+      score = Math.max(score, fuzzyScore(q, op.name))
+      if (score > 0) scored.push({ op, score })
+    }
+    scored.sort((a, b) => b.score - a.score)
+    return scored.slice(0, 8).map(s => s.op)
   }, [query])
 
   return (
@@ -239,27 +332,17 @@ export default function OpeningExplorer() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-end justify-between mb-5">
-        <div>
-          <h1 className="text-xl font-bold text-text-0 flex items-center gap-2">
-            <BookOpen size={18} className="text-accent" />
-            <ForkedWordmark className="text-xl" />
-            <span className="text-text-1 font-semibold">Openings</span>
-          </h1>
-          <p className="text-xs text-text-2 mt-1">
-            Lazy tree from real Lichess games · engine eval + AI ideas at every node
-          </p>
-        </div>
-        {rootData && (
-          <div className="text-right">
-            <p className="text-[10px] text-text-2 uppercase tracking-wider">Stats from</p>
-            <p className="text-xs text-text-1 tabular-nums">
-              {totalGames.toLocaleString()} games · {eloBucket === 'all' ? 'all levels' : eloBucket}
-            </p>
-          </div>
+      <SectionHeader
+        icon={BookOpen}
+        title="Openings"
+        description="Lazy tree from real Lichess games · engine eval + AI ideas at every node"
+        right={rootData && (
+          <SectionHeaderStat
+            label="Stats from"
+            value={`${totalGames.toLocaleString()} games · ${eloBucket === 'all' ? 'all levels' : eloBucket}`}
+          />
         )}
-      </div>
+      />
 
       {/* Search bar */}
       <div className="mb-4">
@@ -276,7 +359,7 @@ export default function OpeningExplorer() {
       )}
 
       {/* Layout */}
-      <div className="grid grid-cols-[1fr_280px] gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start">
         {/* Tree */}
         <div className="card p-3 min-h-[60vh]">
           {rootLoading ? (
@@ -308,8 +391,12 @@ export default function OpeningExplorer() {
           ) : null}
         </div>
 
-        {/* Detail panel */}
-        <div>
+        {/* Coach + detail rail */}
+        <div className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
+          <OpeningCoachChat
+            selected={selected}
+            parentName={parentOpening}
+          />
           <OpeningDetail
             selected={selected}
             eloBucket={eloBucket}

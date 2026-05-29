@@ -9,6 +9,7 @@ import {
   Wifi, WifiOff, Microscope, Circle,
 } from 'lucide-react'
 import { api } from '../api'
+import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
 import { useUserStore } from '../store/userStore'
 import type { Square } from 'chess.js'
 import type { Arrow } from 'react-chessboard/dist/chessboard/types'
@@ -262,18 +263,16 @@ function SetupScreen({ username, elo }: { username: string; elo: number | null }
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[70vh] gap-8">
-      <div className="text-center space-y-2">
-        <div className="flex items-center justify-center gap-2 mb-3">
-          <Bot size={28} className="text-accent" />
-        </div>
-        <h1 className="text-2xl font-bold text-text-0">Play vs Maia</h1>
-        <p className="text-text-2 text-sm">
-          {username} · {elo ? `${elo} ELO` : 'ELO unknown'} &rarr; Maia plays at {(elo ?? 1500) + 50} ELO
-        </p>
-      </div>
+    <div className="p-6 max-w-5xl mx-auto">
+      <SectionHeader
+        icon={Bot}
+        title="Play vs Maia"
+        description={`Human-like AI opponent at ${(elo ?? 1500) + 50} ELO · pick a colour to start a fresh game`}
+        right={<SectionHeaderStat label="Your rating" value={elo ? `${elo} ELO` : 'unknown'} />}
+      />
 
-      <div className="flex gap-4">
+      <div className="flex flex-col items-center justify-center min-h-[55vh] gap-8 mt-6">
+        <div className="flex gap-4">
         {colors.map(({ id, label, icon, sub }) => (
           <motion.button key={id}
             whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
@@ -295,10 +294,11 @@ function SetupScreen({ username, elo }: { username: string; elo: number | null }
         </div>
       )}
 
-      <button onClick={() => navigate('/dashboard')}
-        className="btn-ghost flex items-center gap-1.5 text-sm">
-        <ChevronLeft size={14} /> Back to dashboard
-      </button>
+        <button onClick={() => navigate('/dashboard')}
+          className="btn-ghost flex items-center gap-1.5 text-sm">
+          <ChevronLeft size={14} /> Back to dashboard
+        </button>
+      </div>
     </div>
   )
 }
@@ -983,24 +983,23 @@ export default function BotGame() {
         )}
       </AnimatePresence>
 
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate('/dashboard')} className="btn-ghost flex items-center gap-1.5 text-sm">
-          <ChevronLeft size={14} /> Back
-        </button>
-        <div className="h-4 w-px bg-border" />
-        <h1 className="text-lg font-bold text-text-0">Play vs Maia</h1>
-        <div className="ml-auto flex items-center gap-1.5">
-          {connStatus === 'connected'
-            ? <Wifi size={13} className="text-success" />
-            : <WifiOff size={13} className="text-danger animate-pulse" />}
-          <span className="text-xs text-text-2">
-            {connStatus === 'connected' ? 'Connected'
-              : connStatus === 'connecting' ? 'Connecting…'
-              : `Reconnecting (${reconnectNum}/5)…`}
-          </span>
-        </div>
-      </div>
+      <SectionHeader
+        icon={Bot}
+        title="Play vs Maia"
+        description={`Human-like AI tuned to ${targetElo} ELO · drag pieces to move · press Analyse after the game`}
+        right={
+          <div className="flex items-center gap-1.5">
+            {connStatus === 'connected'
+              ? <Wifi size={13} className="text-success" />
+              : <WifiOff size={13} className="text-danger animate-pulse" />}
+            <span className="text-xs text-text-2">
+              {connStatus === 'connected' ? 'Connected'
+                : connStatus === 'connecting' ? 'Connecting…'
+                : `Reconnecting (${reconnectNum}/5)…`}
+            </span>
+          </div>
+        }
+      />
 
       <AnimatePresence>
         {reconnBanner && connStatus !== 'connected' && (

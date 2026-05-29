@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, RotateCcw, Undo2, Copy, Check, FlipVertical2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RotateCcw, Undo2, Copy, Check, FlipVertical2, Microscope } from 'lucide-react'
+import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
 import type { Square } from 'chess.js'
 import type { Arrow } from 'react-chessboard/dist/chessboard/types'
 
@@ -31,11 +32,12 @@ interface AnalysisResult {
 
 // ── Eval bar ──────────────────────────────────────────────────────────────────
 
-function EvalBar({ evalCp, evalMate, loading, boardH }: {
+function EvalBar({ evalCp, evalMate, loading, boardH, orient }: {
   evalCp: number | null
   evalMate: number | null
   loading: boolean
   boardH: number
+  orient: 'white' | 'black'
 }) {
   let whitePct = 50
   let label = '0.0'
@@ -56,9 +58,12 @@ function EvalBar({ evalCp, evalMate, loading, boardH }: {
   const showLabelTop    = whitePct <= 30
   const showLabelBottom = whitePct > 30
 
+  // When orient='black', mirror the bar so white pieces are at top (player's view)
+  const flexDir: 'column' | 'column-reverse' = orient === 'black' ? 'column-reverse' : 'column'
+
   return (
     <div className="flex flex-col items-center gap-1 flex-shrink-0">
-      <div className="w-5 rounded overflow-hidden relative flex flex-col" style={{ height: boardH }}>
+      <div className="w-5 rounded overflow-hidden relative flex" style={{ height: boardH, flexDirection: flexDir }}>
         <div className="w-full bg-bg-3 flex items-start justify-center transition-[flex] duration-500 ease-out"
           style={{ flex: blackPct }}>
           {showLabelTop && <span className="text-[9px] font-bold text-text-0 mt-1 leading-none">{label}</span>}
@@ -332,14 +337,20 @@ export default function AnalysisBoard() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate(-1)} className="btn-ghost flex items-center gap-1.5 text-sm">
-          <ChevronLeft size={14} /> Back
-        </button>
-        <div className="h-4 w-px bg-border" />
-        <h1 className="text-lg font-bold text-text-0 truncate max-w-md">{title}</h1>
-      </div>
+      <SectionHeader
+        icon={Microscope}
+        title="Analysis Board"
+        description={`${title} · live Stockfish depth-14 evaluation on every position`}
+        right={
+          navState ? (
+            <button onClick={() => navigate(-1)} className="btn-ghost flex items-center gap-1.5 text-sm">
+              <ChevronLeft size={14} /> Back
+            </button>
+          ) : (
+            <SectionHeaderStat label="Mode" value="Free play" />
+          )
+        }
+      />
 
       <div className="flex items-start gap-4">
         {/* Eval bar */}
@@ -348,6 +359,7 @@ export default function AnalysisBoard() {
           evalMate={analysis?.eval_mate ?? null}
           loading={analysisLoading}
           boardH={BOARD_SIZE}
+          orient={orient}
         />
 
         {/* Board */}

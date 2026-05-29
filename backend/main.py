@@ -70,6 +70,8 @@ app.add_middleware(
 # Opening Explorer router (must be after app + middleware so prefix registers cleanly)
 from backend.openings import router as openings_router
 app.include_router(openings_router)
+from backend.opening_chat import router as opening_chat_router
+app.include_router(opening_chat_router)
 
 OUTPUT_DIR    = DATA_DIR / "output"
 BOT_GAMES_DIR = DATA_DIR / "bot_games"

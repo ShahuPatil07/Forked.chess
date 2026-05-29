@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { motion } from 'framer-motion'
-import { ExternalLink, AlertCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { ExternalLink, AlertCircle, ChevronDown, ChevronUp, RefreshCw, Clock } from 'lucide-react'
+import { SectionHeader } from '../components/layout/SectionHeader'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 import type { GameSummary, GameMistake } from '../types'
@@ -215,31 +216,32 @@ export default function GameHistory() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-text-0">Game History</h1>
-          <p className="text-text-2 text-sm mt-1">{games.length} analysed games</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {needsBackfill && (
-            <button
-              onClick={handleBackfill}
-              disabled={backfilling}
-              className="btn-ghost flex items-center gap-1.5 text-xs"
-              title="Fetch opponent names from Lichess"
-            >
-              <RefreshCw size={12} className={backfilling ? 'animate-spin' : ''} />
-              {backfilling ? 'Fetching…' : 'Load opponent names'}
-            </button>
-          )}
-          <input
-            className="input w-52 text-sm"
-            placeholder="Search opponent or game ID..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-      </div>
+      <SectionHeader
+        icon={Clock}
+        title="History"
+        description={`Every game you've played, with mistakes grouped by pattern · ${games.length} analysed games`}
+        right={
+          <div className="flex items-center gap-2">
+            {needsBackfill && (
+              <button
+                onClick={handleBackfill}
+                disabled={backfilling}
+                className="btn-ghost flex items-center gap-1.5 text-xs"
+                title="Fetch opponent names from Lichess"
+              >
+                <RefreshCw size={12} className={backfilling ? 'animate-spin' : ''} />
+                {backfilling ? 'Fetching…' : 'Load opponent names'}
+              </button>
+            )}
+            <input
+              className="input w-52 text-sm"
+              placeholder="Search opponent or game ID..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        }
+      />
 
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-text-2 text-sm">

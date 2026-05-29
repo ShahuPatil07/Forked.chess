@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Chessboard } from 'react-chessboard'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Copy, Check, MessageSquare, BarChart3, Sparkles } from 'lucide-react'
+import { Copy, Check, MessageSquare, BarChart3, Sparkles, Microscope } from 'lucide-react'
 import { openingsApi, type OpeningMove } from '../../api/openings'
 
 const DETAIL_BOARD_PX = 220
@@ -40,8 +41,19 @@ function DetailContent({
   const { move } = selected
   const fen      = move.fen_after
   const sideToMove = fen.split(' ')[1] === 'w' ? 'white' : 'black'
+  const navigate = useNavigate()
 
   const displayName = move.name || parentName || 'Position'
+
+  function openInAnalysisBoard() {
+    navigate('/analysis', {
+      state: {
+        positions: [{ fen, label: displayName + (move.eco ? ` (${move.eco})` : '') }],
+        index:     0,
+        title:     displayName,
+      },
+    })
+  }
 
   // Engine eval — cached forever
   const evalQuery = useQuery({
@@ -88,18 +100,36 @@ function DetailContent({
   const evalDisplay = evalQuery.data?.eval
 
   return (
-    <div className="card p-4 space-y-4 sticky top-4">
-      {/* Board */}
+    <div className="card p-4 space-y-4">
+      {/* Board — click to open in Analysis Board */}
       <div className="flex justify-center">
-        <Chessboard
-          position={fen}
-          boardWidth={DETAIL_BOARD_PX}
-          arePiecesDraggable={false}
-          boardOrientation="white"
-          customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-          customLightSquareStyle={{ backgroundColor: '#343761' }}
-          customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.18)' }}
-        />
+        <motion.button
+          onClick={openInAnalysisBoard}
+          whileHover={{ scale: 1.015 }}
+          whileTap={{ scale: 0.99 }}
+          className="relative group cursor-pointer"
+          title="Open in Analysis Board"
+        >
+          <Chessboard
+            position={fen}
+            boardWidth={DETAIL_BOARD_PX}
+            arePiecesDraggable={false}
+            boardOrientation="white"
+            customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
+            customLightSquareStyle={{ backgroundColor: '#343761' }}
+            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.18)' }}
+          />
+          {/* Hover overlay */}
+          <div className="absolute inset-0 rounded-md opacity-0 group-hover:opacity-100
+                          flex items-center justify-center pointer-events-none
+                          bg-black/40 backdrop-blur-[1px] transition-opacity">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent
+                            text-white text-xs font-medium shadow-lg">
+              <Microscope size={12} />
+              Open in Analysis
+            </div>
+          </div>
+        </motion.button>
       </div>
 
       {/* Move + name */}

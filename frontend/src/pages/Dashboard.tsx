@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Zap, Target, BookOpen, TrendingUp, ChevronRight, AlertCircle, Bot } from 'lucide-react'
+import { Zap, Target, BookOpen, TrendingUp, ChevronRight, AlertCircle, Bot, LayoutDashboard } from 'lucide-react'
+import { SectionHeader } from '../components/layout/SectionHeader'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, ScatterChart, Scatter, ZAxis,
@@ -357,35 +358,31 @@ export default function Dashboard() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-text-0">Blindspot Profile</h1>
-          <p className="text-text-2 text-sm mt-1">
-            {username} &middot; {elo ? `${elo} ELO` : 'ELO unknown'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => navigate('/bot-game')}
-            className="btn-ghost flex items-center gap-2"
-          >
-            <Bot size={14} />
-            Play vs Maia
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => navigate('/session')}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Zap size={14} />
-            Start drilling
-          </motion.button>
-        </div>
-      </div>
+      <SectionHeader
+        icon={LayoutDashboard}
+        title="Dashboard"
+        description={`Personal blindspot map ranked by urgency · ${username}${elo ? ` · ${elo} ELO` : ''}`}
+        right={
+          <div className="flex items-center gap-2">
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              onClick={() => navigate('/bot-game')}
+              className="btn-ghost flex items-center gap-2"
+            >
+              <Bot size={14} />
+              Play vs Maia
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              onClick={() => navigate('/session')}
+              className="btn-primary flex items-center gap-2"
+            >
+              <Zap size={14} />
+              Start drilling
+            </motion.button>
+          </div>
+        }
+      />
 
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-4 mb-8">

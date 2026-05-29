@@ -11,6 +11,7 @@ import AnalysisBoard from './pages/AnalysisBoard'
 import BotGame from './pages/BotGame'
 import OpeningExplorer from './pages/OpeningExplorer'
 import AppShell from './components/layout/AppShell'
+import { ChessBackground } from './components/layout/ChessBackground'
 
 function RequireUser({ children }: { children: React.ReactNode }) {
   const { username } = useUserStore()
@@ -21,6 +22,7 @@ function RequireUser({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ChessBackground />
       <Routes>
         <Route path="/" element={<Onboarding />} />
         <Route path="/loading/:jobId" element={<Loading />} />

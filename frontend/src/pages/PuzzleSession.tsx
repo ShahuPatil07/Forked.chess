@@ -4,10 +4,11 @@ import { useQuery } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Lightbulb, Check, X, ChevronRight, ChevronLeft, Zap, RotateCcw } from 'lucide-react'
+import { Lightbulb, Check, X, ChevronRight, ChevronLeft, Zap, RotateCcw, Sword } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 import { ForkedWordmark } from '../components/layout/AppShell'
+import { SectionHeader } from '../components/layout/SectionHeader'
 import type { Square } from 'chess.js'
 import type { Arrow } from 'react-chessboard/dist/chessboard/types'
 import type { SessionItem, SessionResponse } from '../types'
@@ -472,39 +473,32 @@ export default function PuzzleSession() {
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-lg font-bold text-text-0">
-            {clusterId ? 'Targeted Drill' : 'Drill Session'}
-          </h1>
-          <p className="text-xs text-text-2 mt-0.5">
-            {puzzleIdx + 1} of {data.items.length}
-            {totalAttempted > 0 && ` · ${correctCount}/${totalAttempted} correct`}
-          </p>
-        </div>
-
-        {/* Progress dots — clickable */}
-        <div className="flex items-center gap-1.5">
-          {data.items.map((_, i) => {
-            const a = attempts[i]
-            const isCurrent = i === puzzleIdx
-            const color = a
-              ? (a.correct ? 'bg-success' : 'bg-danger')
-              : isCurrent ? 'bg-accent' : 'bg-bg-3'
-            return (
-              <button
-                key={i}
-                onClick={() => goToPuzzle(i)}
-                title={`Puzzle ${i + 1}`}
-                className={`rounded-full transition-all duration-150 hover:scale-125
-                  ${isCurrent ? 'w-3 h-3 scale-125' : 'w-2.5 h-2.5'}
-                  ${color}`}
-              />
-            )
-          })}
-        </div>
-      </div>
+      <SectionHeader
+        icon={Sword}
+        title={clusterId ? 'Targeted Drill' : 'Drill Session'}
+        description={`Spaced-repetition puzzles for your top blindspots · Puzzle ${puzzleIdx + 1} of ${data.items.length}${totalAttempted > 0 ? ` · ${correctCount}/${totalAttempted} correct` : ''}`}
+        right={
+          <div className="flex items-center gap-1.5">
+            {data.items.map((_, i) => {
+              const a = attempts[i]
+              const isCurrent = i === puzzleIdx
+              const color = a
+                ? (a.correct ? 'bg-success' : 'bg-danger')
+                : isCurrent ? 'bg-accent' : 'bg-bg-3'
+              return (
+                <button
+                  key={i}
+                  onClick={() => goToPuzzle(i)}
+                  title={`Puzzle ${i + 1}`}
+                  className={`rounded-full transition-all duration-150 hover:scale-125
+                    ${isCurrent ? 'w-3 h-3 scale-125' : 'w-2.5 h-2.5'}
+                    ${color}`}
+                />
+              )
+            })}
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-5 gap-8 items-start">
         {/* Board */}
