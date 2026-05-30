@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
@@ -182,10 +182,15 @@ const START_FEN  = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 export default function AnalysisBoard() {
   const location = useLocation()
   const navigate  = useNavigate()
+  const [searchParams] = useSearchParams()
   const navState  = location.state as AnalysisNavState | null
 
-  const positions: NavPosition[] = navState?.positions ?? []
-  const title: string = navState?.title ?? 'Analysis Board'
+  // Positions can come from router state (preferred) OR a ?fen= query param.
+  const queryFen = searchParams.get('fen')
+  const positions: NavPosition[] =
+    navState?.positions
+    ?? (queryFen ? [{ fen: queryFen, label: 'Position' }] : [])
+  const title: string = navState?.title ?? (queryFen ? 'Position Analysis' : 'Analysis Board')
 
   const [posIdx, setPosIdx] = useState(navState?.index ?? 0)
 

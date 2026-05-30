@@ -72,6 +72,8 @@ from backend.openings import router as openings_router
 app.include_router(openings_router)
 from backend.opening_chat import router as opening_chat_router
 app.include_router(opening_chat_router)
+from backend.endgames import router as endgames_router
+app.include_router(endgames_router)
 
 OUTPUT_DIR    = DATA_DIR / "output"
 BOT_GAMES_DIR = DATA_DIR / "bot_games"
@@ -206,8 +208,10 @@ class SettingsUpdate(BaseModel):
 
 
 class BotGameCreate(BaseModel):
-    username: str
-    user_color: str = "random"   # "white" | "black" | "random"
+    username:     str
+    user_color:   str           = "random"   # "white" | "black" | "random"
+    starting_fen: Optional[str] = None        # for endgame practice — start from this FEN
+    target_elo:   Optional[int] = None        # override Maia ELO (e.g. for endgame practice)
 
 
 class AccuracyRequest(BaseModel):
@@ -809,13 +813,28 @@ async def create_bot_game(req: BotGameCreate):
         with open(settings_path, encoding="utf-8") as fh:
             user_elo = json.load(fh).get("elo", 1500)
 
-    target_elo = user_elo + 50
+    # target_elo: explicit override (endgame practice) > user_elo + 50
+    target_elo = req.target_elo if req.target_elo is not None else user_elo + 50
 
-    color = req.user_color
-    if color == "random":
-        color = _random.choice(["white", "black"])
+    # Validate optional starting FEN (endgame practice mode)
+    if req.starting_fen:
+        try:
+            start_board = _chess.Board(req.starting_fen)
+            if not start_board.is_valid():
+                raise ValueError("position is not legal")
+        except Exception as exc:
+            raise HTTPException(400, f"Invalid starting_fen: {exc}")
+        # User colour for endgame practice: by default, the side to move
+        if req.user_color == "random":
+            color = "white" if start_board.turn == _chess.WHITE else "black"
+        else:
+            color = req.user_color
+    else:
+        start_board = _chess.Board()
+        color = req.user_color
+        if color == "random":
+            color = _random.choice(["white", "black"])
 
-    start_board = _chess.Board()
     game_id = str(uuid.uuid4())
     game = {
         "game_id":          game_id,
@@ -826,13 +845,19 @@ async def create_bot_game(req: BotGameCreate):
         "target_elo":       target_elo,
         "status":           "active",
         "move_history":     [],
-        "position_history": [start_board.fen()],   # tracks every FEN seen in this game
+        "position_history": [start_board.fen()],
         "result":           None,
+        "starting_fen":     start_board.fen(),    # remembered for reconnect / replay
         "started_at":       _datetime.datetime.utcnow().isoformat(),
         "finished_at":      None,
     }
     _bot_games[game_id] = game
-    return {"game_id": game_id, "user_color": color, "target_elo": target_elo}
+    return {
+        "game_id":      game_id,
+        "user_color":   color,
+        "target_elo":   target_elo,
+        "starting_fen": start_board.fen(),
+    }
 
 
 @app.get("/api/bot-game/{game_id}")

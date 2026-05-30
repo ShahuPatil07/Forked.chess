@@ -1,0 +1,12 @@
+rook: MATCH=True src=puzzle_db eval=-524 syz=win
+    want=((0, 1, 0, 0, 0), (0, 1, 0, 0, 0)) got=((0, 1, 0, 0, 0), (0, 1, 0, 0, 0))
+    fen=8/8/1r6/8/8/K2k4/R7/8 b - - 2 64
+Q2P_QP: MATCH=True src=puzzle_db eval=None syz=win
+    want=((1, 0, 0, 0, 2), (1, 0, 0, 0, 1)) got=((1, 0, 0, 0, 2), (1, 0, 0, 0, 1))
+    fen=4Q3/6k1/5qp1/8/6K1/6P1/6P1/8 b - - 2 56
+pawn: MATCH=True src=puzzle_db eval=-314 syz=win
+    want=((0, 0, 0, 0, 2), (0, 0, 0, 0, 2)) got=((0, 0, 0, 0, 2), (0, 0, 0, 0, 2))
+    fen=8/8/8/5p2/5P2/3k2Kp/7P/8 b - - 1 50
+KBN: MATCH=True src=generated eval=202 syz=win
+    want=((0, 0, 1, 1, 0), (0, 0, 0, 0, 0)) got=((0, 0, 1, 1, 0), (0, 0, 0, 0, 0))
+    fen=8/8/7k/1B6/8/N7/8/K7 w - - 0 1

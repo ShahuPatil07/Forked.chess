@@ -1,0 +1,252 @@
+[
+  {
+    "id": "opposition",
+    "category": "kp",
+    "name": "Opposition",
+    "level": "fundamental",
+    "summary": "The kings stand on the same file/rank/diagonal with one square between them; whichever side does NOT have to move 'has the opposition' and controls key squares.",
+    "principles": "In K+P vs K, the side with the pawn wins by reaching opposition in front of (not behind) the pawn. The attacker gains opposition when the defender must move; the defender saves the game by maintaining opposition. Distant opposition (kings 3 or 5 squares apart on the same line, same colour square) reduces to direct opposition through correct king walking.",
+    "example": "White Kd4, Pd3 vs Black Kd6 — White to move plays Pd3-d4? No: Kd4-d5 grabs the key square. The d5/e5/f5 (and d6/e6/f6) squares are the key squares.",
+    "sources": ["en.wikipedia.org/wiki/Opposition_(chess)", "en.wikibooks.org/wiki/Chess_Strategy/Endgame#Opposition"]
+  },
+  {
+    "id": "rule-of-the-square",
+    "category": "kp",
+    "name": "Rule of the Square",
+    "level": "fundamental",
+    "summary": "Can the lone king catch the passed pawn? Draw a square with the pawn at one corner and the promotion square at the opposite corner. If the defending king can step INTO that square on its move, it catches the pawn.",
+    "principles": "For a pawn on e4 racing to e8 against a black king: imagine the square e4-h4-h8-e8. If the black king starts inside or can step into this square, the pawn is caught. Pawns on the 2nd rank get a one-square bonus (they can move two squares on their first move).",
+    "example": "Pawn on a4, Black king on f5. Square is a4-d4-d8-a8. Kf5 must reach the d-file or inside the square. Kf5-e6 — still outside (e6 is outside the d-bordered square). Then Kf5-e6-d7-c7 inside but pawn is racing. Calculate carefully.",
+    "sources": ["en.wikipedia.org/wiki/Rule_of_the_square"]
+  },
+  {
+    "id": "key-squares",
+    "category": "kp",
+    "name": "Key Squares",
+    "level": "fundamental",
+    "summary": "For a centre or knight pawn (b/c/d/e/f/g), the three squares directly in front of the pawn on the 6th rank are key squares — if your king reaches any of them with opposition, the pawn promotes.",
+    "principles": "For a pawn on e5, key squares are d7, e7, f7. For a pawn on e4 or lower, the relevant key squares shift down accordingly. Rook pawns (a/h) have NO key squares — the lone king can always reach the corner and draw.",
+    "example": "Kd5, Pe4, Black Ke7. White plays Pe5+. After Black moves king, White reaches d6/e6/f6 with opposition and wins.",
+    "sources": ["en.wikipedia.org/wiki/King_and_pawn_versus_king_endgame"]
+  },
+  {
+    "id": "rook-pawn-exception",
+    "category": "kp",
+    "name": "Rook Pawn (a/h-pawn) draw",
+    "level": "fundamental",
+    "summary": "K + rook pawn vs K is drawn when the defending king reaches the corner (a8 or h8 for a Black king defending against a white a- or h-pawn).",
+    "principles": "The defender's king goes to the corner, the attacker's king cannot escort the pawn without giving stalemate or losing the pawn. The position is a known draw regardless of who has the move.",
+    "example": "White Pa6, Ka5 vs Black Kb8 — Black plays Kb8-a8 and holds the draw. White cannot dislodge the king from a8/b8.",
+    "sources": ["en.wikipedia.org/wiki/King_and_pawn_versus_king_endgame#Rook_pawn"]
+  },
+  {
+    "id": "triangulation",
+    "category": "pawn",
+    "name": "Triangulation",
+    "level": "advanced",
+    "summary": "Manoeuvring your king through three squares (forming a triangle) to lose a tempo and pass the move to your opponent, often forcing zugzwang.",
+    "principles": "Triangulation only works when one king can triangulate but the other cannot — usually because of a pawn or board edge constraint. Common in K+P endings with locked pawns. The classic example is the trébuchet position where whoever moves loses.",
+    "example": "Symmetric K+P vs K+P: White king at d4, pawn d5; Black king at d6, pawn d7. If it's White to move he can't push d5-d6 without losing the pawn. Triangulating around c4/c5/d4 puts Black in zugzwang.",
+    "sources": ["en.wikipedia.org/wiki/Triangulation_(chess)"]
+  },
+  {
+    "id": "breakthrough",
+    "category": "pawn",
+    "name": "Pawn Breakthrough",
+    "level": "advanced",
+    "summary": "A pawn sacrifice that creates an unstoppable passed pawn on a different file. Most famous in 3-vs-3 pawn races on the wing.",
+    "principles": "Three pawns vs three pawns where one side can push the centre pawn, sacrifice it to deflect both enemy pawns, then promote a wing pawn unimpeded. The technique is a one-tempo win — calculation must be exact.",
+    "example": "White pawns a5, b5, c5 vs Black pawns a7, b7, c7. Push b6! axb6 (or cxb6) a6! and the a- or c-pawn promotes by force two moves later.",
+    "sources": ["en.wikibooks.org/wiki/Chess/Endgame#Breakthrough"]
+  },
+  {
+    "id": "outside-passer",
+    "category": "pawn",
+    "name": "Outside Passed Pawn",
+    "level": "intermediate",
+    "summary": "A passed pawn far from the rest of the action — typically on the wing while the kings fight on the opposite side. The defender's king must abandon one side of the board.",
+    "principles": "The outside passer doesn't need to promote to win — it just needs to draw the enemy king away. Then your king feasts on the unprotected pawns on the other side. Always create the outside passer first if you can.",
+    "example": "White Pa4, Kf3 + central pawn majority vs Black Ph6, Kf6 + central pawn majority. Push a-pawn: Black king must chase, leaving the centre and kingside undefended.",
+    "sources": ["en.wikipedia.org/wiki/Outside_passed_pawn"]
+  },
+  {
+    "id": "lucena",
+    "category": "kr",
+    "name": "Lucena Position",
+    "level": "intermediate",
+    "summary": "The fundamental winning position in K+R+P vs K+R endings: pawn on 7th, defending king cut off one file, attacking king in front of the pawn on the 8th. White wins by 'building the bridge'.",
+    "principles": "Step 1: bring the rook to the 4th rank (one rank below the bridge file). Step 2: check the king out and push the pawn one square. Step 3: when the rook checks, interpose your rook to block. Pawn promotes. Works with the c/d/e/f-pawns; rook pawns have separate theory.",
+    "example": "Kb8, Pb7, Rc1 vs Kd8, Ra2. Play Rc4! preparing the bridge. After ...Ra1 push Pb7-b8 if safe; otherwise Kb8-c8-b7 winning manoeuvre.",
+    "sources": ["en.wikipedia.org/wiki/Lucena_position"]
+  },
+  {
+    "id": "philidor",
+    "category": "kr",
+    "name": "Philidor Position",
+    "level": "intermediate",
+    "summary": "The fundamental drawing position in K+R+P vs K+R endings (defender). Defending rook on the 3rd rank prevents the attacking king from advancing. When the pawn is pushed to the 6th, the rook drops to the 1st rank for checks from behind.",
+    "principles": "Defender's rook on the 6th rank (3rd from defender's side) blocks the king. The moment the pawn advances to the 6th rank (3rd from attacker's side), the defender's rook drops back to give endless checks from behind — the attacker's king cannot find shelter.",
+    "example": "Kd8, Rh6 vs Ke6, Pd5, Rd1. Black plays ...Rh6, waiting. If White plays Pd5-d6+ then ...Rh1, checking from behind — a draw.",
+    "sources": ["en.wikipedia.org/wiki/Philidor_position"]
+  },
+  {
+    "id": "tarrasch-rule",
+    "category": "rook",
+    "name": "Tarrasch's Rule",
+    "level": "intermediate",
+    "summary": "'Rooks belong behind passed pawns — your own AND your opponent's.' This applies in nearly all rook endings.",
+    "principles": "Your rook behind your own passer: it supports the push without blocking it. Your rook behind the enemy passer: it ties down the defender (the enemy rook must guard or lose the pawn) while staying mobile yourself. Rook in front of a passed pawn is passive and often losing.",
+    "example": "If Black has a passer on c4 racing to c1, White's rook on c8 is ideal — it watches the pawn forever from behind, while White's king is free to play elsewhere.",
+    "sources": ["en.wikipedia.org/wiki/Rook_and_pawn_versus_rook_endgame#Tarrasch's_rule"]
+  },
+  {
+    "id": "active-rook",
+    "category": "rook",
+    "name": "Active vs Passive Rook",
+    "level": "intermediate",
+    "summary": "An active rook is worth a pawn in many endings. Never trade activity for material when you can avoid it.",
+    "principles": "A rook attacking pawns and creating threats applies more pressure than its raw material value suggests. Conversely, a rook tied to defence may be effectively useless. Capablanca: 'The rook is the most active piece — it must do work, not stand guard.'",
+    "example": "If your only choice is between defending a pawn passively with your rook or sacrificing the pawn to keep the rook active, take the active option more often than not.",
+    "sources": ["en.wikipedia.org/wiki/Rook_and_pawn_versus_rook_endgame"]
+  },
+  {
+    "id": "7th-rank-rook",
+    "category": "rook",
+    "name": "Rook on the 7th Rank",
+    "level": "intermediate",
+    "summary": "A rook on the opponent's 2nd rank (7th from your side) attacks pawns on their starting squares and pins the king to the back rank. Two rooks on the 7th ('pigs on the 7th') often win on tactics alone.",
+    "principles": "Aim to occupy the 7th rank in any complex rook ending. Even a single rook on the 7th paralyses defensive pieces and harvests weak pawns. Never voluntarily give up the 7th rank.",
+    "example": "White Rd7, Black king on g8, scattered Black pawns on a7/b7/c7. White wins material by force just from the rook's position.",
+    "sources": ["en.wikipedia.org/wiki/Rook_(chess)#Tactics"]
+  },
+  {
+    "id": "kqk-mate",
+    "category": "kq",
+    "name": "K+Q vs K Mate",
+    "level": "fundamental",
+    "summary": "Basic mating technique: use the queen one knight-move away from the lone king to shrink its 'box', then bring your king to deliver mate. Watch for stalemate.",
+    "principles": "Place the queen a knight's move from the enemy king — it cannot approach the queen. Each defender's move, shrink the box. Bring your king to support. Always leave the defender at least one legal move until your king is close enough to mate.",
+    "example": "Black king on a8: White queen on c7 confines the king to the a-file (8 squares). Bring the white king to b6, then play Qb7# or similar.",
+    "sources": ["en.wikipedia.org/wiki/Queen_and_pawn_versus_queen_endgame#Mate"]
+  },
+  {
+    "id": "kq-vs-kp",
+    "category": "kq",
+    "name": "K+Q vs K+Pawn on 7th",
+    "level": "advanced",
+    "summary": "Surprisingly drawish for rook (a/h) and bishop (c/f) pawns. Win for centre (d/e) and knight (b/g) pawns.",
+    "principles": "Defender's idea: get the king in front of the pawn on the corner/back rank and use stalemate threats. For rook pawns: Ka1, pa2, Black king blocked into corner — White Q cannot make progress without stalemating. For centre pawns: zugzwang the defender to step off the pawn.",
+    "example": "White Kf3, Qa1; Black Ka1, pa2 — stalemate trick: if White plays Kf3-e2, Black is stalemated.",
+    "sources": ["en.wikipedia.org/wiki/Queen_versus_pawn_endgame"]
+  },
+  {
+    "id": "two-bishops-mate",
+    "category": "kminor",
+    "name": "Two Bishops Mate",
+    "level": "intermediate",
+    "summary": "K+B+B vs K is a forced win — drive the lone king to a corner of any colour and deliver mate with the two bishops controlling the escape squares.",
+    "principles": "Move the bishops along adjacent diagonals to form a fence cutting off the enemy king. Bring your king to support. The mate happens in a corner; typical pattern: Black king h8, White Bg7+ Kg8, Bh7# (or similar with king coordination).",
+    "example": "From a centred starting position, the mate is normally completed within 17-20 moves with accurate play.",
+    "sources": ["en.wikipedia.org/wiki/Two_bishops_endgame"]
+  },
+  {
+    "id": "bn-mate",
+    "category": "kminor",
+    "name": "Bishop + Knight Mate",
+    "level": "advanced",
+    "summary": "K+B+N vs K is a win, but notoriously hard — you MUST drive the enemy king to a corner OF THE BISHOP'S COLOUR. The other corner is a draw by 50-move rule with imperfect technique.",
+    "principles": "Phase 1: drive the king from the centre to an edge. Phase 2: walk the king along the edge to the bishop-colour corner. Phase 3: deliver mate with the standard pattern. Use the 'W manoeuvre' with the knight to force the king from the wrong corner to the right one.",
+    "example": "Bishop on light squares — drive the king to a8 or h1. The mate pattern is: Black king h1, White Kf2, Bg2, Nf3-h2# (knight delivers mate while the bishop controls escape squares).",
+    "sources": ["en.wikipedia.org/wiki/Bishop_and_knight_checkmate"]
+  },
+  {
+    "id": "two-knights-draw",
+    "category": "kminor",
+    "name": "Two Knights vs King — Drawn",
+    "level": "advanced",
+    "summary": "K+N+N vs K is a draw against best defence — no forced mate exists. The defender simply keeps the king near the centre.",
+    "principles": "While mating positions exist, the attacker cannot force the defender into them — every attempt to set up the mate net allows the defender to wriggle out. With an extra pawn somewhere, K+N+N CAN win against K+P because the defender has tempo issues (Troitzky lines).",
+    "example": "Defender's job is trivial — keep moving the king to central squares. No specific technique needed beyond avoiding the corner where mate could theoretically be set up.",
+    "sources": ["en.wikipedia.org/wiki/Two_knights_endgame"]
+  },
+  {
+    "id": "good-bishop-bad-bishop",
+    "category": "minor",
+    "name": "Good Bishop vs Bad Bishop",
+    "level": "intermediate",
+    "summary": "A bishop locked behind its own pawns (on its own colour) is a 'bad' bishop. A bishop with pawns on the opposite colour has full mobility — 'good'.",
+    "principles": "Try to fix the opponent's pawns on the colour of their bishop (making it bad) while keeping your own pawns on the opposite colour of YOUR bishop. In bishop endings, having a good bishop vs bad bishop is often worth a pawn in evaluation.",
+    "example": "Light-squared bishop with pawns mostly on dark squares — that bishop is good. Same bishop with pawns mostly on light squares — that's a bad bishop.",
+    "sources": ["en.wikipedia.org/wiki/Bishop_(chess)#Good_and_bad_bishops"]
+  },
+  {
+    "id": "opposite-bishops",
+    "category": "minor",
+    "name": "Opposite-Colour Bishops",
+    "level": "advanced",
+    "summary": "Opposite-colour bishop endings are famously drawish — even with one or two extra pawns. Each bishop controls only its own colour, and the defender just keeps the pawns blocked on the defender's bishop colour.",
+    "principles": "The defender's bishop guards one square colour completely. The attacker cannot force the defender's king off the squares of the opposite colour. In the middlegame, opposite-colour bishops are dynamic and attacking — but in the endgame they're a fortress.",
+    "example": "White Pf5, Kf4, Bf3 (light-squared) vs Black Kf6, Bb6 (dark-squared). Push Pf5-f6? Bxf6. White can't make progress.",
+    "sources": ["en.wikipedia.org/wiki/Opposite-coloured_bishops_endgame"]
+  },
+  {
+    "id": "bishop-vs-knight",
+    "category": "minor",
+    "name": "Bishop vs Knight (general)",
+    "level": "intermediate",
+    "summary": "Open positions with pawns on both wings favour the bishop. Closed positions with fixed centre pawns favour the knight. The bishop's long-range power vs the knight's short-range agility.",
+    "principles": "Bishop strengths: long diagonals, attacking from far, never blocked by colour. Knight strengths: can attack any colour, jumps over pieces, dominates closed positions and outposts. The minor piece evaluation depends entirely on pawn structure.",
+    "example": "Steinitz's rule: 'In open positions the bishop is stronger, in closed positions the knight.'",
+    "sources": ["en.wikipedia.org/wiki/Minor_piece#Bishop_and_knight"]
+  },
+  {
+    "id": "lone-bishop-draw",
+    "category": "kminor",
+    "name": "Lone Bishop or Knight vs King",
+    "level": "fundamental",
+    "summary": "K+B vs K and K+N vs K are insufficient material — automatic draws. Even with cooperation from the defender, no mate is possible.",
+    "principles": "These are FIDE-declared automatic draws. The rule applies as soon as the position arises (not just at the end of the 50-move counter). Common in late endings when a defender's last pawn is captured.",
+    "example": "If you're down to K+B and your opponent has lost all pieces, claim the draw immediately — it's automatic.",
+    "sources": ["en.wikipedia.org/wiki/Draw_(chess)#Draws_in_all_games"]
+  },
+  {
+    "id": "wrong-bishop",
+    "category": "kp",
+    "name": "Wrong Bishop (rook pawn draw)",
+    "level": "advanced",
+    "summary": "K+B+rook pawn vs K is drawn if the bishop does NOT control the promotion square. The defender's king goes to the corner and cannot be evicted.",
+    "principles": "For an a-pawn promoting on a8: the promotion square is a8 (dark square). A light-squared bishop is the 'wrong bishop' — it cannot defend or attack a8, and the defending king holds the corner. A dark-squared bishop wins normally.",
+    "example": "White Pa6, Bf3, Kc6 vs Black Kb8 — Black plays Ka8, sits in the corner, draws. White cannot dislodge the king.",
+    "sources": ["en.wikipedia.org/wiki/Wrong_bishop"]
+  },
+  {
+    "id": "vancura",
+    "category": "kr",
+    "name": "Vancura Defence",
+    "level": "advanced",
+    "summary": "A drawing technique against K+R+rook-pawn vs K+R. The defender's rook harasses from the side (on the 6th rank), preventing the attacker from making progress.",
+    "principles": "When the attacker has a rook pawn (a/h) on the 6th rank or below, the defender places their rook on the 6th rank attacking from the side (not behind, where it would be blocked). This stops the attacker's king from emerging from the corner without losing the pawn.",
+    "example": "White Ka8, Pa6, Re1; Black Kf6, Rg6 — Black's rook on the 6th rank keeps White's king from leaving the corner.",
+    "sources": ["en.wikipedia.org/wiki/Vancura_position"]
+  },
+  {
+    "id": "fortress",
+    "category": "minor",
+    "name": "Fortress",
+    "level": "advanced",
+    "summary": "A blockaded defensive position where the attacker cannot make progress despite being materially up. Common with opposite bishops and locked pawn chains.",
+    "principles": "Recognise the fortress early: locked pawn structure + pieces that defend each other + no entry squares for the enemy king. Once established, refuse to budge. The attacker's only hope is your imperfect technique.",
+    "example": "Knight + locked pawn chain controlled diagonally can build a fortress where the enemy queen has no entry.",
+    "sources": ["en.wikipedia.org/wiki/Fortress_(chess)"]
+  },
+  {
+    "id": "zugzwang",
+    "category": "pawn",
+    "name": "Zugzwang",
+    "level": "advanced",
+    "summary": "A position where every legal move worsens your position — and you would prefer to pass but cannot. Critical in pawn endings.",
+    "principles": "Pure pawn endings are full of zugzwang because pawn moves are irreversible. Triangulation and waiting moves are the techniques used to put the opponent in zugzwang. Identify whether you'd rather be the side to move or not — that often decides the position.",
+    "example": "K+P vs K with both kings facing across the pawn: the side TO MOVE in this opposition is often lost — they must give ground.",
+    "sources": ["en.wikipedia.org/wiki/Zugzwang"]
+  }
+]

@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen } from 'lucide-react'
+import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useUserStore } from '../../store/userStore'
 
@@ -7,6 +7,7 @@ const NAV = [
   { to: '/dashboard', label: 'Dashboard',      icon: LayoutDashboard },
   { to: '/session',   label: 'Drill Session',  icon: Sword },
   { to: '/openings',  label: 'Openings',       icon: BookOpen },
+  { to: '/endgames',  label: 'Endgames',       icon: Crown },
   { to: '/analysis',  label: 'Analysis Board', icon: Microscope },
   { to: '/history',   label: 'History',        icon: Clock },
   { to: '/settings',  label: 'Settings',       icon: Settings },

@@ -10,6 +10,7 @@ import Settings from './pages/Settings'
 import AnalysisBoard from './pages/AnalysisBoard'
 import BotGame from './pages/BotGame'
 import OpeningExplorer from './pages/OpeningExplorer'
+import Endgames from './pages/Endgames'
 import AppShell from './components/layout/AppShell'
 import { ChessBackground } from './components/layout/ChessBackground'
 
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/analysis" element={<AnalysisBoard />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/openings" element={<OpeningExplorer />} />
+          <Route path="/endgames" element={<Endgames />} />
           <Route path="/bot-game"          element={<BotGame />} />
           <Route path="/bot-game/:gameId" element={<BotGame />} />
         </Route>

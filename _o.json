@@ -1,0 +1,1 @@
+{"Q2P_QP": {"match": true, "src": "puzzle_db", "got": "((1, 0, 0, 0, 2), (1, 0, 0, 0, 1))"}, "pawn": {"match": true, "src": "puzzle_db", "got": "((0, 0, 0, 0, 2), (0, 0, 0, 0, 2))"}, "KBN": {"match": true, "src": "generated", "got": "((0, 0, 1, 1, 0), (0, 0, 0, 0, 0))"}}

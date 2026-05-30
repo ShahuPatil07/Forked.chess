@@ -763,6 +763,31 @@ export default function BotGame() {
 
   useEffect(() => { userColorRef.current = userColor }, [userColor])
 
+  // ── Arrow-key move review (← / → step through history) ─────────────────────
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (sanMoves.length === 0) return
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setHistViewIdx(prev => {
+          const cur = prev === null ? sanMoves.length - 1 : prev
+          return Math.max(0, cur - 1)
+        })
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        setHistViewIdx(prev => {
+          if (prev === null) return null
+          const next = prev + 1
+          return next >= sanMoves.length - 1 ? null : next
+        })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sanMoves.length])
+
   // ── Computed FEN to display (live or historical view) ─────────────────────
   const displayFen = histViewIdx !== null ? (histFens[histViewIdx + 1] ?? START_FEN) : fen
 
