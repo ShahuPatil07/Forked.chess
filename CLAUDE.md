@@ -1,215 +1,205 @@
 # Forked — Claude Code context
 
-## What we're building
+## What this is (current reality)
 
-Adaptive chess curriculum app. The core insight: Chess.com and Lichess give you puzzles, but they're static and disconnected from your actual games. Forked watches your game history, detects *your specific recurring blindspots* using ML clustering, and generates targeted drills that fix exactly those patterns.
+Forked is a full adaptive chess training platform. It began as a personalised
+blindspot trainer and now has five surfaces plus an intelligence layer, all
+sharing one engine + data stack:
 
-The user connects their Chess.com or Lichess account (username only — no OAuth needed, both have public APIs), we pull their last 200+ games, annotate every move with Stockfish, cluster the mistake events, surface their top blindspots by name ("Back-rank threats — missed 23 times"), and serve personalized puzzle sequences with spaced repetition.
+1. **Blindspot Profile + Drills** — pull a user's last 80–200 games, annotate
+   with Stockfish, cluster their mistakes with ML, name the top blindspots, and
+   serve spaced-repetition puzzles targeting them.
+2. **Openings** — interactive opening tree from the Lichess Explorer API +
+   per-node eval/WDL/AI-ideas + a streaming RAG opening coach.
+3. **Endgames** — Syzygy-verified theory tree + practice vs Maia from any
+   material config + a tablebase-grounded endgame coach.
+4. **Play vs Maia** — full games vs the Maia2 human-move model with a post-game
+   Stockfish accuracy report, blindspot debrief, and analysis view.
+5. **Analysis Board** — free-play board with live Stockfish eval.
 
-Product name: **Forked**. Working tagline: "A coach who knows exactly how you lose."
+**Intelligence layer** (all keyed on `cluster_id` + centroid, never the LLM label):
+- **Live sync + alerts** — background poll for new games, re-run Stage 1, and
+  alert when a known blindspot cluster is repeated (cosine > 0.72).
+- **Post-game debrief** — cross-references Maia-game mistakes against the user's
+  clusters ("you triggered 1 known weakness").
+- **Mistake Replay** — walk every real-game position in a cluster, with eval
+  bar, free exploration, per-position "Notice", and a Groq pattern insight.
+- **Counterfactual rating** — bounded performance-rating estimate of the points
+  recoverable by fixing each cluster.
+- **Chess DNA card** — shareable PNG: 5-axis style archetype + blindspots +
+  counterfactual, with a public `/dna/{user}` landing page.
 
----
+Product name: **Forked**. Tagline: *"A coach who knows exactly how you lose."*
 
-## Why this is defensible
-
-- Chess.com could build this but won't — their Learn section is a revenue line, not a priority. Engineering goes to matchmaking and social features.
-- The moat is the per-user blindspot graph. It gets richer with every game played and can't be replicated by a fresh account.
-- The feedback loop is the key: when a user blunders the same pattern in a real game, the system detects it and resets that cluster's mastery score. No static puzzle platform can do this.
-- Realistic exit: acquisition by Chess.com at ~50K paying users.
-
----
-
-## ML pipeline (3 stages)
-
-### Stage 1 — Ingestion and annotation
-
-1. **PGN parser** — fetch games from Chess.com API (`api.chess.com/pub/player/{username}/games/{year}/{month}`) or Lichess API (`lichess.org/api/games/user/{username}`). Both require only a username, no auth.
-2. **Stockfish annotation** — run every position through Stockfish depth-20. Extract: `eval_before` (centipawns), `eval_after`, `eval_drop`, `best_move`, `best_move_eval`.
-3. **Mistake extractor** — flag moves where `eval_drop > 50cp` as mistake events. A player with 500 games yields ~3,000–8,000 events.
-
-### Stage 2 — Failure mode detection
-
-Feature vector per mistake event (~120-dim):
-- Board features (64-dim): piece map one-hot, material balance, pawn structure, king safety
-- Contextual features (~56-dim): game phase, time pressure (clock data), eval_drop, move complexity, `threat_type` (categorical: fork / pin / skewer / back-rank / passed-pawn / king-attack / zugzwang)
-
-Pipeline:
-1. Embed positions using Leela Chess Zero's policy net (penultimate layer → 256-dim). Open source, no training needed.
-2. Concatenate contextual features → 312-dim final vector.
-3. UMAP to 16-dim (preserves local structure, ~5s per 5,000 points).
-4. HDBSCAN clustering (`min_cluster_size=15`). Handles noise, no need to specify k.
-5. Label clusters with an LLM: send 5 nearest real game positions + dominant threat_type → "Name this chess weakness in 5 words or fewer."
-
-Blindspot scoring:
-```
-score(cluster) = frequency × recency_weight × (1 - mastery)
-
-frequency      = cluster_size / total_mistakes
-recency_weight = exp(-λ × days_since_last_occurrence)
-mastery        = puzzle_accuracy_on_this_cluster  # 0→1, starts at 0
-```
-
-Cold start: HDBSCAN needs ~200+ mistake events (~30–50 games). Before that, fall back to rating-band priors clustered from community data.
-
-### Stage 3 — Puzzle generation and scheduling
-
-**Path A — Retrieval (covers ~80% of serves):**
-- Vector DB (Qdrant or pgvector) of ~5M positions from Lichess open puzzle database + annotated games.
-- Query by blindspot cluster centroid, filter by `threat_type` and `difficulty: user_elo ± 150`.
-- Re-rank by: closest to centroid + highest engine validation score + not seen by this user.
-
-**Path B — Synthesis (rare blindspot types or exhausted pool):**
-- Start from a real game position near the cluster centroid.
-- Apply random legal moves with rollout guided by a policy net biased toward the target threat type.
-- Stop when Stockfish confirms: eval_delta > 200cp for exactly one move.
-- Validation: best move gap > 1.5 pawns, second-best clearly inferior, < 3 winning moves.
-- Expect to reject ~60% of candidates.
-
-**Spaced repetition scheduler:**
-```python
-session_weights = softmax(blindspot_scores * temperature)
-# temperature=2.0 → concentrate on top blindspot
-# temperature=0.5 → distributed practice
-
-# After each puzzle attempt:
-if correct and fast:
-    cluster.mastery += 0.05
-    cluster.next_review = now + interval * ease_factor
-elif correct and slow:
-    cluster.mastery += 0.02
-else:
-    cluster.mastery -= 0.03
-    cluster.next_review = now + short_interval
-```
-
-SM-2 as base for interval calculation. Mastery decay is cluster-wide, not per-puzzle. Intervals reset if user blunders the same pattern in a live game.
+> This file describes the product **as built**. An earlier version of this file
+> contained a 6-week MVP plan with aspirational tech (pgvector, Celery/Redis,
+> Leela embeddings). That plan was superseded — see "Actual stack" below.
 
 ---
 
-## Data model (outline)
+## Actual stack (what's really used)
+
+**Backend** — Python 3.10+, FastAPI (single app, seven routers mounted on
+`main`), `python-chess` + Stockfish, LightGBM, scikit-learn (HDBSCAN),
+umap-learn, Maia2 (PyTorch CPU), Groq for LLM, Pillow (DNA card PNG),
+**SQLite** for all caches. Background annotation + live sync = worker/daemon
+threads + SSE progress (no Celery/Redis). Embeddings = 16-dim UMAP, searched
+with numpy L2 in memory (no pgvector/Qdrant — never add a database without
+asking).
+
+**Frontend** — React + TypeScript + Vite, `chess.js` + `react-chessboard`,
+TanStack Query, Zustand (`useUserStore`, persisted to localStorage), Tailwind,
+Framer Motion. Live games over WebSocket; streaming coach responses over SSE
+parsed manually (EventSource can't POST).
+
+**External data** — Lichess Opening Explorer API (needs `LICHESS_TOKEN`),
+Syzygy tablebase API (`tablebase.lichess.ovh`, ≤7 pieces), Lichess puzzle DB
+(100K sample indexed locally), Groq (`GROQ_API_KEY`, model
+`llama-3.3-70b-versatile`).
+
+---
+
+## Repo map
 
 ```
-User
-  id, username, chess_com_handle, lichess_handle
-  elo_rapid, elo_blitz, created_at
+backend/                 (7 routers, all mounted on main's FastAPI app)
+  main.py          ingestion, profile, drills, analysis, settings, bot-game (+WS), accuracy
+  openings.py      /api/openings/explore | /eval | /ideas   (SQLite cache: opening_cache.db)
+  opening_chat.py  /api/openings/chat(/stream) | /chat/suggestions   (curated corpus + Lichess stats)
+  endgames.py      /api/endgames/practice-position(/by-config) | /syzygy | /coach/chat(/stream) | /coach/suggestions
+  live_sync.py     background per-user sync; /api/alerts | /api/sync/{status,trigger}
+  replay.py        /api/cluster/{u}/{cid}/mistakes | /insight | /note | /explain   (Mistake Replay)
+  counterfactual.py  /api/profile/{u}/counterfactual   (bounded perf-rating estimate)
+  card.py          /api/profile/{u}/{compute-style,style,dna-card,card}   (Chess DNA PNG via Pillow)
+  bot/maia_engine.py     Maia2 move generator (singleton, first-move guard, OOD retreat filter)
+  bot/thinking_delay.py  human-like async delay
+  (debrief lives in main.py: POST /api/bot-game/{id}/debrief)
 
-Game
-  id, user_id, pgn, platform, played_at, time_control
-  annotated: bool, annotated_at
+ml/                core blindspot pipeline (ingestion → clustering → puzzles → srs)
+  config.py        paths, thresholds, feature flags, STOCKFISH_PATH, REQUEST_HEADERS
+  classifier/      HybridThreatClassifier (rule → depth → LightGBM)
+  matching.py      project a fresh event → UMAP → nearest cluster centroid (cosine)
+  style/extractor.py  5-axis style profile + archetype (Chess DNA), run after clustering
 
-MistakeEvent
-  id, game_id, user_id
-  fen, move_played, best_move
-  eval_before, eval_after, eval_drop
-  threat_type, game_phase, time_remaining
-  cluster_id (nullable until clustered)
+data/
+  opening_cache.db, endgame.db          SQLite caches (auto-created)
+  opening_knowledge.json                curated opening coach corpus (47 entries)
+  endgame_knowledge.json                curated endgame coach corpus (25 entries)
+  endgame_positions.json                curated practice positions (66)
+  puzzles/                              Lichess puzzle index (index.npz + meta.json)
+  output/{user}_{mistakes,clusters,settings,scaler.pkl,reducer.pkl,
+         alerts,sync,style,counterfactual,dna_card.png,...}   per-user state
 
-BlindspotCluster
-  id, user_id
-  label (LLM-generated, e.g. "Back-rank threats")
-  size, centroid_vector
-  mastery (0.0–1.0)
-  last_occurrence_at, next_review_at
-  score (computed)
-
-Puzzle
-  id, fen, solution_move, threat_type
-  source: "retrieved" | "synthesized"
-  difficulty_elo, engine_validated: bool
-  embedding_vector
-
-PuzzleAttempt
-  id, user_id, puzzle_id, cluster_id
-  correct: bool, time_taken_ms
-  attempted_at
+frontend/src/
+  pages/           Dashboard, PuzzleSession, OpeningExplorer, Endgames, BotGame,
+                   AnalysisBoard, MistakeReplay, DNAPage, GameHistory, Settings, …
+  components/layout/   AppShell (nav), SectionHeader (shared page header), ChessBackground
+  components/openings/ OpeningTree, OpeningDetail, OpeningCoachChat, MiniBoardThumbnail
+  components/endgames/ EndgameTree, EndgameDetail, EndgamePractice, EndgameCoach, PieceConfigurator
+  components/dashboard/ BlindspotAlerts (live-sync banner), RatingImpact (counterfactual + DNA share)
+  components/       BotGameDebrief, ChessDNACard
+  hooks/useGameReview.ts    move-history review (click + ← / →), used by practice + bot game
+  data/endgameTree.ts       hardcoded endgame theory tree (canonical FENs)
+  data/openings_index.json  named openings for fuzzy search
+  api/                      typed clients (index, openings, endgames, replay, insights, live)
 ```
 
 ---
 
-## Product / UX decisions
+## Core pipeline facts (blindspot loop)
 
-**Onboarding:**
-- Step 1: pick platform (Chess.com / Lichess) and enter username. No password, no OAuth.
-- Step 2: background job pulls last 200 games and annotates (~40 seconds).
-- Step 3: show first blindspot profile. This is the "aha" moment — user sees their weaknesses named for the first time.
-
-**Home dashboard:**
-- Stat cards: games analysed, blindspots found, estimated rating gain if top 2 fixed.
-- Blindspot profile: ranked list with urgency bars, "Drill now" per blindspot.
-- Today's drill queue: ~12 puzzles, ~15 min, grouped by blindspot.
-
-**Puzzle session UX — key decisions:**
-- No puzzle rating shown. Ratings turn practice into ego management. Show urgency instead ("your #1 blindspot, missed 23 times").
-- Context panel stays visible during the puzzle. Shows which blindspot it targets and a reference to a real game where the user missed this exact pattern.
-- "From your game vs. Priya_84 · 18 days ago · move 31 — you played Qe4, Rd8# was available." This emotional hook is the main differentiator from static puzzles.
-- Hint available but costs a small mastery penalty.
+- **Stage 1** — fetch (Lichess/Chess.com public API, username only) → two-pass
+  Stockfish (depth-12 screen, depth-18 on mistakes) → mistake events at
+  `eval_drop ≥ 100cp` → `HybridThreatClassifier` (rule-based → depth lookahead →
+  LightGBM) → Maia2 filter (drop universally-hard positions).
+- **Stage 2** — 122-dim feature vector per event (64 board + 10 material + 12
+  pawn + 8 king-safety + 28 context) → StandardScaler → UMAP-16 → HDBSCAN →
+  Groq names each cluster. Score = frequency × recency × (1 − mastery).
+- **Stage 3** — 100K Lichess puzzles in the same UMAP space; nearest-neighbour
+  per cluster centroid, filtered by threat type + rating; SM-2 SRS, mastery
+  resets on repeated live blunders.
+- Classifier: 14 threat types, 63.5% F1, 805-dim raw bitboard features (no PCA).
+  Full reference in `stage1.md`.
 
 ---
 
-## Tech stack (recommended starting point)
+## Feature-specific notes
 
-**Backend:**
-- Python (FastAPI)
-- PostgreSQL with pgvector extension for position embeddings
-- Stockfish via `python-chess` library
-- Celery + Redis for background annotation jobs
-- Leela Chess Zero policy net for position embeddings (ONNX export)
+**Openings** — `explore` proxies the Lichess Explorer (24h SQLite cache, ELO
+bucketed); `eval` is Stockfish depth-16 cached forever; `ideas` is Groq cached
+forever. The coach (`opening_chat.py`) injects a curated corpus by ECO/keyword +
+live Lichess stats, streams via SSE, cites sources.
 
-**Frontend:**
-- React + TypeScript
-- Chess board: `chess.js` + `react-chessboard`
-- Tailwind CSS
+**Endgames** — theory tree is static (`frontend/src/data/endgameTree.ts`, all
+FENs validated legal). Practice: `by-config` finds an instructive position —
+Lichess endgame puzzles first (exact material match, post-trigger position),
+Stockfish-filtered generation as fallback — then enriches with depth-12 eval for
+the auto-description. Reuses the bot-game WebSocket by passing `starting_fen`.
+Outcome is judged vs the Syzygy/eval objective. Coach injects Syzygy as verified
+fact ("Tablebase verified" badge).
 
-**ML / data:**
-- `python-chess` for PGN parsing and board manipulation
-- `umap-learn` for dimensionality reduction
-- `hdbscan` for clustering
-- `qdrant-client` or pgvector for vector search
+**Play vs Maia** — `bot/maia_engine.py` is a module-level Maia2 singleton.
+Critical: Maia2 is OOD when a piece is developed before any pawn move, so the
+**first move is forced to a central pawn**, and an OOD retreat filter rejects
+"put the piece back" predictions. `bot-game/create` accepts `starting_fen` +
+`target_elo`. Accuracy endpoint = chess.com-style % from win-prob loss per move.
+The WS handler decides who moves first by **side-to-move vs user_color**
+(`side_to_move != user_color → bot opens`), NOT "user is black" — that older
+assumption deadlocked endgame practice when Black was to move from a custom FEN.
 
-**Infrastructure (MVP):**
-- Single VPS is fine to start (annotation is CPU-bound, not GPU)
-- Stockfish runs locally on the server — no external API cost
-- Lichess puzzle DB is free and downloadable (~50M puzzles, ~7GB)
+**Intelligence layer (cluster identity rule)** — live-sync, debrief, replay,
+and counterfactual all identify clusters by **`cluster_id` + centroid only**;
+the LLM label is display-only and may change on re-cluster. A fresh mistake is
+matched by projecting its 122-dim vector through the persisted scaler + UMAP
+reducer (`ml/matching.py`) and taking the nearest centroid (alert threshold
+cosine > 0.72; replay/counterfactual use nearest-without-threshold). The
+counterfactual re-fetches game results (chess.com via the archives-list
+endpoint, lichess via export) since `game_meta.json` lacks result/opponent-elo,
+then uses a **bounded performance-rating** model — never flat per-game Elo
+(that produced fantasy +1000 ratings). Chess DNA style axes are computed from
+the mistake dataset with documented proxies (no full-game re-annotation);
+axes with too little data are reported `None` and omitted from the card.
 
----
-
-## MVP scope (6-week target)
-
-Week 1–2: Game ingestion pipeline. PGN fetch → Stockfish annotation → mistake extraction. Ship as a background job that works end-to-end for Chess.com and Lichess usernames.
-
-Week 3: Clustering pipeline. Feature extraction → UMAP → HDBSCAN → LLM labelling. Get blindspot profiles generating for real users.
-
-Week 4: Puzzle retrieval. Import Lichess puzzle DB into pgvector. Build retrieval endpoint that takes a cluster centroid and returns 10 matching puzzles.
-
-Week 5: Frontend. Onboarding flow, dashboard, puzzle session screen. Functional but not polished.
-
-Week 6: SRS scheduler + feedback loop. Mastery tracking, spaced repetition scheduling, game re-sync detecting repeated blindspot patterns.
-
----
-
-## What we're explicitly NOT building in MVP
-
-- Puzzle synthesis (use retrieval only — Lichess has 50M puzzles, you won't exhaust them)
-- Opening preparation
-- Social / multiplayer features
-- Mobile app (web-responsive is fine)
-- Coaching marketplace
+**Shared frontend** — every page uses `SectionHeader` (gradient ForkedWordmark +
+icon + description). `useGameReview` powers clickable / arrow-key move history.
+`MiniBoardThumbnail` is a pure-CSS board for dense tree rows (don't use
+`react-chessboard` for many small boards).
 
 ---
 
-## Competitive context
+## Conventions & gotchas
 
-- Chess.com: dominant player, weak Learn section, static puzzles with no connection to your games
-- Lichess: free, open-source, excellent puzzles but zero personalization
-- Chessable: MoveTrainer is strong for openings, not for tactical blindspots
-- Neither Chess.com nor Lichess has the game-history → blindspot → targeted drill loop
+- **Windows + Python 3.12**: `backend/main.py` forces
+  `WindowsProactorEventLoopPolicy` (top of file *and* inside worker threads) so
+  `chess.engine.popen_uci` can spawn Stockfish. Keep that.
+- **Stockfish singleton** lives in `backend/main.py` (`_sf_lock`, `_ensure_engine`).
+  Other routers import it. Always hold `_sf_lock` around `engine.analyse`.
+- **SQLite caches auto-create** on import (`_init_db`); columns are added with
+  idempotent `ALTER TABLE … ADD COLUMN` wrapped in try/except.
+- **Coaches stream over SSE** with a `meta` event first (sources, flags), then
+  `token` events, then `done`. Frontend parses with a manual `ReadableStream`
+  reader (not EventSource).
+- **`.env`** needs `GROQ_API_KEY` (coaches + cluster naming) and `LICHESS_TOKEN`
+  (Opening Explorer returns 401 without it on many networks).
+- **Verify after edits**: `cd frontend && npx tsc --noEmit` (must be 0 errors)
+  and `npx vite build` for runtime integrity. For backend, import-check
+  `backend/main.py` and confirm routes register.
+- **Don't add new heavy deps** (pgvector, a vector DB, sentence-transformers,
+  Celery/Redis) without asking — the project is deliberately SQLite + numpy +
+  curated JSON. Prefer curated corpora over scraping. (Pillow is in for the DNA
+  card; it's the only image dep.)
+- **Cluster identity**: never match/compare on the LLM label string — always
+  `cluster_id` + centroid. New per-user state files: `_alerts.json`, `_sync.json`,
+  `_style.json`, `_counterfactual.json`, `_dna_card.png` (all under `data/output/`).
+- Curated corpora (`opening_knowledge.json`, `endgame_knowledge.json`,
+  `endgame_positions.json`) and `endgameTree.ts` are hand-maintained — extend
+  them in place; keep all FENs legal (validate with `python-chess`).
 
 ---
 
-## Notes for Claude Code
+## What we are NOT building (still out of scope)
 
-- When building the annotation pipeline, use `python-chess` engine wrapper. Stockfish should run at depth 18–20 for accuracy, depth 12 for fast pre-screening.
-- The Lichess puzzle DB is available at `database.lichess.org` — it's a CSV with FEN, moves, themes, rating. Import into pgvector with a batch embedding job.
-- `threat_type` classification can be done with a simple rule-based system first (check for fork geometry, back-rank configuration, etc.) before investing in learned classification.
-- HDBSCAN `min_cluster_size=15` is a starting point — tune based on how many games the user has. For users with < 100 games, lower to 8.
-- The LLM labelling step (cluster → human-readable name) can be a simple Claude API call with the 5 representative positions as FEN strings.
+- Puzzle synthesis (retrieval only — Lichess has 50M puzzles)
+- Social / multiplayer, coaching marketplace
+- Native mobile app (web-responsive only)
+- A real database / auth system (username-only, file-backed by design)

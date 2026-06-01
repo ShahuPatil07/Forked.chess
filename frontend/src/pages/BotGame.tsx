@@ -9,6 +9,7 @@ import {
   Wifi, WifiOff, Microscope, Circle,
 } from 'lucide-react'
 import { api } from '../api'
+import { BotGameDebrief } from '../components/BotGameDebrief'
 import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
 import { useUserStore } from '../store/userStore'
 import type { Square } from 'chess.js'
@@ -364,10 +365,12 @@ function AccuracyCard({ moves, userColor }: { moves: string[]; userColor: 'white
 
 const ANALYZE_BOARD = 480
 
-function AnalyzeView({ gameFens, gameSans, gameUci, userColor, onBack }: {
+function AnalyzeView({ gameFens, gameSans, gameUci, userColor, onBack, gameId, username }: {
   gameFens: string[]; gameSans: string[]; gameUci: string[]
   userColor: 'white' | 'black'; onBack: () => void
+  gameId: string; username: string
 }) {
+  const [analyzeTab, setAnalyzeTab] = useState<'accuracy' | 'debrief'>('accuracy')
   const [tab, setTab] = useState<'game' | 'explore'>('game')
 
   // ── Game tab state ────────────────────────────────────────────────────────
@@ -613,8 +616,22 @@ function AnalyzeView({ gameFens, gameSans, gameUci, userColor, onBack }: {
         {/* Right panel */}
         <div className="flex-1 min-w-0 space-y-3" style={{ paddingTop: 4 }}>
 
-          {/* Accuracy — computed once for the full game */}
-          <AccuracyCard moves={gameUci} userColor={userColor} />
+          {/* Accuracy + Blindspot debrief tabs */}
+          <div className="flex gap-1 mb-3 border-b border-border">
+            {(['accuracy', 'debrief'] as const).map(t => (
+              <button key={t} onClick={() => setAnalyzeTab(t)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors relative
+                  ${analyzeTab === t ? 'text-text-0' : 'text-text-2 hover:text-text-1'}`}>
+                {t === 'accuracy' ? 'Accuracy' : 'Blindspot debrief'}
+                {analyzeTab === t && <span className="absolute -bottom-px left-0 right-0 h-0.5 bg-accent" />}
+              </button>
+            ))}
+          </div>
+          {analyzeTab === 'accuracy'
+            ? <AccuracyCard moves={gameUci} userColor={userColor} />
+            : (gameId
+                ? <BotGameDebrief gameId={gameId} username={username} />
+                : <p className="text-xs text-text-2 italic p-4">Debrief unavailable for this game.</p>)}
 
           {/* Eval */}
           <div className="card p-3 flex items-center justify-between">
@@ -982,6 +999,8 @@ export default function BotGame() {
         gameSans={sans}
         gameUci={uciSnapshot}
         userColor={userColor}
+        gameId={gameId ?? ''}
+        username={username}
         onBack={() => setPhase('game')}
       />
     )

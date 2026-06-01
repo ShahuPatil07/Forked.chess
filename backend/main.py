@@ -75,6 +75,195 @@ app.include_router(opening_chat_router)
 from backend.endgames import router as endgames_router
 app.include_router(endgames_router)
 
+from backend.replay import router as replay_router
+app.include_router(replay_router)
+
+from backend.counterfactual import router as counterfactual_router
+app.include_router(counterfactual_router)
+
+from backend.card import router as card_router
+app.include_router(card_router)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Feature 1 — Live game sync + blindspot alerts
+#  Feature 2 — Post-game blindspot debrief for Maia games
+#  (helpers like _bot_games / _sf_lock / BOT_GAMES_DIR are defined later in this
+#   file; they're only referenced inside request handlers, so forward refs are OK)
+# ══════════════════════════════════════════════════════════════════════════════
+
+from backend import live_sync as _live_sync
+from ml.matching import load_match_context as _load_match_ctx, match_events as _match_events
+from ml.ingestion.mistake_extractor import MistakeEvent as _MistakeEvent
+from ml.ingestion.threat_classifier import classify_threat as _classify_threat
+
+
+class MarkSeenRequest(BaseModel):
+    alert_ids: list[str] = []
+
+
+class DebriefRequest(BaseModel):
+    username: str
+
+
+@app.get("/api/alerts/{username}")
+def get_alerts(username: str):
+    return {"username": username, "alerts": _live_sync.unseen_alerts(username)}
+
+
+@app.post("/api/alerts/{username}/mark-seen")
+def post_mark_seen(username: str, req: MarkSeenRequest):
+    return {"marked": _live_sync.mark_alerts_seen(username, req.alert_ids)}
+
+
+@app.get("/api/sync/status/{username}")
+def get_sync_status(username: str):
+    state = _live_sync.read_sync_state(username)
+    return {"last_synced_at": state.get("last_synced_at"), "is_syncing": bool(state.get("is_syncing"))}
+
+
+@app.post("/api/sync/trigger/{username}")
+def post_sync_trigger(username: str, platform: str = "lichess"):
+    _live_sync.trigger_sync_async(username, platform)
+    return {"status": "started"}
+
+
+def _sf_eval_full(board) -> dict:
+    """One Stockfish analyse → white-POV cp, mate, best uci."""
+    import chess.engine
+    with _sf_lock:
+        engine = _ensure_engine()
+        info   = engine.analyse(board, chess.engine.Limit(depth=12))
+    score = info.get("score"); pv = info.get("pv") or []
+    white_cp = mate = None
+    if score is not None:
+        pov = score.white()
+        if pov.is_mate(): mate = pov.mate()
+        else:             white_cp = pov.score()
+    return {"white_cp": white_cp, "mate": mate, "best": pv[0].uci() if pv else None}
+
+
+def _phase_for(board) -> str:
+    n = len(board.piece_map())
+    if board.fullmove_number <= 20:
+        return "opening"
+    return "endgame" if n <= 10 else "middlegame"
+
+
+def _load_bot_game_record(game_id: str):
+    import chess as _c
+    g = _bot_games.get(game_id)
+    if g is not None:
+        return {
+            "starting_fen": g.get("starting_fen") or _c.STARTING_FEN,
+            "moves":        list(g.get("move_history", [])),
+            "user_color":   g.get("user_color", "white"),
+        }
+    path = BOT_GAMES_DIR / f"{game_id}.json"
+    if path.exists():
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return {
+            "starting_fen": d.get("starting_fen") or _c.STARTING_FEN,
+            "moves":        list(d.get("move_history", [])),
+            "user_color":   d.get("user_color", "white"),
+        }
+    return None
+
+
+def _compute_debrief(game_id: str, username: str) -> dict:
+    import chess
+
+    cache_path = BOT_GAMES_DIR / f"{game_id}_debrief.json"
+    if cache_path.exists():
+        try:
+            with open(cache_path, encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            pass
+
+    rec = _load_bot_game_record(game_id)
+    if rec is None:
+        raise HTTPException(404, f"Bot game {game_id!r} not found")
+
+    board      = chess.Board(rec["starting_fen"])
+    user_white = rec["user_color"] == "white"
+
+    events: list = []
+    eval_before = _sf_eval_full(board)
+    for uci in rec["moves"]:
+        side_white = board.turn == chess.WHITE
+        is_user    = side_white == user_white
+        fen_before = board.fen()
+        try:
+            move = chess.Move.from_uci(uci)
+            san  = board.san(move)
+        except Exception:
+            break
+        best_before = eval_before
+        board.push(move)
+        eval_after = _sf_eval_full(board)
+
+        if is_user and best_before["white_cp"] is not None and eval_after["white_cp"] is not None:
+            mover_before = best_before["white_cp"] if side_white else -best_before["white_cp"]
+            mover_after  = eval_after["white_cp"]  if side_white else -eval_after["white_cp"]
+            drop = mover_before - mover_after
+            if drop > 80:
+                threat = _classify_threat(fen_before, best_before["best"] or uci)
+                bb = chess.Board(fen_before)
+                events.append(_MistakeEvent(
+                    game_id=game_id, user_id=username, fen=fen_before,
+                    move_played_uci=uci, move_played_san=san,
+                    best_move_uci=best_before["best"] or uci,
+                    eval_before_cp=int(mover_before), eval_after_cp=int(mover_after),
+                    eval_drop_cp=int(drop), threat_type=threat,
+                    game_phase=_phase_for(bb), move_number=bb.fullmove_number,
+                    time_remaining_ms=None, classification_confidence=1.0,
+                ))
+        eval_before = eval_after
+
+    ctx = _load_match_ctx(username, OUTPUT_DIR)
+    matched: list[dict] = []
+    unmatched = 0
+    if ctx is not None and events:
+        for ev, res in zip(events, _match_events(events, ctx)):
+            if res.matched:
+                reset = _live_sync.reset_cluster_mastery(username, res.cluster_id)
+                matched.append({
+                    "move_number": ev.move_number, "fen": ev.fen,
+                    "played": ev.move_played_san, "best": ev.best_move_uci,
+                    "eval_drop": ev.eval_drop_cp, "cluster_id": res.cluster_id,
+                    "cluster_rank": res.cluster_rank, "similarity": round(res.similarity, 4),
+                    "mastery_before": reset[0] if reset else None,
+                    "mastery_after":  reset[1] if reset else None,
+                })
+            else:
+                unmatched += 1
+    else:
+        unmatched = len(events)
+
+    result = {"matched": matched, "unmatched_count": unmatched,
+              "total_mistakes": len(events), "has_profile": ctx is not None}
+    try:
+        BOT_GAMES_DIR.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, default=str)
+    except Exception:
+        pass
+    return result
+
+
+@app.post("/api/bot-game/{game_id}/debrief")
+async def bot_game_debrief(game_id: str, req: DebriefRequest):
+    if not req.username.strip():
+        raise HTTPException(400, "username is required")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: _compute_debrief(game_id, req.username))
+
+
+@app.on_event("startup")
+def _start_live_sync():
+    _live_sync.start_scheduler()
+
 OUTPUT_DIR    = DATA_DIR / "output"
 BOT_GAMES_DIR = DATA_DIR / "bot_games"
 
@@ -900,8 +1089,11 @@ async def bot_game_ws(websocket: WebSocket, game_id: str):
             "target_elo":  game["target_elo"],
         })
 
-        # If user is black, bot (white) moves first
-        if game["user_color"] == "black" and game["status"] == "active":
+        # Bot moves first whenever the side to move is NOT the user's colour.
+        # (From the standard start that's "user is black"; from a custom
+        #  endgame starting_fen the side to move can be either colour.)
+        side_to_move = "white" if game["board"].turn == _chess.WHITE else "black"
+        if side_to_move != game["user_color"] and game["status"] == "active":
             await _make_bot_move(websocket, game)
 
         while True:

@@ -46,3 +46,4 @@ maia2>=0.9
 gdown>=5.0
 pyzstd>=0.15
 einops>=0.7
+Pillow>=10.0.0

@@ -1,9 +1,0 @@
-[Q+2P vs Q+P] 1.9s src=puzzle_db eval=119 cx=moderate syz=win stm=white
-   K+Q+P vs K+Q+2P | 8/5pk1/8/1K4p1/P4q2/6Q1/8/8 w - - 2 44
-   K+Q+P vs K+Q+2P — White has a slight edge, convert precisely
-[pawn endgame] 1.0s src=puzzle_db eval=-333 cx=moderate syz=win stm=black
-   K+2P vs K+2P | 8/8/4pK2/4P2p/4k2P/8/8/8 b - - 1 52
-   K+2P vs K+2P — Black is better, find the winning plan
-[KBN vs K] 1.0s src=generated eval=196 cx=high syz=win stm=white
-   K+B+N vs K | 8/6K1/8/8/4N3/8/8/k2B4 w - - 0 1
-   K+B+N vs K — White has a slight edge, convert precisely

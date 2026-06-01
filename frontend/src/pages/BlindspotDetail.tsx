@@ -2,7 +2,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Chessboard } from 'react-chessboard'
-import { ArrowLeft, Target, TrendingDown, Zap, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Target, TrendingDown, Zap, ExternalLink, Film } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 import { SectionHeader } from '../components/layout/SectionHeader'
@@ -111,12 +111,20 @@ export default function BlindspotDetail() {
         title={data.label}
         description={`Rank #${data.rank} blindspot · ${data.size} mistakes · ${(data.dominant_threat_type ?? '').replace(/_/g, ' ')} · ${(data.dominant_game_phase ?? '').replace(/_/g, ' ')}`}
         right={
-          <button
-            onClick={() => navigate('/session', { state: { clusterId: String(data.cluster_id) } })}
-            className="btn-primary flex items-center gap-2 text-sm"
-          >
-            <Zap size={13} /> Drill this blindspot
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(`/replay/${data.cluster_id}`)}
+              className="btn-ghost flex items-center gap-2 text-sm"
+            >
+              <Film size={13} /> Replay mistakes
+            </button>
+            <button
+              onClick={() => navigate('/session', { state: { clusterId: String(data.cluster_id) } })}
+              className="btn-primary flex items-center gap-2 text-sm"
+            >
+              <Zap size={13} /> Drill this blindspot
+            </button>
+          </div>
         }
       />
 

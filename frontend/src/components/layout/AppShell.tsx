@@ -1,7 +1,9 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import { useUserStore } from '../../store/userStore'
+import { liveApi } from '../../api/live'
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard',      icon: LayoutDashboard },
@@ -35,6 +37,15 @@ export default function AppShell() {
   const { username } = useUserStore()
   const navigate     = useNavigate()
 
+  // Unseen blindspot-alert count → red dot on the Dashboard nav item
+  const { data: alertsData } = useQuery({
+    queryKey: ['alerts', username],
+    queryFn:  () => liveApi.getAlerts(username),
+    enabled:  !!username,
+    refetchInterval: 60_000,
+  })
+  const unseenAlerts = alertsData?.alerts?.length ?? 0
+
   return (
     <div className="flex h-full relative" style={{ zIndex: 1 }}>
       {/* Sidebar */}
@@ -59,6 +70,10 @@ export default function AppShell() {
                 <>
                   <Icon size={16} className={isActive ? 'text-accent' : 'text-text-2 group-hover:text-text-1'} />
                   {label}
+                  {to === '/dashboard' && unseenAlerts > 0 && (
+                    <span className="ml-1.5 w-2 h-2 rounded-full bg-danger flex-shrink-0"
+                          title={`${unseenAlerts} new alert${unseenAlerts > 1 ? 's' : ''}`} />
+                  )}
                   {isActive && <ChevronRight size={12} className="ml-auto text-accent/60" />}
                 </>
               )}

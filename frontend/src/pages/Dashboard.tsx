@@ -10,6 +10,9 @@ import {
 } from 'recharts'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
+import { BlindspotAlerts } from '../components/dashboard/BlindspotAlerts'
+import { RatingImpact } from '../components/dashboard/RatingImpact'
+import { insightsApi } from '../api/insights'
 import type { ClusterSummary, AnalyticsData } from '../types'
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -76,7 +79,7 @@ function MasteryRing({ mastery }: { mastery: number }) {
   )
 }
 
-function BlindspotRow({ cluster, idx }: { cluster: ClusterSummary; idx: number }) {
+function BlindspotRow({ cluster, idx, gain }: { cluster: ClusterSummary; idx: number; gain?: number }) {
   const navigate = useNavigate()
   return (
     <motion.div
@@ -92,12 +95,28 @@ function BlindspotRow({ cluster, idx }: { cluster: ClusterSummary; idx: number }
       </span>
       <MasteryRing mastery={cluster.mastery} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-text-0 truncate">{cluster.label}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-text-0 truncate">{cluster.label}</p>
+          {gain != null && gain > 0 && (
+            <span className="text-[10px] font-semibold text-success bg-success/10 border border-success/25
+                             px-1.5 py-0.5 rounded-full flex-shrink-0 tabular-nums"
+                  title="Estimated rating points from fixing this pattern">
+              +{gain} pts
+            </span>
+          )}
+        </div>
         <p className="text-xs text-text-2 mt-0.5">
           {cluster.size} mistakes &middot; {(cluster.dominant_threat_type ?? '').replace(/_/g, ' ')}
         </p>
       </div>
-      <div className="flex items-center gap-4 flex-shrink-0">
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <button
+          onClick={(e) => { e.stopPropagation(); navigate(`/replay/${cluster.cluster_id}`) }}
+          className="text-[11px] text-text-2 hover:text-accent transition-colors whitespace-nowrap"
+          title="Replay every game position where you made this mistake"
+        >
+          Replay mistakes →
+        </button>
         <UrgencyBar score={cluster.score} />
         <ChevronRight size={13} className="text-bg-3 group-hover:text-accent/60 transition-colors" />
       </div>
@@ -334,6 +353,19 @@ export default function Dashboard() {
     staleTime: 5 * 60 * 1000,
   })
 
+  // Counterfactual rating impact — also powers the per-cluster "+N pts" badges
+  const { data: cf } = useQuery({
+    queryKey: ['counterfactual', username],
+    queryFn: () => insightsApi.counterfactual(username),
+    enabled: !!username,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const gainByCluster: Record<string, number> = {}
+  if (cf?.has_result_data) {
+    for (const c of cf.per_cluster) gainByCluster[String(c.cluster_id)] = c.gain
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -384,6 +416,9 @@ export default function Dashboard() {
         }
       />
 
+      {/* Feature 1: live blindspot alerts + sync status */}
+      <BlindspotAlerts />
+
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-4 mb-8">
         {[
@@ -407,6 +442,9 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Feature 4 + 5: counterfactual rating impact + shareable fingerprint */}
+      <RatingImpact />
+
       <div className="grid grid-cols-5 gap-6">
         {/* Blindspot list */}
         <div className="col-span-3">
@@ -415,7 +453,8 @@ export default function Dashboard() {
           </div>
           <div className="space-y-1.5">
             {visible.map((cluster, i) => (
-              <BlindspotRow key={cluster.cluster_id} cluster={cluster} idx={i} />
+              <BlindspotRow key={cluster.cluster_id} cluster={cluster} idx={i}
+                gain={gainByCluster[String(cluster.cluster_id)]} />
             ))}
           </div>
           {sorted.length > 6 && (

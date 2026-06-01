@@ -11,6 +11,8 @@ import AnalysisBoard from './pages/AnalysisBoard'
 import BotGame from './pages/BotGame'
 import OpeningExplorer from './pages/OpeningExplorer'
 import Endgames from './pages/Endgames'
+import MistakeReplay from './pages/MistakeReplay'
+import DNAPage from './pages/DNAPage'
 import AppShell from './components/layout/AppShell'
 import { ChessBackground } from './components/layout/ChessBackground'
 
@@ -27,6 +29,11 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Onboarding />} />
         <Route path="/loading/:jobId" element={<Loading />} />
+        {/* Public shareable Chess DNA — no auth. /card kept as legacy alias. */}
+        <Route path="/dna/:username"  element={<DNAPage />} />
+        <Route path="/card/:username" element={<DNAPage />} />
+        {/* Focused full-screen replay — outside AppShell (no sidebar) */}
+        <Route path="/replay/:clusterId" element={<RequireUser><MistakeReplay /></RequireUser>} />
 
         <Route element={<RequireUser><AppShell /></RequireUser>}>
           <Route path="/dashboard" element={<Dashboard />} />
