@@ -1,12 +1,13 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown } from 'lucide-react'
+import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { useUserStore } from '../../store/userStore'
 import { liveApi } from '../../api/live'
 
-const NAV = [
+const NAV: { to: string; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { to: '/dashboard', label: 'Dashboard',      icon: LayoutDashboard },
+  { to: '/coach',     label: 'Coach',          icon: Sparkles, badge: 'AI' },
   { to: '/session',   label: 'Drill Session',  icon: Sword },
   { to: '/openings',  label: 'Openings',       icon: BookOpen },
   { to: '/endgames',  label: 'Endgames',       icon: Crown },
@@ -59,7 +60,7 @@ export default function AppShell() {
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-3 space-y-0.5">
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {NAV.map(({ to, label, icon: Icon, badge }) => (
             <NavLink key={to} to={to}
               className={({ isActive }) =>
                 `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-100 group
@@ -70,6 +71,12 @@ export default function AppShell() {
                 <>
                   <Icon size={16} className={isActive ? 'text-accent' : 'text-text-2 group-hover:text-text-1'} />
                   {label}
+                  {badge && (
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold leading-none
+                                     bg-accent/20 text-accent border border-accent/30 flex-shrink-0">
+                      {badge}
+                    </span>
+                  )}
                   {to === '/dashboard' && unseenAlerts > 0 && (
                     <span className="ml-1.5 w-2 h-2 rounded-full bg-danger flex-shrink-0"
                           title={`${unseenAlerts} new alert${unseenAlerts > 1 ? 's' : ''}`} />

@@ -85,6 +85,10 @@ app.include_router(counterfactual_router)
 from backend.card import router as card_router
 app.include_router(card_router)
 
+# Forked Coach — persistent agentic chess coach (capstone feature)
+from backend.coach import router as coach_router
+app.include_router(coach_router)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Feature 1 — Live game sync + blindspot alerts
 #  Feature 2 — Post-game blindspot debrief for Maia games
