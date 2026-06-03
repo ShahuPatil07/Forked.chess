@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowRight, ArrowDown, Loader2, RotateCcw, ShieldCheck, Sparkles, Menu, X,
   Check, Minus, Database, Cpu, Fingerprint, Target, BookOpen, Crown,
-  Share2, Radio, AlertTriangle, Zap, Github, ChevronRight,
+  Share2, Radio, AlertTriangle, Zap, Github, ChevronRight, Bot,
 } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
@@ -56,12 +56,12 @@ const FEATURES = [
   { icon: Target, title: 'Your personal mistake map',
     body: '95 games → 315 mistakes → 5 skill families ranked by urgency. Not what everyone struggles with. What you struggle with.',
     diff: '↗ +67 rating points if fixed' },
-  { icon: Sparkles, title: 'An AI coach that knows your games',
-    body: 'A persistent agentic coach that opens every session knowing your recent games, top blindspot, and drill history. Shows inline puzzles, analyses pasted games, remembers prior sessions.',
-    diff: 'Audio mode · 6 tools · streaming' },
   { icon: Radio, title: 'Instant feedback on every game',
     body: 'Background sync detects when you repeat a known weakness in a live game — within minutes. Resets your mastery and queues drills automatically.',
     diff: 'No manual trigger needed' },
+  { icon: Bot, title: 'Play a human-like bot, get a real debrief',
+    body: 'Full games against Maia2 — a human-move model tuned near your rating, with lifelike thinking time. Afterwards: a Stockfish accuracy report and a blindspot debrief that cross-references the game against your own clusters.',
+    diff: 'Maia2 · accuracy report · blindspot debrief' },
   { icon: BookOpen, title: 'Opening tree with AI ideas on every node',
     body: 'Lazy-loaded tree from real Lichess games, filtered to your rating. Engine eval, WDL bars, and AI-generated typical ideas on every variation. Fuzzy search jumps to any named line.',
     diff: 'Better than Chess.com · better than Lichess' },
@@ -187,79 +187,93 @@ function Header({ loggedIn, onStart, onNav }: {
 
 // ── Hero animated 3-state mockup ─────────────────────────────────────────────────
 
-function HeroMockup() {
-  const [state, setState] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setState(s => (s + 1) % 3), 3000)
-    return () => clearInterval(id)
-  }, [])
-
+/**
+ * Hero visual — a faithful, live render of the real Dashboard inside a browser
+ * frame. Drop a real capture at `frontend/public/dashboard.png` and it upgrades
+ * to that screenshot automatically (the <img> fades in over this on load).
+ */
+function DashboardPreview() {
+  const [hasShot, setHasShot] = useState(false)
+  const R = 12, C = 2 * Math.PI * R
+  const blindspots = [
+    { rank: 1, label: 'Loose-piece awareness', mastery: 0,  size: 99, drop: 'avg −260cp', phase: 'opening',    hot: true },
+    { rank: 2, label: 'Pins & skewers',        mastery: 18, size: 40, drop: 'avg −173cp', phase: 'middlegame', hot: false },
+    { rank: 3, label: 'King safety',           mastery: 9,  size: 19, drop: 'avg −340cp', phase: 'middlegame', hot: true },
+  ]
   return (
-    <div className="relative mx-auto h-[300px] w-full max-w-[420px]">
-      {/* glow */}
-      <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_50%_40%,rgba(123,97,255,0.22),transparent_70%)]" />
-      <div className="absolute left-1/2 top-3 flex -translate-x-1/2 gap-1.5">
-        {[0, 1, 2].map(i => (
-          <span key={i} className={`h-1.5 rounded-full transition-all duration-300 ${state === i ? 'w-6 bg-accent' : 'w-1.5 bg-bg-3'}`} />
-        ))}
-      </div>
+    <div className="relative mx-auto w-full max-w-[560px]">
+      <div className="pointer-events-none absolute -inset-8 rounded-[2rem] bg-[radial-gradient(circle_at_55%_40%,rgba(123,97,255,0.24),transparent_70%)]" />
+      <div className="relative overflow-hidden rounded-xl border border-border bg-bg-1/95 shadow-2xl shadow-black/50 backdrop-blur-md">
+        {/* browser chrome */}
+        <div className="flex items-center gap-1.5 border-b border-border bg-bg-0/70 px-3 py-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-danger/60" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400/60" />
+          <span className="h-2.5 w-2.5 rounded-full bg-success/60" />
+          <div className="ml-2 flex-1 rounded bg-bg-2 px-2 py-0.5 text-[10px] text-text-2">forked.chess/dashboard</div>
+        </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div key={state}
-          initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
-          transition={{ duration: 0.45 }}
-          className="absolute inset-x-0 top-10 mx-auto w-full">
-          {state === 0 && (
-            <div className="rounded-xl border border-border bg-bg-1/90 p-4 font-mono text-xs shadow-2xl backdrop-blur-md">
-              <div className="mb-3 flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-danger/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-success/70" />
-                <span className="ml-2 text-[10px] text-text-2">forked · analysing</span>
-              </div>
-              <p className="text-text-2">$ forked analyse <span className="text-accent">ShahuPatil27</span></p>
-              <p className="mt-1.5 text-text-1">Fetching 95 games…</p>
-              <p className="text-text-1">Annotating with Stockfish…</p>
-              <p className="mt-1.5 text-success">✓ 315 mistakes found across 5 skill families</p>
+        {/* live dashboard render */}
+        <div className="relative p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-text-0">Dashboard</p>
+              <p className="text-[10px] text-text-2">ShahuPatil27 · 1800 ELO</p>
             </div>
-          )}
-          {state === 1 && (
-            <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 shadow-2xl backdrop-blur-md">
-              <div className="flex items-start gap-2.5">
-                <AlertTriangle size={18} className="mt-0.5 flex-shrink-0 text-danger" />
-                <div className="min-w-0">
-                  <p className="text-sm text-text-0">You repeated a known weakness on move 22 vs <span className="font-semibold">pedrominarelli</span></p>
-                  <p className="mt-1 text-xs text-text-2">Loose-piece awareness · pattern confidence 100%</p>
-                </div>
+            <span className="inline-flex items-center gap-1 rounded-md bg-accent/15 px-2 py-1 text-[10px] font-semibold text-accent">
+              <Share2 size={10} /> The Attacker
+            </span>
+          </div>
+
+          {/* stat tiles */}
+          <div className="mb-3 grid grid-cols-4 gap-2">
+            {[['Games', '95', 'text-text-0'], ['Mistakes', '315', 'text-danger'], ['Blindspots', '5', 'text-accent'], ['Potential', '1867', 'text-success']].map(([l, v, c]) => (
+              <div key={l} className="rounded-lg border border-border bg-bg-2/60 p-2">
+                <p className="text-[9px] text-text-2">{l}</p>
+                <p className={`text-base font-black ${c}`}>{v}</p>
               </div>
-              <div className="mt-3 flex gap-2">
-                <span className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white"><Zap size={12} /> Drill</span>
-                <span className="rounded-md border border-border bg-bg-1/60 px-3 py-1.5 text-xs text-text-1">View</span>
-              </div>
-            </div>
-          )}
-          {state === 2 && (
-            <div className="rounded-xl border border-accent/30 bg-bg-1/90 p-4 shadow-2xl backdrop-blur-md">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-text-2">Chess DNA</p>
-                <Share2 size={13} className="text-accent" />
-              </div>
-              <p className="text-xl font-black text-text-0">The Attacker</p>
-              <div className="mt-3 space-y-2">
-                {[['Tactical', 88], ['Aggressive', 62], ['Risk-taker', 56], ['Time calm', 93]].map(([k, v]) => (
-                  <div key={k as string} className="flex items-center gap-2">
-                    <span className="w-20 text-[11px] text-text-2">{k}</span>
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-bg-3">
-                      <div className="h-full rounded-full bg-gradient-to-r from-accent to-purple-300" style={{ width: `${v}%` }} />
-                    </div>
-                    <span className="w-6 text-right text-[11px] font-semibold text-text-1">{v}</span>
+            ))}
+          </div>
+
+          {/* live alert */}
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-2">
+            <AlertTriangle size={13} className="flex-shrink-0 text-danger" />
+            <p className="min-w-0 flex-1 truncate text-[10px] text-text-1">Repeated <span className="font-semibold text-text-0">loose-piece</span> on move 22 vs pedrominarelli</p>
+            <span className="flex items-center gap-0.5 rounded bg-accent px-1.5 py-0.5 text-[9px] font-semibold text-white"><Zap size={9} /> Drill</span>
+          </div>
+
+          {/* blindspot cards */}
+          <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-text-2">Your blindspots</p>
+          <div className="space-y-1.5">
+            {blindspots.map(b => (
+              <div key={b.rank} className="flex items-center gap-2 rounded-lg border border-border bg-bg-1/70 p-2">
+                <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded bg-bg-3 text-[10px] font-bold text-text-1">{b.rank}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] font-semibold text-text-0">{b.label}</p>
+                  <div className="mt-1 flex gap-1">
+                    <span className="rounded bg-bg-3/60 px-1 py-0.5 text-[8px] text-text-2">{b.size}×</span>
+                    <span className={`rounded px-1 py-0.5 text-[8px] ${b.hot ? 'bg-danger/15 text-danger' : 'bg-bg-3/60 text-text-2'}`}>{b.drop}</span>
+                    <span className="rounded bg-accent/10 px-1 py-0.5 text-[8px] text-accent">{b.phase}</span>
                   </div>
-                ))}
+                </div>
+                <svg viewBox="0 0 32 32" className="h-8 w-8 flex-shrink-0 -rotate-90">
+                  <circle cx="16" cy="16" r={R} fill="none" stroke="#242436" strokeWidth="3" />
+                  <circle cx="16" cy="16" r={R} fill="none" stroke="#7B61FF" strokeWidth="3" strokeLinecap="round"
+                    strokeDasharray={C} strokeDashoffset={C * (1 - b.mastery / 100)} />
+                </svg>
               </div>
-            </div>
-          )}
-        </motion.div>
-      </AnimatePresence>
+            ))}
+          </div>
+
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-success/25 bg-success/10 px-3 py-2">
+            <span className="text-[10px] text-text-1">Fix all blindspots</span>
+            <span className="text-xs font-bold text-success">+67 rating →</span>
+          </div>
+
+          {/* real screenshot overlay (optional — appears only if the file exists) */}
+          <img src="/dashboard.png" alt="Forked dashboard" onLoad={() => setHasShot(true)}
+            className={`absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-500 ${hasShot ? 'opacity-100' : 'opacity-0'}`} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -490,7 +504,7 @@ export default function Onboarding() {
 
       <main className="relative mx-auto max-w-7xl px-5 sm:px-8">
         {/* ── Section 1 — Hero ── */}
-        <section className="grid min-h-screen items-center gap-10 pt-24 pb-12 lg:grid-cols-[minmax(0,1fr)_440px]">
+        <section className="grid min-h-screen items-center gap-10 pt-24 pb-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)]">
           <div className="max-w-3xl">
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}
               className="mb-5 inline-flex items-center gap-2 rounded-full border border-accent/25 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent">
@@ -528,7 +542,7 @@ export default function Onboarding() {
           </div>
 
           <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, delay: 0.1 }}>
-            <HeroMockup />
+            <DashboardPreview />
           </motion.div>
         </section>
 
@@ -586,8 +600,55 @@ export default function Onboarding() {
 
         {/* ── Section 4 — Feature showcase ── */}
         <section id="features" className="border-t border-border/60 py-20">
-          <SectionTitle eyebrow="Everything in one platform" title="Six tools, one blindspot graph"
+          <SectionTitle eyebrow="Everything in one platform" title="Seven tools, one blindspot graph"
             sub="Each one is grounded in your real data or a tablebase — not generic AI text." />
+
+          {/* Elevated flagship — the Forked Coach */}
+          <motion.div initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }}
+            transition={{ duration: 0.45 }}
+            className="group relative mb-4 overflow-hidden rounded-2xl border border-accent/40
+                       bg-gradient-to-br from-accent/15 via-bg-1/80 to-bg-1/80 p-6 backdrop-blur-md
+                       transition-all duration-200 hover:border-accent/60 hover:shadow-[0_12px_44px_rgba(123,97,255,0.22)] sm:p-8">
+            <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(123,97,255,0.30),transparent_70%)]" />
+            <div className="relative grid items-center gap-6 lg:grid-cols-2">
+              <div>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-accent">
+                  <Sparkles size={11} /> Capstone · new
+                </span>
+                <h3 className="mt-3 text-2xl font-black tracking-tight text-text-0">An AI coach that knows your games</h3>
+                <p className="mt-3 max-w-md text-sm leading-7 text-text-1">
+                  A persistent agentic coach that opens every session knowing your recent games, top blindspot, and
+                  drill history. Shows inline puzzles you can solve, analyses pasted games, and remembers prior sessions.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {['Audio mode', '6 tools', 'Streaming', 'Remembers you'].map(t => (
+                    <span key={t} className="rounded-md border border-accent/25 bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent">{t}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* mini chat preview — show, don't tell */}
+              <div className="rounded-xl border border-border bg-bg-0/60 p-3.5">
+                <div className="mb-2 flex items-center gap-1.5">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/15 text-accent"><Sparkles size={12} /></span>
+                  <span className="text-[11px] font-semibold text-text-1">Forked Coach</span>
+                  <span className="ml-auto h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
+                </div>
+                <div className="space-y-2">
+                  <p className="max-w-[92%] rounded-2xl rounded-bl-sm border border-border bg-bg-2 px-3 py-2 text-[11px] leading-relaxed text-text-1">
+                    Welcome back. You repeated that loose-piece pattern on move 22 vs pedrominarelli — your mastery there is back to 0. Want to drill it, or review the game?
+                  </p>
+                  <p className="ml-auto max-w-[70%] rounded-2xl rounded-br-sm border border-accent/20 bg-accent/15 px-3 py-2 text-[11px] text-text-0">
+                    show me a puzzle on it
+                  </p>
+                  <p className="flex items-center gap-1.5 text-[10px] text-text-2">
+                    <Zap size={10} className="text-accent" /> serving a loose-piece puzzle at your rating…
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map(({ icon: Icon, title, body, diff }, i) => (
               <motion.div key={title} initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }}
@@ -664,6 +725,20 @@ export default function Onboarding() {
               The feedback loop is the key: when you blunder the same pattern in a real game, the system detects it.
               <span className="text-text-0"> No static puzzle platform does this.</span>
             </p>
+          </div>
+
+          {/* Real social proof — open source, build it in the open */}
+          <div className="mx-auto mt-8 flex flex-col items-center gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-2">Free &amp; open source</p>
+            <a href="https://github.com/ShahuPatil07/Forked" target="_blank" rel="noopener noreferrer"
+              className="group inline-flex items-center gap-3 rounded-xl border border-border bg-bg-1/70 px-4 py-3 transition-colors hover:border-accent/40">
+              <Github size={18} className="text-text-1 group-hover:text-text-0" />
+              <span className="text-sm font-semibold text-text-1 group-hover:text-text-0">ShahuPatil07/Forked</span>
+              <img
+                src="https://img.shields.io/github/stars/ShahuPatil07/Forked?style=flat&label=stars&color=7B61FF&labelColor=1A1D36&logo=github&logoColor=white"
+                alt="GitHub stars" className="h-5" loading="lazy" />
+            </a>
+            <p className="text-[11px] text-text-2">Inspect the model, the pipeline, every prompt — nothing hidden.</p>
           </div>
         </section>
 
