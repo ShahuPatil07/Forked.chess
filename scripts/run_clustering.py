@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ml.config import DATA_DIR
 from ml.ingestion.mistake_extractor import MistakeEvent
-from ml.clustering.pipeline import run_clustering
+from ml.clustering.profile_pipeline import run_clustering
 
 
 def load_mistakes(path: Path) -> list[MistakeEvent]:

@@ -1,13 +1,19 @@
 """
 Cluster matching — map a fresh MistakeEvent to an existing blindspot cluster.
 
-Blindspot clusters are identified ONLY by their cluster_id and centroid
-vector. Centroids live in the 16-dim UMAP space, so a new mistake must be
-projected through the SAME persisted StandardScaler + UMAP reducer before
-comparing. The LLM label is never used for matching.
+Stage 2 is now a deterministic blindspot-FAMILY profile (no UMAP/HDBSCAN). A
+cluster IS a family, and a mistake's cluster is simply `family_of(threat_type)`
+— there is no embedding to project, no scaler/reducer, no cosine threshold.
 
-A match requires cosine similarity > MATCH_THRESHOLD (0.72). Below that the
-mistake is genuinely unmatched — caller must NOT force the closest cluster.
+This module keeps its original public API (`load_match_context`, `match_events`,
+`match_event`, `assign_nearest`, `MatchContext`, `MatchResult`) so the consumers
+— live_sync (alerts), replay, counterfactual, bot-game debrief — need no change.
+Internally it now matches on family key instead of centroid distance.
+
+Each MistakeEvent must already carry `threat_type` from Stage 1 (the transformer,
+set during ingestion). A confident match = the event's family is one of the
+user's existing blindspot clusters; the only "unmatched" case is the
+`unclassified` (positional) family, which is never a tactical cluster.
 """
 from __future__ import annotations
 
@@ -17,95 +23,74 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
-
-from ml.clustering.feature_extractor import extract_features
+from ml.clustering.families import family_of, UNCLASSIFIED
 
 log = logging.getLogger(__name__)
 
+# Kept for API compatibility; family matching is exact, so this is effectively 1.0.
 MATCH_THRESHOLD = 0.72
 
 
 @dataclass
 class MatchContext:
-    scaler:    object
-    reducer:   object
-    clusters:  list[dict]          # raw cluster dicts from {username}_clusters.json
-    centroids: np.ndarray          # (K, 16)
+    """Family-based cluster context for a user. `clusters` are the raw cluster
+    dicts from {username}_clusters.json; each cluster_id is a family key."""
+    clusters:    list[dict]
+    family_to_i: dict[str, int]          # family key -> index in `clusters`
 
 
 @dataclass
 class MatchResult:
-    cluster_id:   Optional[object]  # None if unmatched
+    cluster_id:   Optional[object]       # family key, or None if unmatched
     cluster_rank: Optional[int]
-    similarity:   float             # best similarity (even if below threshold)
+    similarity:   float                  # 1.0 for an exact family match, else 0.0
     matched:      bool
 
 
 def load_match_context(username: str, output_dir: Path) -> Optional[MatchContext]:
-    """Load the persisted scaler, reducer and clusters for a user. None if absent."""
+    """Load the user's blindspot clusters. None if no profile exists yet.
+
+    No scaler / reducer needed any more — the profile is family-based."""
     clusters_path = output_dir / f"{username}_clusters.json"
-    scaler_path   = output_dir / f"{username}_scaler.pkl"
-    reducer_path  = output_dir / f"{username}_reducer.pkl"
-
-    if not (clusters_path.exists() and scaler_path.exists() and reducer_path.exists()):
+    if not clusters_path.exists():
         return None
-
     try:
-        import joblib
         with open(clusters_path, encoding="utf-8") as fh:
             clusters = json.load(fh)
         if not clusters:
             return None
-        scaler  = joblib.load(scaler_path)
-        reducer = joblib.load(reducer_path)
-        centroids = np.array([c["centroid"] for c in clusters], dtype=np.float64)
-        return MatchContext(scaler=scaler, reducer=reducer, clusters=clusters, centroids=centroids)
+        family_to_i = {str(c.get("cluster_id")): i for i, c in enumerate(clusters)}
+        return MatchContext(clusters=clusters, family_to_i=family_to_i)
     except Exception as exc:
         log.warning("Could not load match context for %s: %s", username, exc)
         return None
 
 
-def _project(events: list, ctx: MatchContext) -> np.ndarray:
-    """122-dim features → scaler → UMAP → (N, 16)."""
-    X = extract_features(events)                 # (N, 122)
-    Xs = ctx.scaler.transform(X)
-    Xr = np.asarray(ctx.reducer.transform(Xs), dtype=np.float64)   # (N, 16)
-    return Xr
-
-
-def _cosine_to_centroids(vec: np.ndarray, centroids: np.ndarray) -> np.ndarray:
-    eps = 1e-9
-    v = vec / (np.linalg.norm(vec) + eps)
-    C = centroids / (np.linalg.norm(centroids, axis=1, keepdims=True) + eps)
-    return C @ v                                  # (K,)
+def _family_for(event) -> str:
+    """A fresh event's family = family_of(its Stage-1 threat_type)."""
+    return family_of(getattr(event, "threat_type", "") or "other")
 
 
 def match_events(events: list, ctx: MatchContext) -> list[MatchResult]:
     """
-    For each event return the best-matching cluster (by centroid cosine) only
-    if similarity > MATCH_THRESHOLD, else an unmatched result. Never forces a
-    match.
+    For each event, match to the user's existing cluster whose family it belongs
+    to. The positional `unclassified` family is treated as unmatched (it is never
+    a tactical blindspot cluster), mirroring the old "below threshold" behaviour.
     """
-    if not events or ctx.centroids.size == 0:
-        return [MatchResult(None, None, 0.0, False) for _ in events]
-
-    projected = _project(events, ctx)
     out: list[MatchResult] = []
-    for vec in projected:
-        sims = _cosine_to_centroids(vec, ctx.centroids)
-        bi   = int(np.argmax(sims))
-        best = float(sims[bi])
-        if best > MATCH_THRESHOLD:
-            c = ctx.clusters[bi]
-            out.append(MatchResult(
-                cluster_id   = c.get("cluster_id"),
-                cluster_rank = c.get("rank", bi + 1),
-                similarity   = best,
-                matched      = True,
-            ))
-        else:
-            out.append(MatchResult(None, None, best, False))
+    for ev in events:
+        fam = _family_for(ev)
+        idx = ctx.family_to_i.get(fam)
+        if fam == UNCLASSIFIED or idx is None:
+            out.append(MatchResult(None, None, 0.0, False))
+            continue
+        c = ctx.clusters[idx]
+        out.append(MatchResult(
+            cluster_id   = c.get("cluster_id"),
+            cluster_rank = c.get("rank", idx + 1),
+            similarity   = 1.0,
+            matched      = True,
+        ))
     return out
 
 
@@ -116,19 +101,16 @@ def match_event(event, ctx: MatchContext) -> MatchResult:
 
 def assign_nearest(events: list, ctx: MatchContext) -> list[tuple[int, float]]:
     """
-    Assign every event to its NEAREST cluster by centroid cosine, with NO
-    threshold. Returns [(cluster_index, similarity), ...].
+    Assign every event to its family's cluster index, with NO threshold.
+    Returns [(cluster_index, similarity), ...]; index = -1 if the event's family
+    isn't one of the user's clusters (e.g. positional/unclassified).
 
-    Used by Mistake Replay: these events are the user's own mistakes that
-    originally formed the clusters, so we want the full grouping back —
-    not the confident-repeat filter that live-sync uses.
+    Used by Mistake Replay / counterfactual to regroup the user's own mistakes —
+    same return contract as before, now exact by family.
     """
-    if not events or ctx.centroids.size == 0:
-        return [(-1, 0.0) for _ in events]
-    projected = _project(events, ctx)
     out: list[tuple[int, float]] = []
-    for vec in projected:
-        sims = _cosine_to_centroids(vec, ctx.centroids)
-        bi = int(np.argmax(sims))
-        out.append((bi, float(sims[bi])))
+    for ev in events:
+        fam = _family_for(ev)
+        idx = ctx.family_to_i.get(fam)
+        out.append((idx, 1.0) if idx is not None else (-1, 0.0))
     return out

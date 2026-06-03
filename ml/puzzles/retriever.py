@@ -62,6 +62,8 @@ class PuzzleIndex:
         self._ids    = [m["puzzle_id"] for m in self._meta]
         self._themes = [m["themes"]    for m in self._meta]
         self._threats = [m["threat"]   for m in self._meta]
+        # Pre-split theme strings into sets once for fast Stage-3 family queries.
+        self._theme_sets = [set(t.split()) for t in self._themes]
         self._loaded = True
 
     @property
@@ -138,6 +140,58 @@ class PuzzleIndex:
                 threat=m["threat"],
                 game_url=m["game_url"],
                 distance=float(dists[li]),
+            ))
+        return results
+
+
+    def query_by_themes(
+        self,
+        themes:     list[str],
+        min_rating: int = 800,
+        max_rating: int = 2800,
+        seen_ids:   Optional[set[str]] = None,
+        top_k:      int = 20,
+        rng_seed:   Optional[int] = None,
+    ) -> list[PuzzleResult]:
+        """
+        Stage-3 (family) retrieval: return up to `top_k` puzzles whose Lichess
+        `Themes` intersect `themes` and whose rating is in band, sampled
+        randomly (so repeated calls vary). Used by the blindspot-family drill
+        builder — there is no centroid any more.
+        """
+        self._load()
+        want = set(themes)
+        if not want:
+            return []
+
+        seen = seen_ids or set()
+        candidates = [
+            i for i in range(len(self._meta))
+            if (self._ratings[i] >= min_rating and self._ratings[i] <= max_rating)
+            and (self._theme_sets[i] & want)
+            and (self._ids[i] not in seen)
+        ]
+        if not candidates:
+            # Relax the rating band before giving up (rare families can be sparse).
+            candidates = [
+                i for i in range(len(self._meta))
+                if (self._theme_sets[i] & want) and (self._ids[i] not in seen)
+            ]
+        if not candidates:
+            return []
+
+        import random as _random
+        rng = _random.Random(rng_seed)
+        rng.shuffle(candidates)
+        chosen = candidates[:top_k]
+
+        results = []
+        for gi in chosen:
+            m = self._meta[gi]
+            results.append(PuzzleResult(
+                puzzle_id=m["puzzle_id"], fen=m["fen"], moves=m["moves"],
+                rating=m["rating"], themes=m["themes"], threat=m["threat"],
+                game_url=m["game_url"], distance=0.0,
             ))
         return results
 

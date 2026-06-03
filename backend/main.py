@@ -10,6 +10,7 @@ import logging
 import queue
 import sys
 import threading
+import time
 import uuid
 
 # On Windows + Python 3.12+, chess.engine.SimpleEngine.popen_uci() calls
@@ -339,12 +340,12 @@ def _ingestion_worker(
               "mistakes_found": len(mistakes),
               "message": "Finding blindspot patterns..."})
 
-        from ml.clustering.pipeline import run_clustering
+        # Stage 2 — deterministic blindspot-family profile (replaces UMAP+HDBSCAN+Groq)
+        from ml.clustering.profile_pipeline import run_clustering
 
         clusters = run_clustering(
             mistakes=mistakes,
             username=job.username,
-            # min_cluster_size auto-scaled from mistake count (see pipeline.py)
             output_dir=OUTPUT_DIR,
         )
 
@@ -529,6 +530,43 @@ async def ingest_status(job_id: str):
     )
 
 
+def _cluster_enrichment(evts: list, total: int) -> dict:
+    """Per-cluster context derived straight from its mistake events, so it works
+    for every user regardless of whether a profile.json snapshot exists. Surfaces
+    the signals the product cares about: how costly, when (phase), under what
+    conditions (time pressure), and the sub-motif mix within the family."""
+    n = len(evts)
+    raw_drops = [max(0, e.get("eval_drop_cp", 0)) for e in evts]
+    # Cap at 1000cp (matches Stage-2 _SEVERITY_CAP) so mate scores (eval_drop
+    # ~30000) don't make the average meaningless.
+    drops = [min(1000, d) for d in raw_drops]
+    avg_drop = round(sum(drops) / n) if n else 0
+    max_drop = max(raw_drops) if raw_drops else 0
+    blunders = sum(1 for d in raw_drops if d >= 300)
+
+    phases  = Counter(e.get("game_phase", "middlegame") for e in evts)
+    threats = Counter(e.get("threat_type", "other") for e in evts)
+
+    clocks = [e.get("time_remaining_ms") for e in evts if e.get("time_remaining_ms") is not None]
+    tp_share = round(sum(1 for c in clocks if c < 30_000) / len(clocks), 3) if clocks else None
+
+    # Recency: most recent occurrence in days (None if no timestamps).
+    ts = [e.get("played_at_unix") for e in evts if e.get("played_at_unix")]
+    last_days = round((time.time() - max(ts)) / 86_400, 1) if ts else None
+
+    return {
+        "frequency":           round(n / total, 4) if total else 0.0,
+        "avg_drop_cp":         avg_drop,
+        "max_drop_cp":         max_drop,
+        "blunder_count":       blunders,
+        "phase_breakdown":     dict(phases.most_common()),
+        "threat_breakdown":    dict(threats.most_common()),
+        "dominant_phase":      phases.most_common(1)[0][0] if phases else "middlegame",
+        "time_pressure_share": tp_share,
+        "last_seen_days":      last_days,
+    }
+
+
 @app.get("/api/profile/{username}")
 def get_profile(username: str):
     clusters = _load_json(_clusters_path(username), "Cluster profile")
@@ -537,19 +575,31 @@ def get_profile(username: str):
     for i, c in enumerate(clusters):
         c["rank"] = i + 1
 
-    # Stats from mistakes
+    # Stats + per-cluster enrichment from mistakes
     try:
         mistakes = _load_json(_mistakes_path(username), "")
         threats = Counter(m["threat_type"] for m in mistakes)
         phases  = Counter(m["game_phase"]  for m in mistakes)
         n_games = len(set(m["game_id"] for m in mistakes))
+        total   = len(mistakes)
         stats = {
             "total_games":       n_games,
-            "total_mistakes":    len(mistakes),
+            "total_mistakes":    total,
             "top_threat":        threats.most_common(1)[0][0] if threats else "other",
             "threat_breakdown":  dict(threats.most_common()),
             "phase_breakdown":   dict(phases.most_common()),
         }
+        by_cluster: dict[str, list] = defaultdict(list)
+        for m in mistakes:
+            by_cluster[str(m.get("cluster_id"))].append(m)
+        try:
+            from ml.clustering.families import family_info as _family_info
+        except Exception:
+            _family_info = None
+        for c in clusters:
+            c["enrichment"] = _cluster_enrichment(by_cluster.get(str(c["cluster_id"]), []), total)
+            if _family_info is not None:
+                c["skill"] = _family_info(str(c["cluster_id"])).get("skill")
     except HTTPException:
         stats = {"total_games": 0, "total_mistakes": 0, "top_threat": "other",
                  "threat_breakdown": {}, "phase_breakdown": {}}
@@ -723,6 +773,45 @@ def get_analytics(username: str):
 
     phase_data = [{"phase": p, "count": c} for p, c in phase_counts.most_common()]
 
+    # ── Severity summary ───────────────────────────────────────────────────────
+    all_drops = [max(0, m.get("eval_drop_cp", 0)) for m in mistakes]
+    capped = [min(1000, d) for d in all_drops]   # cap mate scores for a sane average
+    severity = {
+        "avg_drop":     round(sum(capped) / len(capped)) if capped else 0,
+        "max_drop":     max(all_drops) if all_drops else 0,
+        "blunders":     sum(1 for d in all_drops if d >= 300),
+        "mistakes":     sum(1 for d in all_drops if 100 <= d < 300),
+        "inaccuracies": sum(1 for d in all_drops if d < 100),
+    }
+
+    # ── Time-pressure: mistakes split by clock remaining (where known) ─────────
+    clocks = [m.get("time_remaining_ms") for m in mistakes if m.get("time_remaining_ms") is not None]
+    tp_buckets = [
+        {"label": "<10s",    "count": sum(1 for c in clocks if c < 10_000)},
+        {"label": "10–30s",  "count": sum(1 for c in clocks if 10_000 <= c < 30_000)},
+        {"label": "30–60s",  "count": sum(1 for c in clocks if 30_000 <= c < 60_000)},
+        {"label": ">60s",    "count": sum(1 for c in clocks if c >= 60_000)},
+    ]
+    time_pressure = {
+        "has_data":     bool(clocks),
+        "n_with_clock": len(clocks),
+        "under_30s":    sum(1 for c in clocks if c < 30_000),
+        "share":        round(sum(1 for c in clocks if c < 30_000) / len(clocks), 3) if clocks else None,
+        "buckets":      tp_buckets,
+    }
+
+    # ── Maia2 difficulty: how "human-hard" the missed positions were ───────────
+    diffs = [m.get("maia2_difficulty") for m in mistakes if m.get("maia2_difficulty") is not None]
+    maia = {
+        "has_data": bool(diffs),
+        "avg_difficulty": round(sum(diffs) / len(diffs), 3) if diffs else None,
+        "buckets": [
+            {"label": "Easy (most find)",  "count": sum(1 for d in diffs if d < 0.33)},
+            {"label": "Tricky",            "count": sum(1 for d in diffs if 0.33 <= d < 0.66)},
+            {"label": "Hard (most miss)",  "count": sum(1 for d in diffs if d >= 0.66)},
+        ],
+    } if diffs else {"has_data": False}
+
     return {
         "username":        username,
         "total_mistakes":  len(mistakes),
@@ -730,6 +819,9 @@ def get_analytics(username: str):
         "phase_breakdown": phase_data,
         "moves_aggregated": moves_aggregated,
         "scatter":         scatter,
+        "severity":        severity,
+        "time_pressure":   time_pressure,
+        "maia":            maia,
     }
 
 

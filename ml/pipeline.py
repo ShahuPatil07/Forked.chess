@@ -235,15 +235,22 @@ def run_ingestion(
     print(f"[2/4] Annotating with Stockfish ({sf_path.name})...")
     print(f"      Two-pass strategy: depth-12 screen -> depth-18 on mistakes only\n")
 
-    # Build HybridThreatClassifier once for the whole batch (loads ML model into RAM)
-    from ml.classifier.hybrid_classifier import HybridThreatClassifier
+    # Stage 1 — pure transformer threat classifier (replaces the LightGBM +
+    # rule-based funnel). Loads the Chessformer checkpoint into RAM once.
     _root = Path(__file__).parent.parent
-    _model_path = _root / "models" / "threat_lgbm.pkl"
-    classifier = HybridThreatClassifier(model_path=_model_path) if _model_path.exists() else None
-    if classifier:
-        print("      HybridThreatClassifier loaded (rule + ML fallback).")
-    else:
-        print("      No trained model found — rule-based classification only.")
+    _ckpt = _root / "models" / "stage1_transformer.pt"
+    _ref  = _root / "models" / "stage1_reference.pkl"
+    classifier = None
+    if _ckpt.exists() and _ref.exists():
+        try:
+            from ml.classifier.transformer.classifier import get_classifier
+            classifier = get_classifier(ckpt=_ckpt, ref=_ref)
+            print("      Stage-1 transformer classifier loaded (pure transformer).")
+        except Exception as exc:
+            print(f"      Transformer classifier failed to load ({exc}) — "
+                  f"falling back to rule-based only.")
+    if classifier is None:
+        print("      No transformer model found — rule-based classification only.")
 
     with chess.engine.SimpleEngine.popen_uci(str(sf_path)) as engine:
         engine.configure({"Threads": 1, "Hash": 128})

@@ -8,6 +8,18 @@ export interface RepresentativeEvent {
   move_number: number
 }
 
+export interface ClusterEnrichment {
+  frequency: number
+  avg_drop_cp: number
+  max_drop_cp: number
+  blunder_count: number
+  phase_breakdown: Record<string, number>
+  threat_breakdown: Record<string, number>
+  dominant_phase: string
+  time_pressure_share: number | null
+  last_seen_days: number | null
+}
+
 export interface ClusterSummary {
   cluster_id: string | number
   label: string
@@ -20,6 +32,8 @@ export interface ClusterSummary {
   last_occurrence_unix: number | null
   next_review_unix: number | null
   representative_events: RepresentativeEvent[]
+  enrichment?: ClusterEnrichment
+  skill?: string | null
 }
 
 export interface ProfileStats {
@@ -88,6 +102,30 @@ export interface ScatterPoint {
   game_phase: string
 }
 
+export interface SeveritySummary {
+  avg_drop: number
+  max_drop: number
+  blunders: number
+  mistakes: number
+  inaccuracies: number
+}
+
+export interface TimePressureBucket { label: string; count: number }
+
+export interface TimePressureSummary {
+  has_data: boolean
+  n_with_clock: number
+  under_30s: number
+  share: number | null
+  buckets: TimePressureBucket[]
+}
+
+export interface MaiaSummary {
+  has_data: boolean
+  avg_difficulty?: number | null
+  buckets?: { label: string; count: number }[]
+}
+
 export interface AnalyticsData {
   username: string
   total_mistakes: number
@@ -95,6 +133,9 @@ export interface AnalyticsData {
   phase_breakdown: PhaseData[]
   moves_aggregated: MoveBucket[]
   scatter: ScatterPoint[]
+  severity?: SeveritySummary
+  time_pressure?: TimePressureSummary
+  maia?: MaiaSummary
 }
 
 export interface PuzzleItem {

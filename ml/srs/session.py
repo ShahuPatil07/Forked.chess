@@ -15,24 +15,17 @@ Usage:
 from __future__ import annotations
 
 import json
-import random
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-
-import numpy as np
 
 from ml.puzzles.retriever import PuzzleResult, get_index
-from ml.srs.scheduler import SRSState, ClusterState
+from ml.srs.scheduler import SRSState
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data" / "output"
 SEEN_DIR = Path(__file__).parent.parent.parent / "data" / "seen"
 
 # Rating band around user ELO for puzzle matching
 ELO_BAND = 200
-# Temperature for softmax weighting (higher = concentrate on top cluster)
-TEMPERATURE = 2.0
 
 
 @dataclass
@@ -43,13 +36,6 @@ class SessionItem:
     # Context shown in the UI: "Your #1 blindspot — missed N times"
     blindspot_rank: int
     missed_count:   int
-
-
-def _softmax(scores: np.ndarray, temperature: float = 1.0) -> np.ndarray:
-    s = scores * temperature
-    s = s - s.max()
-    e = np.exp(s)
-    return e / e.sum()
 
 
 def _load_seen(username: str) -> set[str]:
@@ -69,41 +55,43 @@ def _save_seen(username: str, seen: set[str]) -> None:
 
 def build_session(
     username:  str,
-    clusters:  list,               # list[BlindspotCluster]
+    clusters:  list,               # list[BlindspotCluster] — each cluster IS a blindspot family
     user_elo:  int = 1500,
     n_puzzles: int = 12,
-    due_only:  bool = True,        # False = ignore SRS schedule, always include top clusters
+    due_only:  bool = True,        # False = ignore SRS schedule, always include top families
 ) -> list[SessionItem]:
     """
-    Build a drill session.
+    Build a drill session over the user's blindspot FAMILIES (Stage 2/3).
 
-    Clusters are weighted by urgency score via softmax. For each slot, we
-    sample a cluster (with replacement allowed) then retrieve the nearest
-    unseen puzzle for that cluster from the index.
+    Each cluster is a fixed family with a known set of Lichess themes. We
+    allocate the puzzle budget across families proportional to their blindspot
+    score (frequency × recency × severity) via `allocate_puzzles`, then pull
+    that many unseen puzzles per family by theme. SRS mastery + seen-tracking
+    are preserved; the positional `unclassified` family is excluded (no tactical
+    puzzles train positional play).
     """
     if not clusters:
         return []
 
+    from ml.clustering.profile_pipeline import allocate_puzzles
+
     srs = SRSState(username)
     srs.sync_clusters(clusters)
 
+    # Respect SRS scheduling: keep only families that are due (unless due_only=False).
     if due_only:
-        eligible = srs.due_clusters()
-        if not eligible:
-            print("All clusters are ahead of schedule. Using top clusters anyway.")
-            eligible = srs.all_clusters()[:5]
+        due_ids = {cs.cluster_id for cs in srs.due_clusters()}
+        eligible_clusters = [c for c in clusters if str(c.cluster_id) in due_ids] or clusters[:5]
     else:
-        eligible = srs.all_clusters()
+        eligible_clusters = clusters
 
-    scores = np.array([cs.score for cs in eligible], dtype=np.float64)
-    if scores.sum() == 0:
-        scores = np.ones(len(eligible))
-    weights = _softmax(scores, TEMPERATURE)
+    # Score-weighted puzzle budget per family (positional/unclassified excluded).
+    plan = allocate_puzzles(eligible_clusters, total=n_puzzles)
+    if not plan:
+        return []
 
-    # cluster_id -> BlindspotCluster (for centroid lookup)
-    cluster_map = {str(c.cluster_id): c for c in clusters}
-    # cluster rank (1-indexed, already sorted by score desc)
     cluster_rank = {str(c.cluster_id): i + 1 for i, c in enumerate(clusters)}
+    cluster_size = {str(c.cluster_id): c.size for c in clusters}
 
     seen = _load_seen(username)
     index = get_index()
@@ -112,44 +100,33 @@ def build_session(
     max_rating = min(3000, user_elo + ELO_BAND)
 
     session_items: list[SessionItem] = []
-    tries = 0
-    max_tries = n_puzzles * 5
-
-    while len(session_items) < n_puzzles and tries < max_tries:
-        tries += 1
-        # Sample a cluster
-        cs: ClusterState = random.choices(eligible, weights=weights, k=1)[0]
-        cluster = cluster_map.get(cs.cluster_id)
-        if cluster is None:
+    # Highest-score families first so the user drills their biggest leak first.
+    for family_key, spec in sorted(plan.items(), key=lambda kv: -kv[1]["score"]):
+        want = spec["n_puzzles"]
+        if want <= 0:
             continue
-
-        centroid = cluster.centroid
-
-        results = index.query(
-            centroid=centroid,
-            threat_type=cluster.dominant_threat_type,
+        results = index.query_by_themes(
+            themes=spec["themes"],
             min_rating=min_rating,
             max_rating=max_rating,
             seen_ids=seen,
-            top_k=10,
+            top_k=want * 3,          # over-fetch; we filter seen + cap below
         )
-
-        if not results:
-            continue
-
-        # Pick the closest unseen puzzle
-        puzzle = results[0]
-        if puzzle.puzzle_id in seen:
-            continue
-
-        seen.add(puzzle.puzzle_id)
-        session_items.append(SessionItem(
-            cluster_id=cs.cluster_id,
-            cluster_label=cs.label,
-            puzzle=puzzle,
-            blindspot_rank=cluster_rank.get(cs.cluster_id, 0),
-            missed_count=cs.size,
-        ))
+        added = 0
+        for puzzle in results:
+            if added >= want or len(session_items) >= n_puzzles:
+                break
+            if puzzle.puzzle_id in seen:
+                continue
+            seen.add(puzzle.puzzle_id)
+            session_items.append(SessionItem(
+                cluster_id=family_key,
+                cluster_label=spec["name"],
+                puzzle=puzzle,
+                blindspot_rank=cluster_rank.get(family_key, 0),
+                missed_count=cluster_size.get(family_key, 0),
+            ))
+            added += 1
 
     _save_seen(username, seen)
     return session_items
