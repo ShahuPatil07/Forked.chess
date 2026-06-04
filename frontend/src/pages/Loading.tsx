@@ -69,7 +69,7 @@ export default function Loading() {
   }[progress.stage ?? 'fetching'] ?? 'Working...'
 
   return (
-    <div className="min-h-screen bg-bg-0 flex flex-col items-center justify-center px-4">
+    <div className="relative z-10 min-h-screen bg-bg-0 flex flex-col items-center justify-center px-4">
       <div
         className="fixed inset-0 pointer-events-none opacity-[0.03]"
         style={{

@@ -85,7 +85,7 @@ export default function DNAPage() {
   )
 
   return (
-    <div className="min-h-screen bg-bg-0 flex flex-col items-center justify-center px-4 py-10">
+    <div className="relative z-10 min-h-screen bg-bg-0 flex flex-col items-center justify-center px-4 py-10">
       <div className="mb-6"><ForkedWordmark className="text-2xl" /></div>
 
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}

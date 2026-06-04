@@ -219,11 +219,11 @@ export default function MistakeReplay() {
 
   // ── Loading / empty / done ──────────────────────────────────────────────────
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-bg-0"><Loader2 size={22} className="animate-spin text-accent" /></div>
+    return <div className="relative z-10 min-h-screen flex items-center justify-center bg-bg-0"><Loader2 size={22} className="animate-spin text-accent" /></div>
   }
   if (isError || total === 0 || !current) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-bg-0">
+      <div className="relative z-10 min-h-screen flex flex-col items-center justify-center gap-3 bg-bg-0">
         <p className="text-sm text-text-2">No mistakes to replay for this pattern.</p>
         <button onClick={() => navigate('/dashboard')} className="btn-ghost text-sm">Back to dashboard</button>
       </div>
@@ -231,7 +231,7 @@ export default function MistakeReplay() {
   }
   if (done) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-bg-0 p-4">
+      <div className="relative z-10 min-h-screen flex items-center justify-center bg-bg-0 p-4">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card p-8 max-w-md text-center space-y-4">
           <Sparkles size={28} className="text-accent mx-auto" />
           <h2 className="text-xl font-bold text-text-0">You've reviewed all {total} mistakes.</h2>
@@ -251,7 +251,7 @@ export default function MistakeReplay() {
 
   // ── Main: two-column layout ─────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-bg-0 px-6 py-6">
+    <div className="relative z-10 min-h-screen bg-bg-0 px-6 py-6">
       {/* Top bar */}
       <div className="max-w-5xl mx-auto flex items-center gap-3 mb-5">
         <button onClick={() => navigate('/dashboard')}
