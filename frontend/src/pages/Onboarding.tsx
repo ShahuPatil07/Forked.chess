@@ -128,7 +128,7 @@ function Header({ loggedIn, onStart, onNav }: {
       ${scrolled ? 'border-b border-border bg-bg-0/80 backdrop-blur-xl' : 'border-b border-transparent'}`}>
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3 sm:px-8">
         <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2.5">
-          <img src="/logo-knight-cutout.png" alt="" className="h-8 w-auto drop-shadow-[0_0_14px_rgba(123,97,255,0.5)]" />
+          <img src="/logo.png" alt="" className="h-8 w-auto drop-shadow-[0_0_14px_rgba(123,97,255,0.5)]" />
           <ForkedWordmark className="text-xl" />
         </button>
 
@@ -485,7 +485,7 @@ export default function Onboarding() {
 
       {/* Faint background knight watermark — the intro recedes into this */}
       <motion.img
-        src="/logo-knight-cutout.png"
+        src="/logo.png"
         alt=""
         aria-hidden="true"
         className="pointer-events-none fixed left-1/2 top-1/2 z-0 w-[88vw] max-w-[820px] -translate-x-1/2 -translate-y-1/2 select-none blur-[14px]"

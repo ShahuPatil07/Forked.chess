@@ -37,6 +37,13 @@ fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
+python-multipart>=0.0.9    # multipart/form-data for scoresheet image upload
+
+# OTB Scanner scoresheet OCR.
+# Google Cloud Vision is called over plain REST (uses `requests`, no SDK) when
+# GOOGLE_VISION_API_KEY is set. pytesseract is the optional offline fallback
+# (also needs a system Tesseract install).
+pytesseract>=0.3.10
 
 # Maia2 human-move probability model
 # NOTE: torch must be installed first via the PyTorch index (CPU-only, ~300 MB):

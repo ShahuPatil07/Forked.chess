@@ -229,7 +229,7 @@ export default function Coach() {
 
   return (
     <div className="p-8 max-w-3xl mx-auto h-full">
-      <SectionHeader icon={Sparkles} title="Forked Coach"
+      <SectionHeader icon={Sparkles} title="Coach"
         description="Your personal coach — it knows your games, your blindspots, and your history." />
       {ready
         ? <ChatView />

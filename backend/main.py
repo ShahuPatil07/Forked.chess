@@ -89,6 +89,10 @@ app.include_router(card_router)
 from backend.coach import router as coach_router
 app.include_router(coach_router)
 
+# OTB Scanner — scoresheet OCR -> PGN
+from backend.scoresheet import router as scoresheet_router
+app.include_router(scoresheet_router)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Feature 1 — Live game sync + blindspot alerts
 #  Feature 2 — Post-game blindspot debrief for Maia games

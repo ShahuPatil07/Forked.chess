@@ -72,7 +72,7 @@ export function ForkedIntro({ onDone }: { onDone: () => void }) {
 
         {/* The knight */}
         <motion.img
-          src="/logo-knight-cutout.png"
+          src="/logo.png"
           alt=""
           className="relative h-[46vh] max-h-[440px] w-auto select-none"
           style={{ filter: 'drop-shadow(0 0 34px rgba(255,110,40,0.7))' }}
