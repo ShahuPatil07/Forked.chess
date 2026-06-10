@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowRight, ArrowDown, Loader2, RotateCcw, ShieldCheck, Sparkles, Menu, X,
   Check, Minus, Database, Cpu, Fingerprint, Target, BookOpen, Crown,
-  Share2, Radio, AlertTriangle, Zap, Github, ChevronRight, Bot,
+  Share2, Radio, AlertTriangle, Zap, Github, ChevronRight, Bot, ScanLine,
 } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
@@ -62,6 +62,9 @@ const FEATURES = [
   { icon: Bot, title: 'Play a human-like bot, get a real debrief',
     body: 'Full games against Maia2 — a human-move model tuned near your rating, with lifelike thinking time. Afterwards: a Stockfish accuracy report and a blindspot debrief that cross-references the game against your own clusters.',
     diff: 'Maia2 · accuracy report · blindspot debrief' },
+  { icon: ScanLine, title: 'Bring your over-the-board games in',
+    body: 'Digitise an OTB game three ways — record it live with your phone camera, upload a video, or photograph the scoresheet (vision-LLM OCR). It lands on a fully playable analysis board, ready for a Forked debrief.',
+    diff: 'Camera · video · scoresheet → PGN' },
   { icon: BookOpen, title: 'Opening tree with AI ideas on every node',
     body: 'Lazy-loaded tree from real Lichess games, filtered to your rating. Engine eval, WDL bars, and AI-generated typical ideas on every variation. Fuzzy search jumps to any named line.',
     diff: 'Better than Chess.com · better than Lichess' },
@@ -84,6 +87,7 @@ const COMPARISON: { feature: string; forked: Cell; cc: Cell; lichess: Cell; ches
   { feature: 'Opening tree with eval + AI ideas', forked: 'good', cc: 'partial', lichess: 'partial', chessable: 'bad' },
   { feature: 'Endgame trainer vs human-like bot', forked: 'good', cc: 'partial', lichess: 'bad', chessable: 'bad' },
   { feature: 'Tablebase-verified endgame coach', forked: 'good', cc: 'bad', lichess: 'bad', chessable: 'bad' },
+  { feature: 'Digitise OTB games (camera / video / scoresheet)', forked: 'good', cc: 'bad', lichess: 'bad', chessable: 'bad' },
   { feature: 'Requires login', forked: 'good', cc: 'bad', lichess: 'bad', chessable: 'bad',
     labels: { forked: 'No', cc: 'Yes', lichess: 'Yes', chessable: 'Yes' } },
 ]
@@ -600,7 +604,7 @@ export default function Onboarding() {
 
         {/* ── Section 4 — Feature showcase ── */}
         <section id="features" className="border-t border-border/60 py-20">
-          <SectionTitle eyebrow="Everything in one platform" title="Seven tools, one blindspot graph"
+          <SectionTitle eyebrow="Everything in one platform" title="Eight tools, one blindspot graph"
             sub="Each one is grounded in your real data or a tablebase — not generic AI text." />
 
           {/* Elevated flagship — the Forked Coach */}
