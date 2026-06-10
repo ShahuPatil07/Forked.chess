@@ -19,7 +19,7 @@
 ## What Forked is
 
 Forked started as a personalised blindspot trainer and has grown into a full
-learning suite. Six pillars, all built around the same engine + data stack:
+learning suite. Seven pillars, all built around the same engine + data stack:
 
 | Pillar | What it does |
 |---|---|
@@ -29,6 +29,7 @@ learning suite. Six pillars, all built around the same engine + data stack:
 | **Openings** | Interactive lazy-loaded opening tree from real Lichess game data — engine eval, win/draw/loss bars and AI "typical ideas" on every node, plus a RAG opening coach grounded in chess literature. |
 | **Endgames** | A theory tree of canonical positions (Syzygy-verified), practice vs a human-like bot from any material configuration, and a tablebase-grounded endgame coach. |
 | **Play vs Maia** | Play full games against Maia (human-move model) tuned near your rating, then get a Stockfish accuracy report, a blindspot debrief, and an interactive game-analysis view. |
+| **OTB Scan** | Digitise an over-the-board game three ways — record live with your phone camera (on-device TFJS vision), upload a video of the game, or photograph a scoresheet (vision-LLM/OCR → PGN) — then send it straight to the playable Analysis Board. |
 
 ### Intelligence layer
 
@@ -132,7 +133,13 @@ whole intelligence layer keys on it. See **instructions/AGENT.md** for the full 
 
 ### Analysis Board  (`/analysis`)
 - Free-play board with live Stockfish eval bar, best-move arrows, move list, flip, FEN copy.
-- Opens directly from any position via `?fen=` or from the endgame theory panel.
+- Opens directly from any position via `?fen=`, from the endgame theory panel, or with a **full game** (`{moves}`/`{pgn}` router state) loaded into the move list — step move-by-move and branch from any point.
+
+### OTB Scan  (`/otb-scan`)  — three ways in
+- **Record live** — point your phone at the board; on-device **TFJS** vision (board-corner + piece detectors) calibrates, then tracks every move as you play.
+- **Upload a video** — already filmed the game from a steady angle? Upload it and the same CV pipeline calibrates on the first frame and auto-plays through, recording the moves.
+- **Upload a scoresheet** — a photo of the written moves is read by a **vision-LLM** (Qwen2.5-VL via Ollama/OpenRouter) with Google Vision / Tesseract fallbacks, into a reviewed PGN. Multi-column sheets are read with a two-pass (full image + right-half crop) strategy; SAN formatting noise (`Qx C7`→`Qxc7`) is auto-repaired and a legality-constrained corrector snaps the rest.
+- All three hand the recorded game to the **Analysis Board** as one continuous, playable game.
 
 ---
 
@@ -144,10 +151,14 @@ the agentic Forked Coach with tool-calling), Pillow (DNA card PNG), SQLite for
 caches. Stage 2 is a deterministic family map (no UMAP/HDBSCAN/LLM at request
 time). Background annotation + live sync run in worker threads with SSE progress.
 Position explanation prefers **C1** (CSSLab, via a vLLM endpoint when configured)
-and always falls back to Stockfish.
+and always falls back to Stockfish. **OTB Scan** scoresheet OCR uses a vision-LLM
+(Qwen2.5-VL via Ollama/OpenRouter) with Google Vision + Tesseract fallbacks and a
+python-chess legality layer. In production one process serves both the API and
+the built frontend (single-origin).
 
 **Frontend** — React + TypeScript, Vite, `chess.js` + `react-chessboard`,
-TanStack Query, Zustand, Tailwind, Framer Motion. WebSockets for live games,
+TanStack Query, Zustand, Tailwind, Framer Motion, **TensorFlow.js** (lazy-loaded,
+on-device board/piece detection for OTB Scan). WebSockets for live games,
 manual SSE parsing for streaming coach responses.
 
 **Data** — Lichess puzzle DB (100K sample indexed), Lichess Opening Explorer
@@ -162,7 +173,7 @@ the coaches.
 
 ## Backend API (`backend/`, FastAPI)
 
-The backend is split into eight routers, all mounted on one app (see **instructions/AGENT.md**
+The backend is split into nine routers, all mounted on one app (see **instructions/AGENT.md**
 for the full architecture):
 
 ```
@@ -175,6 +186,8 @@ backend/replay.py        — mistake replay: per-cluster mistakes / insight / no
 backend/counterfactual.py— counterfactual rating estimate
 backend/card.py          — Chess DNA: compute-style / style / dna-card (Pillow PNG)
 backend/coach/           — Forked Coach package: chat (SSE+tools) / questionnaire / profile / memory
+backend/scoresheet.py    — OTB Scan OCR: /api/ocr/scoresheet (VLM 2-pass / Vision / Tesseract)
+backend/scoresheet_parser.py — grid + legality-constrained SAN parser/corrector
 backend/bot/             — Maia2 move generator + human thinking-delay
 ```
 
@@ -190,6 +203,7 @@ backend/bot/             — Maia2 move generator + human thinking-delay
 | **Mistake Replay** | `GET /api/cluster/{user}/{id}/mistakes`, `/insight`, `POST /api/cluster/note`, `POST /api/cluster/explain` |
 | **Counterfactual / DNA** | `GET /api/profile/{user}/counterfactual`, `POST /api/profile/{user}/compute-style`, `GET /api/profile/{user}/style`, `GET /api/profile/{user}/dna-card` |
 | **Forked Coach** | `POST /api/coach/chat` (SSE + tools), `POST /api/coach/save-questionnaire`, `GET /api/coach/profile/{user}`, `POST /api/coach/update-memory/{user}` |
+| **OTB Scan** | `POST /api/ocr/scoresheet` (multipart image → reviewed PGN) |
 | **Settings** | `GET/PUT /api/settings/{user}`, `GET /api/check/{user}` |
 
 ---
@@ -244,6 +258,8 @@ Forked/
 │   │   ├── memory.py                  #   rolling Groq session summary
 │   │   ├── tools.py                   #   6 agent tools + dispatch
 │   │   └── explain.py                 #   explain_position: C1 → Stockfish fallback
+│   ├── scoresheet.py                  # OTB Scan OCR endpoint (VLM 2-pass / Vision / Tesseract)
+│   ├── scoresheet_parser.py           # Grid + legality-constrained SAN parser/corrector
 │   └── bot/
 │       ├── maia_engine.py             # Maia2 move generator (+ first-move guard)
 │       └── thinking_delay.py          # Human-like delay simulator
@@ -261,6 +277,7 @@ Forked/
 │       ├── pages/                     # Dashboard, Coach, PuzzleSession, OpeningExplorer,
 │       │                              #   Endgames, BotGame, AnalysisBoard,
 │       │                              #   MistakeReplay, DNAPage, …
+│       ├── features/otb-scan/         # OTB Scan (lazy; TFJS): OTBScanPage + screens/cv/game/hooks
 │       ├── components/
 │       │   ├── layout/                # AppShell, SectionHeader, ChessBackground
 │       │   ├── coach/                 # CoachBoard (inline puzzle / view / review board)
@@ -273,7 +290,7 @@ Forked/
 │       │   └── ChessDNACard.tsx       # Style archetype + axis bars
 │       ├── hooks/                     # useGameReview, useAudioCoach (STT/TTS)
 │       ├── data/                      # endgameTree.ts, openings_index.json
-│       └── api/                       # index, coach, openings, endgames, replay, insights, live
+│       └── api/                       # index, coach, openings, endgames, replay, insights, live, ws
 └── tests/
     └── test_hybrid_classifier.py      # 13 unit tests for known tactical positions
 ```
@@ -307,6 +324,10 @@ GROQ_API_KEY=gsk_...     # Free at console.groq.com — powers the LLM coaches, 
 LICHESS_TOKEN=lip_...    # Free at lichess.org/account/oauth/token — needed for the Opening Explorer API
 # C1_ENDPOINT=http://...  # Optional: a vLLM C1 (CSSLab) OpenAI-compatible endpoint for richer
 #                         # position explanations. Omit it and the coach uses the Stockfish fallback.
+# OTB Scan scoresheet OCR (optional; pick one). Vision-LLM is best for handwriting:
+# VLM_OCR_BASE=http://localhost:11434/v1   # local Ollama (free/offline)
+# VLM_OCR_MODEL=qwen2.5vl:7b
+# GOOGLE_VISION_API_KEY=...                # fallback; else local Tesseract is used
 ```
 
 ### 3 — Download Stockfish
