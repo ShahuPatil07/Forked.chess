@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useUserStore } from './store/userStore'
 import Onboarding from './pages/Onboarding'
@@ -16,6 +17,9 @@ import DNAPage from './pages/DNAPage'
 import Coach from './pages/Coach'
 import AppShell from './components/layout/AppShell'
 import { ChessBackground } from './components/layout/ChessBackground'
+
+// OTB Scan pulls in TFJS (~1.6MB) — lazy-load so it stays out of the main bundle.
+const OTBScanPage = lazy(() => import('./features/otb-scan/OTBScanPage'))
 
 function RequireUser({ children }: { children: React.ReactNode }) {
   const { username } = useUserStore()
@@ -43,6 +47,11 @@ export default function App() {
           <Route path="/session" element={<PuzzleSession />} />
           <Route path="/history" element={<GameHistory />} />
           <Route path="/analysis" element={<AnalysisBoard />} />
+          <Route path="/otb-scan" element={
+            <Suspense fallback={<div className="p-8 text-text-2 text-sm">Loading scanner…</div>}>
+              <OTBScanPage />
+            </Suspense>
+          } />
           <Route path="/settings" element={<Settings />} />
           <Route path="/openings" element={<OpeningExplorer />} />
           <Route path="/endgames" element={<Endgames />} />

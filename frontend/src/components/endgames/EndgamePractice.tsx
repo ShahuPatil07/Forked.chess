@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Chess } from 'chess.js'
+import { wsUrl } from '../../api/ws'
 import { Chessboard } from 'react-chessboard'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -193,7 +194,7 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
       setUserColor(user_color)
       chessRef.current = new Chess(position.fen)
       setFen(position.fen)
-      const ws = new WebSocket(`ws://localhost:8000/ws/bot-game/${game_id}`)
+      const ws = new WebSocket(wsUrl(`/ws/bot-game/${game_id}`))
       wsRef.current = ws
       ws.onmessage = (evt) => handleWsMessage(evt.data)
       ws.onerror   = () => { setConnError('Connection error'); setStatus('ready') }

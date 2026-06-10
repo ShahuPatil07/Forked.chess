@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { wsUrl } from '../api/ws'
 import { useQuery } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
@@ -880,7 +881,7 @@ export default function BotGame() {
       wsRef.current.close()
     }
     setConnStatus('connecting')
-    const ws = new WebSocket(`ws://localhost:8000/ws/bot-game/${gid}`)
+    const ws = new WebSocket(wsUrl(`/ws/bot-game/${gid}`))
     wsRef.current = ws
     ws.onopen    = () => { setConnStatus('connected'); setReconnBanner(false); setReconnectNum(0) }
     ws.onmessage = handleMessage

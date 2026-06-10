@@ -19,9 +19,13 @@ interface NavPosition {
 }
 
 interface AnalysisNavState {
-  positions: NavPosition[]
-  index: number
-  title: string
+  positions?: NavPosition[]
+  index?: number
+  title?: string
+  // Full-game hand-off (e.g. from OTB Scan): load the whole game into the move
+  // list so it's one continuous, steppable, branchable game.
+  moves?: string[]   // SAN moves from the start position
+  pgn?: string       // alternative to `moves`
 }
 
 interface AnalysisResult {
@@ -226,6 +230,31 @@ export default function AnalysisBoard() {
     setChess(chess)
   }
 
+  // Load a full game (SAN list or PGN) into the move list: base = start, all
+  // moves applied, positioned at the end. Steppable with ← / → and branchable.
+  function loadGame(moves?: string[], pgn?: string) {
+    chess.reset()
+    let applied: string[] = []
+    if (pgn) {
+      try { chess.loadPgn(pgn); applied = chess.history() } catch { applied = [] }
+    }
+    if (!applied.length && moves?.length) {
+      chess.reset()
+      for (const san of moves) {
+        try { chess.move(san) } catch { break }
+      }
+      applied = chess.history()
+    }
+    baseFenRef.current = START_FEN
+    setSanMoves(applied)
+    setMoveIdx(applied.length - 1)
+    setFen(chess.fen())
+    setChess(chess)
+    setSelectedSq(null)
+    setOptionSqs({})
+    setLastMoveSqs({})
+  }
+
   // Navigate within the move list (reconstruct from base + slice of sanMoves)
   function navigateToMove(targetIdx: number) {
     chess.load(baseFenRef.current)
@@ -242,7 +271,11 @@ export default function AnalysisBoard() {
   }
 
   useEffect(() => {
-    goToPosition(posIdx)
+    if (navState?.moves?.length || navState?.pgn) {
+      loadGame(navState.moves, navState.pgn)
+    } else {
+      goToPosition(posIdx)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

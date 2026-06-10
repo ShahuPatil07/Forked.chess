@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles } from 'lucide-react'
+import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles, ScanLine } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { useUserStore } from '../../store/userStore'
@@ -12,6 +12,7 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; badge?: st
   { to: '/openings',  label: 'Openings',       icon: BookOpen },
   { to: '/endgames',  label: 'Endgames',       icon: Crown },
   { to: '/analysis',  label: 'Analysis Board', icon: Microscope },
+  { to: '/otb-scan',  label: 'OTB Scan',       icon: ScanLine },
   { to: '/history',   label: 'History',        icon: Clock },
   { to: '/settings',  label: 'Settings',       icon: Settings },
 ]
