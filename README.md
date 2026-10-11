@@ -18,6 +18,12 @@
 
 ## What Forked is
 
+**New: Share Screen coach preview** — open `/share-screen` (above Dashboard) for
+a spoken session with a linked Forked Analysis Board. Includes a tutorial, browser
+tab capture, exact FEN/move context, and English audio replies. Local mode needs
+no API key; optional AI wording uses the configured Groq account. Start with desktop
+Chrome. See the [implementation and testing guide](backend/coach/SHARE_SCREEN.md).
+
 Forked started as a personalised blindspot trainer and has grown into a full
 learning suite. Seven pillars, all built around the same engine + data stack:
 

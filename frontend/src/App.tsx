@@ -15,6 +15,7 @@ import Endgames from './pages/Endgames'
 import MistakeReplay from './pages/MistakeReplay'
 import DNAPage from './pages/DNAPage'
 import Coach from './pages/Coach'
+import ShareScreen from './pages/ShareScreen'
 import AppShell from './components/layout/AppShell'
 import { ChessBackground } from './components/layout/ChessBackground'
 
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/replay/:clusterId" element={<RequireUser><MistakeReplay /></RequireUser>} />
 
         <Route element={<RequireUser><AppShell /></RequireUser>}>
+          <Route path="/share-screen" element={<ShareScreen />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/coach" element={<Coach />} />
           <Route path="/blindspot/:id" element={<BlindspotDetail />} />

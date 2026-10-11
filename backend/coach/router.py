@@ -20,11 +20,14 @@ from typing import Iterator, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.coach.context import build_user_context
 from backend.coach.tools import TOOL_SCHEMAS, dispatch_tool
 from backend.coach.memory import update_memory
+from backend.coach.explain import explain_position, narrate_evidence, evidence_for_model
+from backend.coach.config import MODEL, reasoning_options
+from backend.coach.live import LiveTurnRequest, live_turn
 from backend.coach.profile import (
     load_coach_profile, load_coach_memory, save_questionnaire,
     has_completed_questionnaire,
@@ -33,7 +36,6 @@ from backend.coach.profile import (
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/coach")
 
-MODEL = "llama-3.3-70b-versatile"
 MAX_TOOL_ROUNDS = 4
 MAX_HISTORY = 12
 
@@ -63,6 +65,11 @@ TONE:
 CONSTRAINTS:
 - Do not invent game data — only reference what is injected below or returned by tools.
 - Do not give advice that contradicts their data.
+- For concrete positions, use explain_position and only cite its legal lines and
+  checked claims. Verified board facts do not establish a strategic cause. Keep
+  likely/uncertain labels, disclose partial searches, and omit rejected hypotheses.
+- Scores are White-relative. More negative favors Black. Small score gaps and
+  different search depths do not establish that a move is definitively superior.
 - Keep replies focused (a few short paragraphs). Offer a concrete next step.
 
 {mode_line}
@@ -74,6 +81,7 @@ _MODE_LINES = {
     "puzzle": "MODE: Puzzle — the player wants a puzzle. Call get_puzzle (target their top blindspot unless they specify), then coach them through it.",
     "import": "MODE: Import — the player pasted a game or position. Call analyze_pgn on it, then explain the most significant mistake and connect it to their blindspots.",
     "theory": "MODE: Theory — answer universally from the knowledge base; do NOT personalise with their game data. Route opening questions to get_opening_theory and endgame questions to get_endgame_theory. Afterwards, offer to practise it.",
+    "position": "MODE: Position — investigate the supplied board and compare legal alternatives.",
 }
 
 
@@ -89,6 +97,26 @@ class CoachChatRequest(BaseModel):
     message: str = ""
     mode: str = "coach"
     conversation_history: list[ChatMessage] = []
+    position_fen: str | None = Field(default=None, max_length=200)
+    focus_move: str | None = Field(default=None, max_length=20)
+    alternative_move: str | None = Field(default=None, max_length=20)
+    budget_seconds: float = Field(default=8.0, ge=0.25, le=15, allow_inf_nan=False)
+    use_llm: bool = True
+
+
+class PositionRequest(BaseModel):
+    fen: str = Field(max_length=200)
+    question: str = Field(default="", max_length=4000)
+    focus_move: str | None = Field(default=None, max_length=20)
+    alternative_move: str | None = Field(default=None, max_length=20)
+    budget_seconds: float = Field(default=8.0, ge=0.25, le=15, allow_inf_nan=False)
+    use_llm: bool = False
+
+
+_FEN_IN_MESSAGE = re.compile(
+    r"(?<!\S)([prnbqkPRNBQK1-8]+(?:/[prnbqkPRNBQK1-8]+){7}"
+    r"\s+[wb]\s+(?:-|[KQkq]+)\s+(?:-|[a-h][36])\s+\d+\s+\d+)(?!\S)"
+)
 
 
 class QuestionnaireRequest(BaseModel):
@@ -108,7 +136,7 @@ def _groq_client():
     key = os.environ.get("GROQ_API_KEY")
     if not key:
         raise RuntimeError("GROQ_API_KEY not set")
-    return Groq(api_key=key)
+    return Groq(api_key=key, timeout=15.0, max_retries=0)
 
 
 def _build_messages(req: CoachChatRequest) -> list[dict]:
@@ -176,7 +204,7 @@ def _salvage_failed_generation(exc: Exception) -> str:
 def _create(client, messages: list[dict], allow_tools: bool):
     """Groq completion with a guard against Llama's `tool_use_failed`: salvage the
     model's prose if present, else retry once with tools disabled."""
-    kwargs = dict(model=MODEL, messages=messages, temperature=0.4, max_tokens=900)
+    kwargs = dict(model=MODEL, messages=messages, temperature=0.4, max_tokens=2000, **reasoning_options())
     if allow_tools:
         kwargs["tools"] = TOOL_SCHEMAS
         kwargs["tool_choice"] = "auto"
@@ -206,6 +234,27 @@ def _chunk_text(text: str, size: int = 60) -> Iterator[str]:
 def _chat_stream(req: CoachChatRequest) -> Iterator[str]:
     mode = req.mode if req.mode in _MODE_LINES else "coach"
     yield _sse({"type": "meta", "mode": mode})
+
+    # A position request cannot silently skip investigation because the LLM key
+    # is absent or its tool invocation was malformed.
+    pasted = _FEN_IN_MESSAGE.search(req.message)
+    if mode == "position" or pasted:
+        fen = pasted.group(1) if pasted else (req.position_fen or "")
+        question = req.message.replace(pasted.group(1), "").strip() if pasted else req.message
+        yield _sse({"type": "tool", "name": "explain_position", "status": "running"})
+        result = explain_position(fen, question, req.focus_move, req.alternative_move, req.budget_seconds)
+        yield _sse({"type": "tool_result", "name": "explain_position", "payload": result})
+        if req.use_llm and result.get("source") != "error":
+            yield _sse({"type": "tool", "name": "narrate_evidence", "status": "running"})
+            text, source = narrate_evidence(result, [m.model_dump() for m in req.conversation_history])
+        else:
+            text, source = result["explanation"], "template"
+        yield _sse({"type": "meta", "mode": mode, "narration_source": source,
+                    "narration_warnings": result.get("narration_warnings", [])})
+        for piece in _chunk_text(text):
+            yield _sse({"type": "token", "text": piece})
+        yield _sse({"type": "done"})
+        return
 
     try:
         client = _groq_client()
@@ -237,7 +286,8 @@ def _chat_stream(req: CoachChatRequest) -> Iterator[str]:
                         yield _sse({"type": "tool_result", "name": name, "payload": result})
                     messages.append({
                         "role": "tool", "tool_call_id": tc.id, "name": name,
-                        "content": json.dumps(result)[:6000],
+                        "content": (json.dumps(evidence_for_model(result)) if name == "explain_position"
+                                    else json.dumps(result)[:6000]),
                     })
                 continue   # let the model use the tool results
 
@@ -256,6 +306,23 @@ def _chat_stream(req: CoachChatRequest) -> Iterator[str]:
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
+
+@router.post("/investigate")
+def coach_investigate(req: PositionRequest):
+    """Local evidence endpoint; narration uses the same checked ledger."""
+    result = explain_position(req.fen, req.question, req.focus_move,
+                              req.alternative_move, req.budget_seconds)
+    if result.get("source") == "error":
+        raise HTTPException(400, result["explanation"])
+    if req.use_llm:
+        result["explanation"], result["narration_source"] = narrate_evidence(result)
+    return result
+
+
+@router.post("/live-turn")
+def coach_live_turn(req: LiveTurnRequest):
+    return live_turn(req)
+
 
 @router.post("/chat")
 def coach_chat(req: CoachChatRequest):

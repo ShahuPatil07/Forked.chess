@@ -1,11 +1,12 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles, ScanLine } from 'lucide-react'
+import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles, ScanLine, MonitorUp } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { useUserStore } from '../../store/userStore'
 import { liveApi } from '../../api/live'
 
 const NAV: { to: string; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
+  { to: '/share-screen', label: 'Share Screen', icon: MonitorUp },
   { to: '/dashboard', label: 'Dashboard',      icon: LayoutDashboard },
   { to: '/coach',     label: 'Coach',          icon: Sparkles, badge: 'AI' },
   { to: '/session',   label: 'Drill Session',  icon: Sword },
@@ -115,7 +116,7 @@ export default function AppShell() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto min-h-screen">
+      <main className="flex-1 overflow-y-auto min-h-screen min-w-0">
         <Outlet />
       </main>
     </div>

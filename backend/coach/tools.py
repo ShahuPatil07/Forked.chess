@@ -50,14 +50,18 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "explain_position",
-            "description": ("Get a grounded chess explanation for a specific FEN: the best move, the "
-                            "evaluation, and the key idea. Use whenever a concrete position or move is "
-                            "being discussed. Do NOT calculate variations yourself — call this."),
+            "description": ("Investigate a FEN with MultiPV, explicit move alternatives and checked "
+                            "hypotheses. Returns candidate lines, independently searched replies and "
+                            "verification labels. Pass focus_move and alternative_move when comparing "
+                            "moves. Do NOT calculate variations yourself — call this."),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "fen": {"type": "string", "description": "Position in FEN notation."},
                     "question": {"type": "string", "description": "Optional focus, e.g. 'why is Rd8 better than Qe4?'"},
+                    "focus_move": {"type": "string", "description": "Optional legal SAN or UCI move to investigate, even outside the top candidates."},
+                    "alternative_move": {"type": "string", "description": "Optional legal SAN or UCI move to compare against the focus."},
+                    "budget_seconds": {"type": "number", "description": "Total engine/wait budget, 0.25 to 15 seconds; default 8."},
                 },
                 "required": ["fen"],
             },
@@ -160,7 +164,9 @@ def _tool_get_mistake_positions(username: str, args: dict) -> dict:
 
 
 def _tool_explain_position(username: str, args: dict) -> dict:
-    return explain_position(str(args.get("fen", "")), str(args.get("question", "")))
+    return explain_position(str(args.get("fen", "")), str(args.get("question", "")),
+                            args.get("focus_move"), args.get("alternative_move"),
+                            float(args.get("budget_seconds") or 8.0))
 
 
 def _tool_get_puzzle(username: str, args: dict) -> dict:

@@ -3,7 +3,7 @@
 ## What this is (current reality)
 
 Forked is a full adaptive chess training platform. It began as a personalised
-blindspot trainer and now has six surfaces plus an intelligence layer, all
+blindspot trainer and now has seven surfaces plus an intelligence layer, all
 sharing one engine + data stack:
 
 1. **Blindspot Profile + Drills** — pull a user's last 80–200 games, annotate
@@ -21,7 +21,13 @@ sharing one engine + data stack:
    material config + a tablebase-grounded endgame coach.
 5. **Play vs Maia** — full games vs the Maia2 human-move model with a post-game
    Stockfish accuracy report, blindspot debrief, and analysis view.
-6. **Analysis Board** — free-play board with live Stockfish eval.
+6. **Analysis Board** — free-play board with live Stockfish eval. Also accepts a
+   full game via router state (`{moves}` / `{pgn}`) — loads it into the move list
+   as one continuous, steppable, branchable game (used by the OTB Scan hand-off).
+7. **OTB Scan** — digitise an over-the-board game three ways: record live (phone
+   camera + on-device TFJS vision), **upload a video** of the game, or photograph
+   a **scoresheet** (VLM/OCR → PGN). All three hand off to the Analysis Board.
+   Lives in `frontend/src/features/otb-scan/` + `backend/scoresheet*.py`.
 
 **Intelligence layer** (all keyed on the family `cluster_id`, never the LLM label):
 - **Live sync + alerts** — background poll for new games, re-run Stage 1, and
@@ -75,8 +81,9 @@ Syzygy tablebase API (`tablebase.lichess.ovh`, ≤7 pieces), Lichess puzzle DB
 ## Repo map
 
 ```
-backend/                 (8 routers, all mounted on main's FastAPI app)
+backend/                 (9 routers, all mounted on main's FastAPI app)
   main.py          ingestion, profile, analytics, drills, analysis, settings, bot-game (+WS), accuracy
+                   (+ single-origin static serving of frontend/dist in prod)
   openings.py      /api/openings/explore | /eval | /ideas   (SQLite cache: opening_cache.db)
   opening_chat.py  /api/openings/chat(/stream) | /chat/suggestions   (curated corpus + Lichess stats)
   endgames.py      /api/endgames/practice-position(/by-config) | /syzygy | /coach/chat(/stream) | /coach/suggestions
@@ -91,6 +98,8 @@ backend/                 (8 routers, all mounted on main's FastAPI app)
     memory.py      Groq session-summary updater
     tools.py       6 agent tools (schemas + dispatch)
     explain.py     explain_position: C1 (vLLM endpoint) → Stockfish fallback
+  scoresheet.py    /api/ocr/scoresheet  (OTB Scan OCR: VLM 2-pass → Google Vision → Tesseract)
+  scoresheet_parser.py  grid + legality-constrained SAN parser/corrector
   bot/maia_engine.py     Maia2 move generator (singleton, first-move guard, OOD retreat filter)
   bot/thinking_delay.py  human-like async delay
   (debrief lives in main.py: POST /api/bot-game/{id}/debrief)
@@ -117,6 +126,11 @@ models/  stage1_transformer.pt, stage1_reference.pkl   (Stage-1 transformer)
 frontend/src/
   pages/           Dashboard, Coach, PuzzleSession, OpeningExplorer, Endgames, BotGame,
                    AnalysisBoard, MistakeReplay, DNAPage, GameHistory, Settings, …
+  features/otb-scan/   OTB Scan (lazy-loaded; TFJS vision). OTBScanPage + screens/
+                   (Home, Setup, Calibration, LiveGame, VideoUpload, ScoresheetUpload,
+                   MoveReview, GameFinished), cv/ game/ hooks/ — public/models/ holds the
+                   two ~8MB TFJS models. Hands off to AnalysisBoard via {moves}.
+  public/models/   480M_pieces_float16 + 480L_xcorners_float16 (board/piece detectors)
   components/layout/   AppShell (nav, Coach has an "AI" badge), SectionHeader, ChessBackground
   components/coach/    CoachBoard (inline puzzle / view / navigable-review board)
   components/openings/ OpeningTree, OpeningDetail, OpeningCoachChat, MiniBoardThumbnail
@@ -204,10 +218,28 @@ Dashboard `/api/profile` carries per-cluster `enrichment` (severity, time-pressu
 phases, recency) and `/api/analytics` carries severity/time-pressure/Maia
 summaries — both derived from `_mistakes.json`, robust to missing fields.
 
-**Shared frontend** — every page uses `SectionHeader` (gradient ForkedWordmark +
-icon + description). `useGameReview` powers clickable / arrow-key move history.
-`MiniBoardThumbnail` is a pure-CSS board for dense tree rows (don't use
-`react-chessboard` for many small boards).
+**OTB Scan** — `frontend/src/features/otb-scan/` (lazy route `/otb-scan`, keeps
+TFJS out of the main bundle) + `backend/scoresheet*.py`. Three inputs: live
+camera (TFJS board/piece detection, calibrate → track), **uploaded video** (same
+CV pipeline, sourced from a file via `CameraFeed`'s `srcUrl`: calibrate on the
+first frame then auto-play through), and **scoresheet photo** (OCR). Scoresheet
+OCR engine priority: **VLM** (Qwen2.5-VL via Ollama / OpenRouter, `VLM_OCR_BASE`)
+→ Google Vision → Tesseract. **Multi-column scoresheets**: small VLMs read the
+left table but skip the right — so `run_vlm_ocr` does a **two-pass** read (full
+image, then a right-half crop with an enumeration prompt) and merges
+higher-numbered moves. **SAN normalisation** (`clean_move` backend +
+`normalizeSan` in `MoveReview`) repairs OCR formatting (`Qx C7`/`QxC7`→`Qxc7`,
+spaces, file/piece case) so valid moves aren't flagged for manual fixing; a
+legality-constrained corrector then snaps remaining tokens to legal moves. All
+three flows hand off to the Analysis Board as a full playable game (nav state
+`{moves}` → loaded into its move list). WS URLs are env-aware (`api/ws.ts`):
+`ws://localhost:8000` in dev, same-origin `wss://` in prod.
+
+**Shared frontend** — every page uses `SectionHeader` (icon + title +
+description; the brand wordmark lives only in the sidebar, not repeated per page).
+`useGameReview` powers clickable / arrow-key move history. `MiniBoardThumbnail`
+is a pure-CSS board for dense tree rows (don't use `react-chessboard` for many
+small boards).
 
 ---
 

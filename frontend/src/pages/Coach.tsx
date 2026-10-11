@@ -10,10 +10,12 @@ import { SectionHeader } from '../components/layout/SectionHeader'
 import { useUserStore } from '../store/userStore'
 import { useAudioCoach } from '../hooks/useAudioCoach'
 import { CoachBoard } from '../components/coach/CoachBoard'
+import { InvestigationEvidence } from '../components/coach/InvestigationEvidence'
 import {
   coachApi, type CoachMode, type CoachStreamEvent, type CoachChatMessage,
   type PuzzlePayload, type MistakePositionsPayload, type AnalyzePayload,
   type CoachQuestionnaire,
+  type ExplainPayload,
 } from '../api/coach'
 
 // ── Questionnaire data ─────────────────────────────────────────────────────────
@@ -98,13 +100,15 @@ type Attachment =
   | { kind: 'puzzle'; data: PuzzlePayload }
   | { kind: 'positions'; data: MistakePositionsPayload }
   | { kind: 'analysis'; data: AnalyzePayload }
+  | { kind: 'explanation'; data: ExplainPayload }
 
 type Msg =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; streaming?: boolean; attachments: Attachment[]; toolRunning?: string | null }
+  | { role: 'assistant'; content: string; streaming?: boolean; attachments: Attachment[]; toolRunning?: string | null; narrationSource?: 'groq' | 'c1' | 'template' }
 
 const MODES: { mode: CoachMode; label: string; icon: any; placeholder: string }[] = [
   { mode: 'coach',  label: 'Coach',  icon: MessageSquare,    placeholder: 'Ask me anything about your chess…' },
+  { mode: 'position', label: 'Position', icon: Sparkles, placeholder: 'Why does this move work? What happens if I choose the alternative?' },
   { mode: 'puzzle', label: 'Puzzle', icon: Crosshair,        placeholder: 'Ask for a puzzle on your top weakness…' },
   { mode: 'import', label: 'Import', icon: ClipboardPaste,   placeholder: 'Paste a FEN or PGN to analyse…' },
   { mode: 'theory', label: 'Theory', icon: BookOpen,         placeholder: 'Ask about any opening or endgame…' },
@@ -114,6 +118,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_puzzle: 'Finding a puzzle…',
   get_mistake_positions: 'Pulling your real mistakes…',
   explain_position: 'Analysing the position…',
+  narrate_evidence: 'Explaining the checked evidence…',
   analyze_pgn: 'Running the engine on your game…',
   get_opening_theory: 'Checking opening theory…',
   get_endgame_theory: 'Checking endgame theory…',
@@ -181,6 +186,7 @@ function PositionsAttachment({ data }: { data: MistakePositionsPayload }) {
 function AnalysisAttachment({ data }: { data: AnalyzePayload }) {
   if (!data.ok) return <p className="text-[11px] text-text-2 italic">{data.message}</p>
   if (data.kind === 'fen' && data.fen) {
+    if (data.explanation?.candidates) return <InvestigationEvidence data={data.explanation} />
     return (
       <div className="mt-2 p-2 rounded-lg bg-bg-1 border border-border inline-block">
         <CoachBoard mode="view" fen={data.fen} size={220} />
@@ -210,6 +216,7 @@ function AnalysisAttachment({ data }: { data: AnalyzePayload }) {
 export default function Coach() {
   const { username } = useUserStore()
   const [ready, setReady] = useState(false)
+  const [investigateOnly, setInvestigateOnly] = useState(false)
 
   const { data: profile, isLoading, refetch } = useQuery({
     queryKey: ['coach-profile', username],
@@ -231,16 +238,24 @@ export default function Coach() {
     <div className="p-8 max-w-3xl mx-auto h-full">
       <SectionHeader icon={Sparkles} title="Coach"
         description="Your personal coach — it knows your games, your blindspots, and your history." />
-      {ready
-        ? <ChatView />
-        : <Questionnaire onComplete={() => { refetch(); setReady(true) }} />}
+      {ready || investigateOnly
+        ? <ChatView initialMode={investigateOnly ? 'position' : 'coach'} />
+        : <>
+            <button type="button" onClick={() => setInvestigateOnly(true)} className="btn-ghost mb-4 text-sm">Investigate a position now</button>
+            <Questionnaire onComplete={() => { refetch(); setReady(true) }} />
+          </>}
     </div>
   )
 }
 
-function ChatView() {
+function ChatView({ initialMode = 'coach' }: { initialMode?: CoachMode }) {
   const { username } = useUserStore()
-  const [mode, setMode] = useState<CoachMode>('coach')
+  const [mode, setMode] = useState<CoachMode>(initialMode)
+  const [positionFen, setPositionFen] = useState('7k/6pp/8/8/8/8/R7/K7 w - - 0 1')
+  const [focusMove, setFocusMove] = useState('')
+  const [alternativeMove, setAlternativeMove] = useState('')
+  const [budgetSeconds, setBudgetSeconds] = useState(8)
+  const [useLlm, setUseLlm] = useState(true)
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -264,7 +279,7 @@ function ChatView() {
 
   // Personalised greeting on first mount.
   useEffect(() => {
-    if (!didGreet.current && username) {
+    if (!didGreet.current && username && initialMode !== 'position') {
       didGreet.current = true
       void send('', 'coach')
     }
@@ -305,7 +320,7 @@ function ChatView() {
     if (!message && messagesRef.current.length > 0) return
 
     const baseHistory = history
-    if (message) setMessages(prev => [...prev, { role: 'user', content: message }])
+    if (message) setMessages(prev => [...prev, { role: 'user', content: useMode === 'position' ? `${message}\n\nPosition: ${positionFen}${focusMove ? `\nMove: ${focusMove}` : ''}${alternativeMove ? `\nAlternative: ${alternativeMove}` : ''}` : message }])
     setMessages(prev => [...prev, { role: 'assistant', content: '', streaming: true, attachments: [], toolRunning: null }])
     setInput(''); setError(null); setStreaming(true)
 
@@ -315,12 +330,15 @@ function ChatView() {
 
     try {
       await coachApi.chatStream(
-        { username, message, mode: useMode, conversation_history: baseHistory },
+        { username, message, mode: useMode, conversation_history: baseHistory,
+          ...(useMode === 'position' ? { position_fen: positionFen, focus_move: focusMove || undefined,
+            alternative_move: alternativeMove || undefined, budget_seconds: budgetSeconds, use_llm: useLlm } : {}) },
         (evt: CoachStreamEvent) => {
           if (evt.type === 'tool') {
             patchLastAssistant(m => ({ ...m, toolRunning: TOOL_LABELS[evt.name] ?? 'Working…' }))
           } else if (evt.type === 'tool_result') {
             const att = toAttachment(evt.name, evt.payload)
+            if (evt.name === 'explain_position' && 'fen' in evt.payload && evt.payload.fen) setPositionFen(evt.payload.fen)
             patchLastAssistant(m => ({
               ...m, toolRunning: null,
               attachments: att ? [...m.attachments, att] : m.attachments,
@@ -328,6 +346,11 @@ function ChatView() {
           } else if (evt.type === 'token') {
             acc += evt.text
             patchLastAssistant(m => ({ ...m, content: acc, toolRunning: null }))
+          } else if (evt.type === 'meta' && evt.narration_source) {
+            patchLastAssistant(m => ({ ...m, narrationSource: evt.narration_source,
+              attachments: m.attachments.map(att => att.kind === 'explanation'
+                ? { ...att, data: { ...att.data, narration_source: evt.narration_source, narration_warnings: evt.narration_warnings } }
+                : att) }))
           } else if (evt.type === 'error') {
             throw new Error(evt.message)
           }
@@ -339,6 +362,7 @@ function ChatView() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Coach unavailable'
       if (!msg.toLowerCase().includes('abort')) setError(msg)
+      patchLastAssistant(m => ({ ...m, streaming: false, toolRunning: null }))
       setMessages(prev => {
         const next = [...prev]
         const last = next[next.length - 1]
@@ -359,7 +383,7 @@ function ChatView() {
     abortRef.current?.abort()
     setMessages([]); setError(null); didGreet.current = false
     // re-greet
-    setTimeout(() => { didGreet.current = true; void send('', 'coach') }, 50)
+    if (mode !== 'position') setTimeout(() => { didGreet.current = true; void send('', 'coach') }, 50)
   }
 
   const placeholder = MODES.find(m => m.mode === mode)?.placeholder ?? 'Ask me anything…'
@@ -367,7 +391,7 @@ function ChatView() {
   return (
     <div className="card p-0 flex flex-col" style={{ height: 'calc(100vh - 220px)', minHeight: 460 }}>
       {/* Mode bar */}
-      <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
+      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-b border-border">
         {MODES.map(({ mode: m, label, icon: Icon }) => (
           <button key={m} onClick={() => setMode(m)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors
@@ -394,12 +418,42 @@ function ChatView() {
         )}
       </div>
 
+      {mode === 'position' && (
+        <div className="px-3 py-3 border-b border-border space-y-2 text-xs">
+          <label className="block text-text-1">Position FEN
+            <input aria-label="Position FEN" value={positionFen} onChange={e => { setPositionFen(e.target.value); setFocusMove(''); setAlternativeMove('') }} className="input mt-1 text-xs font-mono" />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <label className="flex-1 min-w-[100px] text-text-2">Your move (optional)
+              <input aria-label="Focus move" value={focusMove} onChange={e => setFocusMove(e.target.value)} placeholder="SAN or UCI, e.g. Nf6+" className="input mt-1 text-xs" />
+            </label>
+            <label className="flex-1 min-w-[100px] text-text-2">Alternative (optional)
+              <input aria-label="Alternative move" value={alternativeMove} onChange={e => setAlternativeMove(e.target.value)} placeholder="e.g. Ne3" className="input mt-1 text-xs" />
+            </label>
+            <label className="text-text-2">Analysis time
+              <select aria-label="Analysis time" value={budgetSeconds} onChange={e => setBudgetSeconds(Number(e.target.value))} className="input mt-1 text-xs">
+                <option value={3}>Quick · 3s</option><option value={8}>Standard · 8s</option><option value={15}>Deeper · 15s</option>
+              </select>
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-text-2">
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={useLlm} onChange={e => setUseLlm(e.target.checked)} />Use AI wording</label>
+            <span>Try:</span>
+            {[
+              ['Mate', '7k/6pp/8/8/8/8/R7/K7 w - - 0 1'],
+              ['Fork', '8/3q3k/8/3N4/8/8/8/6K1 w - - 0 1'],
+              ['Opening', 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3'],
+            ].map(([label, fen]) => <button type="button" key={label} onClick={() => { setPositionFen(fen); setFocusMove(''); setAlternativeMove(''); setInput('Compare the candidates and explain what the lines establish.') }} className="text-accent hover:underline">{label}</button>)}
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages.length === 0 && !streaming && (
           <div className="h-full flex flex-col items-center justify-center text-center">
             <Bot size={20} className="text-text-2 mb-2" />
-            <p className="text-sm text-text-1">Your coach is warming up…</p>
+            <p className="text-sm text-text-1">{mode === 'position' ? 'Choose a position and ask your question below.' : 'Your coach is warming up…'}</p>
           </div>
         )}
         {messages.map((m, i) => m.role === 'user' ? (
@@ -420,6 +474,7 @@ function ChatView() {
               {m.content && <div className="whitespace-pre-wrap leading-relaxed">{m.content}
                 {m.streaming && <span className="inline-block w-1.5 h-3.5 bg-accent ml-0.5 align-middle animate-pulse" />}
               </div>}
+              {m.narrationSource && <p className="text-[10px] text-text-2">{m.narrationSource !== 'template' ? 'AI wording from the evidence; verification labels apply to the checked claims below.' : 'Local evidence summary.'}</p>}
               {m.toolRunning && m.content && (
                 <span className="text-[11px] text-text-2 inline-flex items-center gap-1.5">
                   <Loader2 size={11} className="animate-spin text-accent" /> {m.toolRunning}
@@ -430,6 +485,7 @@ function ChatView() {
                   {att.kind === 'puzzle' && <PuzzleAttachment data={att.data} />}
                   {att.kind === 'positions' && <PositionsAttachment data={att.data} />}
                   {att.kind === 'analysis' && <AnalysisAttachment data={att.data} />}
+                  {att.kind === 'explanation' && <InvestigationEvidence data={att.data} />}
                 </div>
               ))}
             </div>
@@ -487,5 +543,6 @@ function toAttachment(name: string, payload: any): Attachment | null {
   if (name === 'get_puzzle') return { kind: 'puzzle', data: payload as PuzzlePayload }
   if (name === 'get_mistake_positions') return { kind: 'positions', data: payload as MistakePositionsPayload }
   if (name === 'analyze_pgn') return { kind: 'analysis', data: payload as AnalyzePayload }
-  return null   // explain_position is reflected in the coach's prose
+  if (name === 'explain_position') return { kind: 'explanation', data: payload as ExplainPayload }
+  return null
 }

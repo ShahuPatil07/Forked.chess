@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, RotateCcw, Undo2, Copy, Check, FlipVertical2
 import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
 import type { Square } from 'chess.js'
 import type { Arrow } from 'react-chessboard/dist/chessboard/types'
+import { useBoardPublisher } from '../features/share-screen/boardLink'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -215,6 +216,7 @@ export default function AnalysisBoard() {
   // Copied FEN toast
   const [copied, setCopied] = useState(false)
   const [orient, setOrient] = useState<'white' | 'black'>('white')
+  const liveCoach = useBoardPublisher(searchParams.get('coachShare'), chess, fen)
 
   function goToPosition(idx: number) {
     const newFen = positions[idx]?.fen ?? START_FEN
@@ -336,7 +338,9 @@ export default function AnalysisBoard() {
   // ── Shared move logic ─────────────────────────────────────────────────────────
 
   const makeMove = useCallback((from: Square, to: Square, promotion?: string): boolean => {
-    const move = chess.move({ from, to, promotion: promotion ?? 'q' })
+    let move
+    try { move = chess.move({ from, to, promotion: promotion ?? 'q' }) }
+    catch { return false }
     if (!move) return false
 
     const newFen  = chess.fen()
@@ -375,6 +379,13 @@ export default function AnalysisBoard() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      {liveCoach.linked && (
+        <div className="mb-5 rounded-xl border border-accent/30 bg-accent/10 p-4 flex items-center justify-between gap-3">
+          <div><p className="text-sm font-semibold text-accent">Live coach board</p>
+            <p className="text-xs text-text-1 mt-1" role="status">{liveCoach.status}</p></div>
+          <button className="btn-ghost" onClick={liveCoach.interrupt}>Interrupt coach</button>
+        </div>
+      )}
       <SectionHeader
         icon={Microscope}
         title="Analysis Board"

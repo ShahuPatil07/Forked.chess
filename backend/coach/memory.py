@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from backend.coach.profile import load_coach_memory, save_coach_memory
+from backend.coach.config import MODEL, reasoning_options
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ def _groq_client():
     key = os.environ.get("GROQ_API_KEY")
     if not key:
         raise RuntimeError("GROQ_API_KEY not set")
-    return Groq(api_key=key)
+    return Groq(api_key=key, timeout=15.0, max_retries=0)
 
 
 def _transcript(messages: list[dict], max_msgs: int = 16) -> str:
@@ -62,7 +63,7 @@ def update_memory(username: str, messages: list[dict]) -> dict:
     try:
         client = _groq_client()
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=MODEL,
             messages=[{
                 "role": "user",
                 "content": _SUMMARY_PROMPT.format(
@@ -71,7 +72,8 @@ def update_memory(username: str, messages: list[dict]) -> dict:
                 ),
             }],
             temperature=0.3,
-            max_tokens=650,
+            max_tokens=2000,
+            **reasoning_options(),
         )
         new_summary = (completion.choices[0].message.content or "").strip()
         if new_summary:

@@ -1,0 +1,795 @@
+Project: Forked (Claude for Chess)
+You are the lead engineer and AI researcher for an ambitious open-source project: an agentic AI chess assistant — essentially "Claude for Chess."
+
+The goal is NOT to create another chess engine or to beat Stockfish.
+
+The goal is to build an agentic system that combines Stockfish-level calculation with high-quality reasoning, explanation, teaching, game analysis, and conversational interaction.
+
+The system should feel like an extremely strong chess player, coach, analyst, and research assistant in one.
+
+1. Core Philosophy
+There are two fundamentally different problems:
+
+Chess calculation
+
+Use Stockfish.
+
+Never ask an LLM to independently calculate deep tactical variations when Stockfish can verify them.
+
+Chess reasoning and communication
+
+This is our primary research problem.
+
+The agent should investigate positions, compare alternatives, form hypotheses about why moves work, verify those hypotheses using chess analysis, and explain the result naturally.
+
+Therefore:
+
+Stockfish discovers/calculates chess facts. The agent investigates those facts and explains their meaning.
+
+Do not simply pipe Stockfish's principal variation into an LLM and ask it to paraphrase it.
+
+The agent should perform genuine investigation.
+
+2. Main Capabilities
+The final system should support six major capabilities.
+
+A. Position Analysis
+Given a FEN, board position, screenshot-derived position, or position described by the user:
+
+The agent should answer questions such as:
+
+What is happening in this position?
+
+Who is better and why?
+
+What are the most important features of the position?
+
+What is the plan for each side?
+
+What are the candidate moves?
+
+What is the best move?
+
+Why is the best move best?
+
+What is the opponent threatening?
+
+What should I be thinking about as a human player?
+
+What are the tactical and strategic ideas?
+
+What happens if I choose another move?
+
+The explanation should distinguish:
+
+Tactical factors
+checks
+
+captures
+
+threats
+
+forks
+
+pins
+
+skewers
+
+discovered attacks
+
+deflections
+
+zwischenzugs
+
+mating attacks
+
+sacrifices
+
+tactical sequences
+
+Positional factors
+king safety
+
+pawn structure
+
+weak squares
+
+outposts
+
+open/semi-open files
+
+diagonals
+
+piece activity
+
+good/bad bishops
+
+knight outposts
+
+space
+
+development
+
+pawn breaks
+
+weak pawns
+
+piece coordination
+
+Strategic factors
+long-term plans
+
+prophylaxis
+
+improving pieces
+
+favorable exchanges
+
+pawn breaks
+
+transitions into endgames
+
+restricting opponent counterplay
+
+converting advantages
+
+Do not give generic chess explanations.
+
+Whenever possible, connect the explanation to concrete variations and board changes.
+
+3. Move Explanation
+The user may give ANY move in ANY position and ask:
+
+"Why is this move good?"
+
+or:
+
+"Why did Karpov play this?"
+
+or:
+
+"What is the idea behind Nd5?"
+
+The agent must investigate the move.
+
+For a given move:
+
+Evaluate the position before the move.
+
+Evaluate the position after the move.
+
+Compare the move against strong alternatives.
+
+Generate relevant Stockfish MultiPV candidates.
+
+Examine the opponent's strongest responses.
+
+Investigate tactical consequences.
+
+Investigate positional consequences.
+
+Investigate longer-term consequences.
+
+Generate hypotheses explaining the move.
+
+Test those hypotheses using additional engine analysis.
+
+Reject explanations that do not actually explain the evaluation change.
+
+Produce the final explanation.
+
+The goal is:
+
+Explain the causal reason the move works, not merely describe what the move does.
+
+For example, avoid:
+
+"Nd5 is good because it centralizes the knight."
+
+Prefer explanations such as:
+
+"The knight appears to be centralizing, but that is not the main point. Nd5 forces the bishop to make a decision. After Bxd5, exd5 opens the e-file and removes Black's key defender. If the bishop retreats, White gets control of c7 and can begin the queenside expansion. Thus the move exploits..."
+
+The exact explanation must come from analysis of the actual position.
+
+4. Candidate Move Analysis
+The agent must support:
+
+"Give me the candidate moves here."
+
+and:
+
+"Why is Nd5 better than Qe2?"
+
+Use Stockfish MultiPV to obtain several strong candidates.
+
+Do NOT blindly treat the top engine move as the only meaningful move.
+
+For each candidate, investigate:
+
+evaluation
+
+tactical idea
+
+strategic idea
+
+immediate threat
+
+opponent's response
+
+resulting position
+
+human difficulty
+
+similarities/differences from other candidates
+
+The agent should eventually be able to produce something like:
+
+Candidate 1 — Nd5!
+Idea: ...
+
+Why it works: ...
+
+Critical response: ...
+
+Compared with Qe2: ...
+
+Candidate 2 — Qe2
+Idea: ...
+
+Why it is slightly inferior: ...
+
+Candidate 3 — f4
+Idea: ...
+
+The numerical evaluation is supporting evidence, not the explanation itself.
+
+5. Counterfactual Reasoning
+This is a central research feature.
+
+For important moves, the agent should explicitly ask:
+
+"What would happen if the player did NOT play this move?"
+
+Compare:
+
+Position
+├── Best move
+├── Natural human move
+├── Tactical alternative
+└── Strategic alternative
+Use Stockfish to investigate each branch.
+
+The agent should identify what is lost by choosing the alternatives.
+
+This is particularly important for explaining:
+
+positional moves
+
+prophylaxis
+
+quiet moves
+
+sacrifices
+
+defensive moves
+
+long-term plans
+
+A good explanation should often answer:
+
+"Why THIS move and not the natural alternative?"
+
+6. Game Analysis and PGN Summarization
+The system must accept complete PGNs.
+
+Given a PGN, it should:
+
+Parse the game.
+
+Reconstruct every position.
+
+Analyze important positions.
+
+Detect critical moments.
+
+Detect blunders, inaccuracies, missed opportunities, tactical turning points, strategic transitions, and important decisions.
+
+Summarize the game as a coherent story.
+
+Do NOT simply generate a move-by-move summary.
+
+The output should resemble a strong human commentator.
+
+Example structure:
+
+Game Overview
+Opening:
+...
+
+White's plan:
+...
+
+Black's plan:
+...
+
+Critical Moment 1 — 18.Nd5!
+Why it matters:
+...
+
+What was the idea?
+...
+
+What happens if Black chooses the natural response?
+...
+
+Critical Moment 2 — 24...Qe7?
+What went wrong:
+...
+
+What should Black have done?
+...
+
+Final Phase
+...
+
+Main Lessons
+...
+
+The system should prioritize meaningful moments, not simply large evaluation swings.
+
+A quiet strategic move can be a critical moment even if the evaluation changes very little.
+
+7. Playing Chess
+The user must be able to play against the agent.
+
+Two modes:
+
+Mode A — New Game
+User:
+
+"Start a game. I'm White."
+
+The agent plays Black.
+
+It must:
+
+maintain board state
+
+generate legal moves
+
+use Stockfish for move selection
+
+choose an appropriate strength/depth
+
+explain its own moves when requested
+
+respond conversationally
+
+Mode B — Continue From Position
+User provides a FEN or position.
+
+The agent should initialize the board and allow the user to play from that position.
+
+Important
+The agent should NOT always play its absolute strongest Stockfish move.
+
+The system should support configurable playing strength:
+
+beginner
+
+intermediate
+
+advanced
+
+strong
+
+engine strength
+
+When playing, Stockfish determines the legal/strong move, while the agent provides the explanation.
+
+8. General Chess Assistant
+The system should behave conversationally.
+
+Examples:
+
+"What is the point of the Caro-Kann?"
+
+"Why is this bishop bad?"
+
+"Give me a training exercise from this position."
+
+"What should I look for before making my move?"
+
+"Explain this like I'm 1200."
+
+"Explain this like I'm 2200."
+
+"What was Karpov trying to do here?"
+
+"Find me the 1998 Karpov vs Michael Adams game from this tournament."
+
+"Analyze this game."
+
+"Show me the three most important moments."
+
+"Why did the commentator call this move brilliant?"
+
+The system should infer user intent rather than requiring rigid commands.
+
+9. Historical Game Retrieval
+The assistant should eventually support requests such as:
+
+"Give me the 1998 Karpov vs Michael Adams game from [tournament]."
+
+The agent should understand that the user likely wants:
+
+Identify the correct game.
+
+Retrieve/parse its PGN.
+
+Load it onto the chessboard.
+
+Provide analysis.
+
+Highlight critical moments.
+
+Allow the user to ask questions about individual moves.
+
+Do not invent games, moves, tournaments, or historical facts.
+
+Use reliable chess databases/data sources where available.
+
+Design the retrieval layer so it can later support multiple databases.
+
+10. Agent Architecture
+Do NOT build one giant prompt-based agent.
+
+Design modular components.
+
+Suggested architecture:
+
+                    USER
+                      |
+                      v
+                Intent Router
+                      |
+        +-------------+-------------+
+        |             |             |
+        v             v             v
+ Position Agent   Game Agent   Playing Agent
+        |             |             |
+        +-------------+-------------+
+                      |
+                      v
+                Chess Tools
+                      |
+        +-------------+-------------+
+        |             |             |
+        v             v             v
+   Stockfish      python-chess   PGN/DB
+        |
+        v
+  Investigation Layer
+        |
+   +----+----+----+----+
+   |         |         |
+Tactical  Strategic Counterfactual
+Agent      Agent       Agent
+   |         |         |
+   +----+----+----+----+
+             |
+             v
+       Verification Layer
+             |
+             v
+      Explanation Agent
+             |
+             v
+          USER
+This architecture is a starting point, not a rigid requirement.
+
+You should improve it if experimentation suggests a better design.
+
+11. Stockfish Integration
+Stockfish is a core tool.
+
+Support:
+
+MultiPV
+
+configurable depth
+
+configurable time
+
+principal variations
+
+evaluation
+
+mate scores
+
+multiple candidate moves
+
+repeated analysis at increasing depth
+
+Do not unnecessarily run Stockfish at maximum depth for every position.
+
+Use an adaptive strategy.
+
+For example:
+
+Initial scan
+     ↓
+identify critical positions
+     ↓
+deeper analysis only where necessary
+This should make the system efficient on normal hardware.
+
+12. Explanation Verification
+This is one of the most important research components.
+
+The agent should not trust its first explanation.
+
+Example:
+
+Stockfish:
+Nd5 +1.9
+
+Agent hypothesis:
+"Nd5 is strong because it attacks the bishop."
+
+Verification:
+Does removing the bishop actually explain the evaluation increase?
+
+If NO:
+    reject hypothesis
+
+Generate another hypothesis.
+
+If YES:
+    investigate further.
+The system should distinguish:
+
+verified explanation
+
+likely explanation
+
+uncertain explanation
+
+Never confidently fabricate a chess concept.
+
+13. Human-Centered Explanations
+The system should be able to adjust explanation depth.
+
+Beginner
+Simple language.
+
+Intermediate
+Concrete tactical and positional reasoning.
+
+Advanced
+Precise variations and strategic concepts.
+
+Expert
+Deep variations, positional nuances, alternatives, engine comparisons.
+
+Allow:
+
+"Explain this more deeply."
+
+and:
+
+"Make that simpler."
+
+The explanation should always remain grounded in the actual board position.
+
+14. Chessboard Interface
+Eventually build a clean interactive chessboard supporting:
+
+drag/drop moves
+
+legal move highlighting
+
+FEN import/export
+
+PGN import/export
+
+engine evaluation bar
+
+engine lines
+
+candidate moves
+
+move history
+
+analysis mode
+
+play mode
+
+position editing
+
+annotations
+
+But prioritize the reasoning engine over UI polish.
+
+A basic interface is sufficient initially.
+
+15. Software Principles
+Use:
+
+Python
+
+python-chess
+
+Stockfish
+
+local/open-source LLMs
+
+clean modular architecture
+
+unit tests
+
+type hints
+
+structured logging
+
+configuration files
+
+reproducible experiments
+
+Do not introduce unnecessary dependencies.
+
+Do not build complicated infrastructure before proving the core reasoning loop.
+
+Everything should run locally and for free wherever practical.
+
+16. Development Strategy
+Build vertically, not horizontally.
+
+Do NOT attempt to implement the entire application immediately.
+
+First build this:
+
+FEN
+ ↓
+Stockfish MultiPV
+ ↓
+Candidate moves
+ ↓
+Agent investigation
+ ↓
+Counterfactual analysis
+ ↓
+Explanation
+Then test it on difficult positions.
+
+Only after this works reasonably well should you build:
+
+PGN analysis
+
+critical moment detection
+
+game summaries
+
+playing mode
+
+historical game retrieval
+
+UI
+
+personalization/training
+
+17. Evaluation
+This is a research project.
+
+Create a benchmark set of difficult positions and games.
+
+For every explanation evaluate:
+
+Factual correctness
+Is the chess claim actually true?
+
+Engine consistency
+Does the explanation correspond to the engine's analysis?
+
+Causal relevance
+Does it explain WHY the move works?
+
+Completeness
+Does it capture the important idea?
+
+Human usefulness
+Would a chess player actually learn something?
+
+Hallucination
+Does the system invent threats, tactics, or strategic ideas?
+
+Counterfactual quality
+Does it correctly explain why alternatives fail?
+
+Do not optimize solely for elo.
+
+The goal is explanation quality.
+
+18. Important Research Direction
+Explore the hypothesis:
+
+Agentic investigation + counterfactual search produces better chess explanations than directly prompting an LLM with Stockfish's principal variation.
+
+Build experiments comparing:
+
+Baseline
+Stockfish PV
++
+LLM
+versus:
+
+Our system
+Stockfish
++
+MultiPV
++
+candidate comparison
++
+counterfactual search
++
+hypothesis generation
++
+verification
++
+LLM explanation
+If the second system produces measurably better explanations, that is a meaningful result.
+
+19. Long-Term Vision
+The ultimate system should feel like:
+
+Claude, but for chess.
+
+The user should be able to have a natural conversation:
+
+"Why is this position difficult?"
+
+"Show me the candidates."
+
+"Why is Nd5 better?"
+
+"I don't understand."
+
+"Okay, show me what happens if I play the natural move."
+
+"Ah. Now explain the strategic idea."
+
+"Find me a famous game where this idea occurred."
+
+"Let me play this position."
+
+"Now analyze my game."
+
+"What mistakes do I keep making?"
+
+The system should maintain conversational context and understand the board as part of the conversation.
+
+20. Engineering Rule
+You are building a research system, not a demo.
+
+Whenever there are two approaches:
+
+A. Make the output sound intelligent
+
+versus
+
+B. Make the system actually investigate and verify the chess reasoning
+
+choose B.
+
+The ultimate objective is:
+
+Build the best open-source agentic chess explanation and analysis system that can be created by a small/solo developer using free local tools.
+
+Start small.
+
+Measure everything.
+
+Iterate aggressively.
+
+Do not assume the architecture above is correct — experimentally discover what actually produces better chess reasoning.

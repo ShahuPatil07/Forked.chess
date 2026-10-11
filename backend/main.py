@@ -1257,3 +1257,32 @@ async def bot_game_ws(websocket: WebSocket, game_id: str):
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
             pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Single-origin production serving
+#  When the frontend has been built (frontend/dist exists), serve it from this
+#  same app so the SPA's relative /api calls work with no CORS and one deploy.
+#  Mounted LAST so every /api route + the WebSocket take precedence. A no-op in
+#  local dev (Vite serves the frontend and dist usually doesn't exist).
+# ══════════════════════════════════════════════════════════════════════════════
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if _DIST.exists():
+    _assets = _DIST / "assets"
+    if _assets.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
+
+    @app.get("/{full_path:path}")
+    def _serve_spa(full_path: str):
+        # /api/* and /ws/* are registered above and win; only unmatched GETs land here.
+        if full_path.startswith("api/") or full_path.startswith("ws/"):
+            raise HTTPException(404, "Not found")
+        candidate = _DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_DIST / "index.html"))   # SPA fallback (client routing)
+
+    log.info("Serving built frontend from %s (single-origin mode)", _DIST)

@@ -6,7 +6,7 @@
  * explanation) are surfaced so the chat can render inline boards.
  */
 
-export type CoachMode = 'coach' | 'puzzle' | 'import' | 'theory' | 'audio'
+export type CoachMode = 'coach' | 'puzzle' | 'import' | 'theory' | 'audio' | 'position'
 
 export interface CoachQuestionnaire {
   rating_bucket: string
@@ -82,6 +82,59 @@ export interface ExplainPayload {
   best_move_san: string | null
   eval: string | null
   source: 'c1' | 'stockfish' | 'error'
+  fen?: string
+  side_to_move?: 'white' | 'black'
+  question?: string
+  status?: 'complete' | 'partial' | 'terminal' | 'error'
+  terminal?: string | null
+  narration_source?: 'groq' | 'c1' | 'template'
+  narration_warnings?: string[]
+  candidates?: InvestigationCandidate[]
+  claims?: InvestigationClaim[]
+  warnings?: string[]
+  engine?: { name?: string; scan_depth?: number; deep_depth?: number }
+  budget?: { requested_seconds: number; elapsed_seconds: number; exhausted: boolean; engine_calls: unknown[] }
+}
+
+export interface InvestigationScore {
+  white_cp: number | null
+  white_mate: number | null
+  mover_cp: number | null
+  mover_mate: number | null
+}
+
+export interface InvestigationLine {
+  uci: string[]
+  san: string[]
+  fens: string[]
+  material_change: number
+  captures: string[]
+  ends_in_mate: boolean
+  terminal?: string | null
+}
+
+export interface InvestigationCandidate {
+  id: string
+  move_uci: string
+  move_san: string
+  roles: string[]
+  score: InvestigationScore
+  depth: number
+  refined: boolean
+  legal_replies: string[]
+  line: InvestigationLine
+  replies: { move_uci: string; move_san: string; score: InvestigationScore; depth: number; line: InvestigationLine }[]
+}
+
+export interface InvestigationClaim {
+  id: string
+  candidate_id: string
+  hypothesis: string
+  status: 'verified' | 'likely' | 'uncertain' | 'rejected'
+  test: string
+  supporting_evidence: string[]
+  contradicting_evidence: string[]
+  scope: string
 }
 
 export type ToolPayload =
@@ -90,7 +143,7 @@ export type ToolPayload =
 // ── Stream events ──────────────────────────────────────────────────────────────
 
 export type CoachStreamEvent =
-  | { type: 'meta'; mode: CoachMode }
+  | { type: 'meta'; mode: CoachMode; narration_source?: 'groq' | 'c1' | 'template'; narration_warnings?: string[] }
   | { type: 'tool'; name: string; status: string }
   | { type: 'tool_result'; name: string; payload: ToolPayload }
   | { type: 'token'; text: string }
@@ -132,6 +185,11 @@ export const coachApi = {
       message: string
       mode: CoachMode
       conversation_history: CoachChatMessage[]
+      position_fen?: string
+      focus_move?: string
+      alternative_move?: string
+      budget_seconds?: number
+      use_llm?: boolean
     },
     onEvent: (evt: CoachStreamEvent) => void,
     signal?: AbortSignal,
@@ -159,11 +217,12 @@ export const coachApi = {
         if (!trimmed.startsWith('data:')) continue
         const payload = trimmed.slice(5).trim()
         if (!payload) continue
-        try {
-          const evt = JSON.parse(payload) as CoachStreamEvent
-          onEvent(evt)
-          if (evt.type === 'done' || evt.type === 'error') return
-        } catch { /* ignore malformed lines */ }
+        let evt: CoachStreamEvent
+        try { evt = JSON.parse(payload) as CoachStreamEvent }
+        catch { continue }
+        // A callback error (including a provider error event) must propagate.
+        onEvent(evt)
+        if (evt.type === 'done' || evt.type === 'error') return
       }
     }
   },
