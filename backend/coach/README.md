@@ -1,7 +1,7 @@
 # Forked AI Coach: implementation and research handoff
 
-This document describes the Coach **as currently implemented** after the first
-position investigation milestone. It is intended to give a new coding model or
+This document describes the Coach **as currently implemented** after the position-investigation milestone and the October 2026
+voice parity / Game Review update. It is intended to give a new coding model or
 maintainer enough context to continue without the preceding conversation.
 
 The user's direction was to retain Forked's existing components and concentrate
@@ -18,8 +18,121 @@ for the original milestone plan and implementation status.
 
 The new **Share Screen** voice-session layer is documented separately in
 [`SHARE_SCREEN.md`](SHARE_SCREEN.md), including its exact-board connection,
-free default, spoken turn routing, limits, and manual acceptance tests. It reuses
+free-tool configuration, single-tab operation, spoken turn routing, limits, and manual acceptance tests. It reuses
 the investigation described here and leaves the original Coach available.
+
+## Coach agent v2 — board-aware investigate → verify → explain (current, October 2026)
+
+The Coach page (`/coach`) and Game Review's move explainer now run the agent in
+[`agent/`](agent/). The earlier position-investigation pipeline (sections below)
+is unchanged and still powers Share Screen voice turns (`live.py`) and
+`POST /api/coach/investigate`.
+
+**Why it was rebuilt.** v1 re-ran the same investigation for every follow-up and
+fed the follow-up text in as the "question"; a strict prose checker then threw
+away AI answers that mentioned any move outside that ledger and showed a robotic
+template — the "gibberish follow-ups". The free-chat path forgot the board and
+its earlier analysis between turns.
+
+```
+user turn ─► context: rules + AUDIENCE (questionnaire level) + CURRENT BOARD (FEN + ASCII
+              + moves leading here) + analysis notes of the last two answers
+          ─► kickoff evidence (deterministic, saves an LLM round): analyse a new board,
+              evaluate moves the user names, probe threats, evaluate the move under review
+          ─► agentic rounds (≤6): LLM calls tools until it can answer
+          ─► verifier: illegal/unreached moves, wrong "knight on f3" placements, false
+              open-file and pin claims → one repair round (optional LLM critic too)
+          ─► stream answer + clickable lines + board updates + notes for the next turn
+```
+
+| File | Role |
+|---|---|
+| `agent/llm.py` | Free-tier OpenAI-compatible provider chain (no SDK). Fails over on 429/5xx/unknown model; waits briefly for a short token refill on the strongest model; per-model cooldowns; usage counters. |
+| `agent/engine.py` | Cached Stockfish searches on the shared singleton (`_sf_lock`): MultiPV, single-move search, null-move threat probe, strength-limited move choice for play mode (no shared engine options touched). |
+| `agent/features.py` | Exact board facts: loose pieces (SEE), pins, checks, pawn structure (isolated/doubled/backward/passed/islands), files, king safety, outposts, bad bishops, mobility, space, phase, and `move_effects` (fork, discovered attack, new pins, pieces left en prise, closed-file rook moves, breaks…). |
+| `agent/tools.py` | 13 tools + `Session` (board, loaded game, UI events, clickable lines, notes). Only relevant tool schemas are sent (`select_tools`) to fit free-tier token budgets. |
+| `agent/prompt.py` | Coach rules (truth rules, causal explanations, counterfactual checks, answer shape), audience levels/styles, Game Review critique mode. |
+| `agent/verify.py` | High-precision grounding checks on the drafted answer. |
+| `agent/loop.py` | The loop above; emits SSE events. Engine-only fallback answer when no LLM is reachable. |
+
+**Tools:** `analyze_position`, `evaluate_moves` (move vs engine best + refutation —
+the counterfactual workhorse), `opponent_threats`, `position_features`,
+`explore_line` (what-if, shown on the user's board), `opening_explorer` (Lichess
+masters + club stats + famous games reaching the position), `find_master_game`
+(verifies a historical game against the Lichess Masters DB by walking the opening
+moves, then loads the real PGN — never invents games), `tablebase` (Syzygy),
+`review_game` (whole-game critical moments via `game_review.review_rows`),
+`opening_theory` / `endgame_theory` (curated corpora), `get_puzzle`, `start_game`.
+
+**Level (static questionnaire).** The Coach asks three questions once (rating band,
+short/balanced/detailed, goal), stores them in `localStorage` and
+`_coach_profile.json` (`explanation_style` field), and sends `level`/`style` with
+each request. It only changes language and depth; no game history is used.
+
+**SSE events (mode `agent`):** `meta` → (`tool` → `tool_done`)\* + `board` / `puzzle` /
+`play` / `moments` → `lines` → `token`\* → `done {notes, fen, provider}` | `error`.
+The frontend sends back each assistant turn's `notes` and `fen` in
+`conversation_history`; notes go into the system prompt (never the transcript, so
+the model can't parrot them).
+
+**Free LLM configuration.** Only `GROQ_API_KEY` is required. Groq's free tier
+gives each model ~8K tokens/minute and ~200K tokens/day; the chain rotates
+`gpt-oss-120b → qwen3.8-27b → gpt-oss-20b`. A free **Gemini** key
+(`GEMINI_API_KEY`, aistudio.google.com) and/or **Cerebras** key (`CEREBRAS_API_KEY`)
+are used first automatically, raise capacity a lot, and switch on the LLM critic
+pass. Optional: `COACH_LLM_CHAIN="gemini:gemini-flash-latest,groq:openai/gpt-oss-120b"`,
+`COACH_CRITIC=0|1`, `OPENROUTER_API_KEY`.
+
+**Other endpoints:** `POST /api/coach/engine-move {fen, strength}` (play mode).
+
+**UI.** `pages/Coach.tsx` = board (`components/coach/CoachWorkspaceBoard.tsx`: drag
+moves, paste FEN/PGN, eval bar, move list, coach lines with "My board" return,
+play mode) + chat (tool steps, `AnswerText` with clickable moves, suggestion
+chips, level chip, audio). Game Review's "Explain the idea / Why was this wrong?"
+is a short per-move conversation with the same agent in critique mode
+(`review` context), with clickable lines on the review board.
+
+**Tests & evaluation.** `tests/test_coach_agent.py` (verifier, board facts, loop
+with stubbed LLM, failover); `scripts/test_coach_agent.cjs` (browser acceptance);
+`scripts/eval_coach_agent.py` + `scripts/coach_eval_cases.py` (88-turn paced,
+resumable evaluation across 14 categories → `reports/coach_eval/`).
+
+## Earlier behavior and decisions (October 2026, v1 — still used by Share Screen)
+
+This section supersedes older personalization plans. The current user explicitly
+asked for **the same coaching policy for everyone**. Chat, voice and review use
+only the supplied position/game and current conversation. They do not load a
+username's questionnaire, rating, blindspots or cross-session memory. The profile
+files/endpoints and other training features remain for compatibility; restoring
+personalized coaching is future work, not an implicit next step.
+
+- Coach chat now fills the workspace width and has a taller conversation area.
+- Position chat and Share Screen use the **same Groq narrator**, evidence ledger,
+  8-second default investigation, teaching observations and local fallback.
+  Voice narration is enabled by default. There is no new paid service.
+- Answers usually target **80-160 words**: verdict, concrete idea, strongest
+  relevant defense and an alternative; one legal 6-8-ply continuation when useful.
+  This is a prompt target, not a hard truncation of potentially important content.
+- `teaching.py` adds exact board changes for quiet moves: development, gained
+  central attacks, central pawn occupation, open/semi-open rook files, castling,
+  passed pawns and promotion. These describe changes; they do not prove that
+  a strategic idea causes the move to be best.
+- The shared local answer now includes those observations and a continuation;
+  the old generic "I don't have a verified positional reason" response is gone.
+- Share Screen embeds the existing Analysis Board in the call. Play and speak
+  in **one foreground tab**, avoiding background-tab microphone behavior. It still
+  requires an explicit browser tab capture selection. There is no answer text feed.
+- Opening/endgame section chat interfaces have been removed as requested. Their
+  explorers, theory/practice and curated knowledge tools for the main Coach remain.
+- `/game-review` adds independent local PGN review, move classifications, both
+  accuracies, candidate playback and experimental game-strength estimates.
+  **Explain the idea** invokes this same Coach on the pre-move FEN and played move.
+  See [Game Review methodology](../GAME_REVIEW.md) and
+  [Share Screen handoff](SHARE_SCREEN.md).
+
+The legacy user-state system still powers the dashboard and targeted training.
+Universal coaching does not imply byte-identical model output: engine budgets,
+hash state, hardware, model revisions and a probabilistic provider can vary results.
 
 ## 1. What the Coach ultimately aims to become
 
@@ -45,13 +158,14 @@ than handing an LLM one principal variation and asking for commentary.
 | Efficient Stockfish integration | Initial scan, deeper candidate searches, time budget, separate mate/cp types, partial results. | Stronger cancellation, caching and more reliable ranking stability checks. |
 | Human-centered explanations | Existing Coach conversation, a Position mode, requested-level narration and local factual fallback. | Reliable simplification/deepening without introducing unsupported new claims. |
 | Evaluation | Frozen single-PV baseline, 30 legal seed cases, paired-run script and empty review rubrics. | Human-scored difficult positions/games and evidence of a quality improvement. |
-| PGN/game stories | Existing PGN tool retained. | Critical moments beyond evaluation swings, strategic transitions and verified narrative summaries. |
+| PGN/game stories | Dedicated local move-by-move Game Review, classification and on-demand move explanation; existing PGN tool retained. | Calibrated performance estimates, richer critical moments, strategic transitions and verified whole-game stories. |
 | Playing and historical retrieval | Existing Maia practice and other training surfaces retained. | Conversational Stockfish playing modes, historical-game retrieval and integrated research workflows. |
 
 AIM's instruction to build vertically guided the scope: prove a FEN → candidates
 → investigation → counterfactual comparison → explanation loop first. We did
-not remove training, opening/endgame coaches, scanner, analysis board, Maia,
-blindspot intelligence, or shareable DNA features to make room for the pivot.
+not remove training, scanner, analysis board, Maia, blindspot intelligence, or
+shareable DNA features. In the latest update the user specifically requested
+removing the separate opening/endgame chat surfaces; their knowledge tools remain.
 
 ## 2. Existing Coach foundations that remain
 
@@ -62,10 +176,12 @@ and mistake boards, questionnaire onboarding, audio mode, and three context laye
 2. Rolling cross-session memory in `{username}_coach_memory.json`.
 3. Live context from the user's games, skill-family blindspots and training data.
 
-Those foundations remain. Identity is still the local username convention rather
-than an authentication system. State is stored in JSON/SQLite files under `data/`.
-The backend remains one FastAPI app in `backend/main.py`. There is no new service,
-database, vector store, agent framework or dependency introduced by this milestone.
+The storage modules remain, but the current Coach does not read these three
+layers. `get_mistake_positions` is excluded from advertised tools and blocked in
+chat dispatch; the puzzle default is a universal 1500 with fixed themes unless
+explicitly requested otherwise. Greetings are fixed, and update-memory is a
+compatibility no-op. Identity remains a local username convention, not an
+authentication system. No new agent framework, database or service is required.
 
 ## 3. File map
 
@@ -75,6 +191,9 @@ database, vector store, agent framework or dependency introduced by this milesto
 | `tools.py` | The six tool schemas/dispatch handlers; `explain_position` now accepts focus/alternative/budget arguments. |
 | `investigation.py` | Provider-independent typed chess evidence, legality checks, bounded engine searches, hypothesis checks and factual template. |
 | `explain.py` | Tool-compatible result wrapper, compact evidence for the narrator, optional C1/Groq synthesis and conservative prose rejection checks. |
+| `teaching.py` | Exact positional observations and the shared concise text/voice fallback. |
+| `live.py` | Validated current/last-move routing, spoken move normalization and shared narration. |
+| `../game_review.py` | Dedicated, cancellable local PGN review; independent metrics. |
 | `config.py` | Shared model ID and reasoning options for Coach chat, narration and memory. |
 | `baseline.py` | Preserved previous explanation code plus a time-capped single-PV benchmark adapter. It is a historical comparison, not the live implementation. |
 | `context.py` | Player's live data context and top-blindspot lookup. |
@@ -102,10 +221,8 @@ retained for follow-ups. Editing the FEN clears explicit move fields. A move
 question can infer legal root moves if the explicit fields are blank; explicit
 fields are more reliable, especially when the question discusses an opponent reply.
 
-For users who have not completed the questionnaire, **Investigate a position now**
-opens Position mode without discarding onboarding. A stored username is still
-required by the app's existing route guard. Saved local profiles can be resumed
-from the homepage without running ingestion again.
+Coach opens immediately without a questionnaire. Its modes, inline boards and
+position evidence remain available to guests and existing local profiles alike.
 
 The attachment shows candidates, White-relative evaluations, completed depths,
 the original board and principal variation, sampled opponent replies, confidence
@@ -138,8 +255,8 @@ The synchronous FastAPI streaming generator runs blocking work off the event loo
 through the framework's thread pool. The other conversation modes retain the
 bounded general tool-orchestration loop (four rounds, with trimmed history).
 
-For ordinary chat, the model can still call `explain_position` as one of the six
-tools. That result is compacted into valid JSON for the model rather than cut
+For ordinary chat, the model can still call `explain_position` as one of the five
+active tools. That result is compacted into valid JSON for the model rather than cut
 mid-field. The narrative-specific conservative checks described below apply to
 the direct Position/pasted-FEN synthesis path; a general chat tool answer is
 still governed primarily by the system prompt and should be reviewed separately.
@@ -260,12 +377,11 @@ pieces, all legal replies, searched defenses and the checked claims. The prompt
 asks for a concise answer at the requested level, forbids invented lines/claims,
 and preserves uncertainty. It is not asked to independently calculate tactics.
 
-Provider order when AI wording is enabled:
-
-1. Optional `C1_ENDPOINT` narration, using the existing requests dependency,
-   `C1_MODEL` and `C1_API_KEY`, with a three-second timeout.
-2. Groq with the existing `GROQ_API_KEY`, a twelve-second timeout and no SDK retries.
-3. Local factual template if no provider succeeds or the prose fails a check.
+Active Position/chat-investigation and voice requests use the existing Groq
+account, with a twelve-second timeout and no SDK retries, then the shared local
+summary on missing credentials, rate limits, failure or rejected prose. Both paths
+explicitly bypass C1 so the two interfaces share the same narrator. The optional
+C1 adapter remains callable by research/evaluation scripts only.
 
 `config.py` shares `FORKED_COACH_MODEL` across general Coach chat, narration and
 session memory. The default is `openai/gpt-oss-120b`. The previous
@@ -278,7 +394,7 @@ describes its text/tool capabilities.
 To change the **product's** model, set `FORKED_COACH_MODEL` in `.env` and restart
 the backend. Supported GPT-OSS models receive low reasoning effort; other model
 IDs do not receive that provider-specific setting. Narration uses temperature 0
-and a 2,000-token cap. General chat and memory retain their separate temperatures.
+and a 2,000-token cap. General chat also uses temperature 0. Memory generation is disabled in the active UI/API.
 A user switching the coding/chat model that reads this handoff is a different
 operation and does not require changing the product's `.env`.
 
@@ -296,7 +412,13 @@ claim label. During live tests the model produced contradictory material/draw
 statements even with correct evidence. This is a central unresolved research
 problem, not something to hide by making the prompt sound more confident.
 
-## 10. Evaluation and validation at handoff
+## 10. Evaluation and validation
+
+The October update passes **84 targeted backend tests** across investigation,
+voice and Game Review. Browser scripts cover the single-tab board/voice bridge
+(simulated hardware), cancellation/stale answers, real PGN review/export, mobile
+layouts and homepage entry. Native microphone/capture behavior still needs a
+hardware trial. The following describes the original milestone validation.
 
 The targeted suite has **31 passing tests** covering invalid boards/moves,
 outside-MultiPV alternatives, SAN/UCI promotions, en passant, score orientation,
@@ -362,11 +484,20 @@ it; the user-authorized final server was launched outside that sandbox so its
 existing Groq connection can work. Normal user terminals do not need that agent
 sandbox workaround. No secret values are documented here.
 
-The repo already contained other uncommitted changes in README/CLAUDE, backend
-main and scoresheet code, scanner tests/docs, and SQLite caches. Preserve them.
-This milestone's live edits are in the Coach package, Coach UI/API, targeted
-tests/fixtures, evaluation script and milestone/testing/handoff docs. Imports,
-live sync and browser activity can update existing caches/generated user state.
+Reproducible checks for this update:
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/test_coach_investigation.py tests/test_coach_live.py tests/test_game_review.py -q -p no:cacheprovider
+node scripts/test_share_screen.cjs
+node scripts/test_game_review.cjs
+npm.cmd --prefix frontend run build
+```
+
+Browser scripts need the servers running and installed desktop Chrome. They do
+not spend hosted-model quota. `--real-capture` on the voice script attempts the
+native picker but requires a suitable interactive browser environment. The normal
+voice test deliberately mocks capture and speech hardware and tests the real
+board channel and engine. Artifacts go under ignored `logs/`.
 
 ## 12. Best next decisions after user feedback
 

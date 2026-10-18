@@ -92,7 +92,7 @@ def test_free_endpoint_never_calls_model_and_returns_speech(monkeypatch):
     monkeypatch.setattr(live, "explain_position", investigate)
     monkeypatch.setattr(live, "narrate_evidence", lambda *a, **kw: pytest.fail("Hosted narrator must be opt-in"))
     app = FastAPI(); app.include_router(router)
-    response = TestClient(app).post("/api/coach/live-turn", json=turn().model_dump())
+    response = TestClient(app).post("/api/coach/live-turn", json=turn(use_llm=False).model_dump())
     assert response.status_code == 200
     result = response.json()
     assert result["source"] == "template" and result["focus_move"] == "e2e4"

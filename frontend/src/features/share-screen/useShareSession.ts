@@ -15,7 +15,7 @@ export function useShareSession() {
   const [ready, setReady] = useState(false)
   const [boardState, setBoardState] = useState('Waiting for the shared board')
   const [error, setError] = useState('')
-  const [useLlm, setUseLlm] = useState(false)
+  const [useLlm, setUseLlm] = useState(true)
   const [hasAnswer, setHasAnswer] = useState(false)
   const [startedAt, setStartedAt] = useState(0)
   const board = useRef<BoardSnapshot | null>(null)
@@ -73,7 +73,7 @@ export function useShareSession() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
         body: JSON.stringify({ fen: snapshot.fen, before_fen: snapshot.beforeFen, last_move: snapshot.lastMove,
           question, history: history.current, previous_target: previousTarget.current,
-          budget_seconds: 5, use_llm: settings.current.useLlm }),
+          budget_seconds: 8, use_llm: settings.current.useLlm }),
       })
       if (!response.ok) throw new Error('The coach could not analyze this position. Please try again.')
       const result = await response.json()
@@ -160,7 +160,7 @@ export function useShareSession() {
       // Must be the first awaited browser call in this click handler (transient activation).
       captured = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: { ideal: 10, max: 15 }, displaySurface: 'browser' }, audio: false,
-        selfBrowserSurface: 'exclude', systemAudio: 'exclude', surfaceSwitching: 'exclude',
+        selfBrowserSurface: 'include', preferCurrentTab: true, systemAudio: 'exclude', surfaceSwitching: 'exclude',
         monitorTypeSurfaces: 'exclude',
       } as DisplayMediaStreamOptions)
       if (version !== generation.current) { captured.getTracks().forEach(t => t.stop()); return }

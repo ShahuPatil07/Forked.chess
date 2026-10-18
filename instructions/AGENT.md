@@ -166,6 +166,12 @@ was preserved.
 
 ## 5. The Forked Coach (`backend/coach/`)
 
+> **Current Coach = agent v2 in `backend/coach/agent/`** (board-aware
+> investigate → verify → explain, 13 tools, free-tier LLM failover chain, verifier,
+> follow-up notes). See the top section of `backend/coach/README.md`. The
+> description below is the earlier v1 design; `explain.py`/`investigation.py`/`live.py`
+> still serve Share Screen voice turns and `/api/coach/investigate`.
+
 Persistent agentic coach. Groq `llama-3.3-70b-versatile` with 6 tools, streamed
 over SSE with mid-conversation tool orchestration. Three personalisation layers.
 

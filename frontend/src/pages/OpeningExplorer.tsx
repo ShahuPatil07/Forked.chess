@@ -6,7 +6,6 @@ import { useUserStore } from '../store/userStore'
 import { openingsApi, START_FEN, type OpeningMove, type ExploreResponse } from '../api/openings'
 import { OpeningTree } from '../components/openings/OpeningTree'
 import { OpeningDetail } from '../components/openings/OpeningDetail'
-import { OpeningCoachChat } from '../components/openings/OpeningCoachChat'
 import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
 import openingsIndex from '../data/openings_index.json'
 
@@ -393,10 +392,6 @@ export default function OpeningExplorer() {
 
         {/* Coach + detail rail */}
         <div className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
-          <OpeningCoachChat
-            selected={selected}
-            parentName={parentOpening}
-          />
           <OpeningDetail
             selected={selected}
             eloBucket={eloBucket}

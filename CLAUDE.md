@@ -91,7 +91,8 @@ backend/                 (9 routers, all mounted on main's FastAPI app)
   replay.py        /api/cluster/{u}/{cid}/mistakes | /insight | /note | /explain   (Mistake Replay)
   counterfactual.py  /api/profile/{u}/counterfactual   (bounded perf-rating estimate)
   card.py          /api/profile/{u}/{compute-style,style,dna-card,card}   (Chess DNA PNG via Pillow)
-  coach/           Forked Coach package (capstone) — see instructions/AGENT.md §5
+  coach/           Forked Coach package (capstone) — see backend/coach/README.md
+    agent/         v2 agent: llm (free provider chain), engine, features, tools, prompt, verify, loop
     router.py      /api/coach/chat (SSE+tools) | save-questionnaire | profile | update-memory
     profile.py     questionnaire + rolling memory file IO (Layers 1 & 2)
     context.py     live user-context block (Layer 3), built every session
@@ -132,7 +133,8 @@ frontend/src/
                    two ~8MB TFJS models. Hands off to AnalysisBoard via {moves}.
   public/models/   480M_pieces_float16 + 480L_xcorners_float16 (board/piece detectors)
   components/layout/   AppShell (nav, Coach has an "AI" badge), SectionHeader, ChessBackground
-  components/coach/    CoachBoard (inline puzzle / view / navigable-review board)
+  components/coach/    CoachWorkspaceBoard (board the agent sees + play mode), AnswerText (clickable
+                   moves), LevelQuestionnaire, CoachBoard (inline puzzle / view board)
   components/openings/ OpeningTree, OpeningDetail, OpeningCoachChat, MiniBoardThumbnail
   components/endgames/ EndgameTree, EndgameDetail, EndgamePractice, EndgameCoach, PieceConfigurator
   components/dashboard/ BlindspotAlerts (live-sync banner), RatingImpact (counterfactual + DNA share)
@@ -206,8 +208,22 @@ flat per-game Elo (that produced fantasy +1000 ratings). Chess DNA style axes
 are computed from the mistake dataset with documented proxies (no full-game
 re-annotation); axes with too little data are reported `None` and omitted.
 
-**Forked Coach** — `backend/coach/` package (see instructions/AGENT.md §5). Groq
-`llama-3.3-70b-versatile` + 6 tools, streamed over SSE with a bounded
+**Forked Coach (agent v2, current)** — `backend/coach/agent/` (full map in
+`backend/coach/README.md`, top section). The Coach page and Game Review's move
+explainer use `mode: "agent"`: a board-aware investigate → verify → explain loop
+over 13 grounded tools (Stockfish MultiPV, move-vs-best counterfactuals, null-move
+threats, exact board features, what-if lines, Lichess explorer + Masters game
+verification, Syzygy, game review, puzzles, play mode). The client sends the
+board FEN/moves/PGN, a static questionnaire level, and each prior answer's
+analysis `notes` so follow-ups stay grounded. A verifier repairs illegal moves,
+wrong piece placements and false file/pin claims before streaming. LLMs come from
+a free-tier failover chain (`agent/llm.py`: Gemini/Cerebras if keyed, then Groq
+`gpt-oss-120b → qwen3.8-27b → gpt-oss-20b`); never require a paid key, and keep
+the engine-only fallback. Free Groq ≈ 8K tokens/min + 200K tokens/day per model,
+so keep tool outputs compact and only send relevant tool schemas.
+
+**Forked Coach (v1 pipeline, still used by Share Screen voice + `/investigate`)** —
+streamed over SSE with a bounded
 tool-call loop (`meta` → `tool`/`tool_result` → `token` → `done`). Three layers:
 questionnaire (`_coach_profile.json`), rolling memory (`_coach_memory.json`),
 and a live context block built every session (theory mode omits it). `explain.py`
@@ -255,6 +271,10 @@ small boards).
 - **Coaches stream over SSE** with a `meta` event first (sources, flags), then
   `token` events, then `done`. Frontend parses with a manual `ReadableStream`
   reader (not EventSource).
+- **Coach evaluation**: `python scripts/eval_coach_agent.py` (paced for free-tier
+  limits, resumable) → `reports/coach_eval/`. Unit tests: `tests/test_coach_agent.py`.
+- **`.env`** optional free keys `GEMINI_API_KEY` / `CEREBRAS_API_KEY` boost the Coach
+  (used first; enable the critic pass). `COACH_LLM_CHAIN`, `COACH_CRITIC` override.
 - **`.env`** needs `GROQ_API_KEY` (coaches, Forked Coach, insights) and
   `LICHESS_TOKEN` (Opening Explorer returns 401 without it on many networks).
   Optional `C1_ENDPOINT` (+ `C1_API_KEY`, `C1_MODEL`) points `explain_position`

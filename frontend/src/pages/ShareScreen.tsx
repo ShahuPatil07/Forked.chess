@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowUpRight, Check, Headphones, Mic, MicOff, MonitorUp, PhoneOff, Play, RotateCcw, Sparkles, Square, Volume2 } from 'lucide-react'
 import { Chessboard } from 'react-chessboard'
 import { useShareSession } from '../features/share-screen/useShareSession'
+import AnalysisBoard from './AnalysisBoard'
+import { Chess } from 'chess.js'
 
 function VoiceOrb({ speaking = false, listening = false }: { speaking?: boolean; listening?: boolean }) {
   return <div className="relative flex items-center justify-center w-36 h-36 mx-auto" aria-hidden="true">
@@ -25,21 +27,11 @@ function CallClock({ since }: { since: number }) {
 
 export default function ShareScreen() {
   const call = useShareSession()
-  const video = useRef<HTMLVideoElement>(null)
   const [boardOpened, setBoardOpened] = useState(false)
   const [startingFen, setStartingFen] = useState('')
-  useEffect(() => {
-    if (!video.current || !call.stream) return
-    video.current.srcObject = call.stream
-    void video.current.play().catch(() => { /* muted autoplay normally succeeds */ })
-    return () => { if (video.current) video.current.srcObject = null }
-  }, [call.stream])
-  const openBoard = () => {
-    const params = new URLSearchParams({ coachShare: call.session })
-    if (startingFen) params.set('fen', startingFen)
-    window.open(`/analysis?${params}`, '_blank', 'noopener,noreferrer')
-    setBoardOpened(true)
-  }
+  let validPosition = true
+  try { if (startingFen) new Chess(startingFen) } catch { validPosition = false }
+  const openBoard = () => setBoardOpened(true)
   const state = call.speaking ? 'Coach speaking' : call.busy ? 'Thinking through your move' : !call.ready
     ? call.boardState : call.muted ? 'Microphone muted' : call.listening ? 'Listening to you' : 'Ready when you are'
 
@@ -57,7 +49,7 @@ export default function ShareScreen() {
       <span>{call.error}</span>{call.stream && <button onClick={call.retryVoice} className="btn-ghost whitespace-nowrap">Retry voice</button>}
     </div>}
 
-    {!call.stream ? <>
+    {!boardOpened ? <>
       <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_1fr] gap-6 items-stretch">
         <section className="rounded-2xl border border-border bg-bg-1/90 p-7 lg:p-9">
           <div className="text-xs uppercase tracking-[.2em] text-violet-300 mb-5 flex items-center gap-2"><Headphones size={14} /> A seat beside your coach</div>
@@ -65,8 +57,8 @@ export default function ShareScreen() {
           <p className="text-text-1 leading-relaxed text-sm mt-5 max-w-lg">Share your Forked Analysis Board and have a spoken conversation about the position. Understand your move, the opponent’s reply, and what you could try instead.</p>
           <ol className="space-y-5 mt-8">
             {[
-              ['Open your board', 'Use the button below. Keep this coach tab open alongside it.'],
-              ['Share the board tab', 'Return here, start sharing, and choose “Forked • Board for live coach” under browser tabs.'],
+              ['Open your board', 'Choose a position and open your board right here in the call.'],
+              ['Share this workspace', 'Start sharing and choose this tab, named “Forked • Board for live coach” under browser tabs.'],
               ['Pause, then speak', 'Hold a position for 2–3 seconds. Allow the microphone, play a move, and ask your question.'],
             ].map(([title, detail], i) => <li key={title} className="flex gap-3">
               <span className="rounded-full w-6 h-6 flex-shrink-0 flex items-center justify-center border border-accent/30 bg-accent/10 text-xs text-violet-300">{i + 1}</span>
@@ -80,12 +72,13 @@ export default function ShareScreen() {
               <option value="8/3q3k/8/3N4/8/8/8/6K1 w - - 0 1">Try a knight fork</option>
             </select>
           </label>
+          <label className="block text-xs text-text-2 mt-4">Or paste a starting FEN
+            <input aria-label="Starting FEN" className="input mt-2 font-mono text-xs" value={startingFen} onChange={e => setStartingFen(e.target.value)} placeholder="Leave blank for a new game" />
+          </label>
+          {!validPosition && <p className="text-xs text-amber-200 mt-2">Enter a valid chess position before opening the board.</p>}
           <div className="flex flex-wrap gap-3 mt-5">
-            <button className="btn-ghost border border-border flex items-center gap-2" onClick={openBoard}>
-              {boardOpened ? <Check size={15} /> : <ArrowUpRight size={15} />} {boardOpened ? 'Open board again' : 'Open Analysis Board'}
-            </button>
-            <button className="btn-primary flex items-center gap-2" disabled={!call.supported || !boardOpened || call.starting} onClick={call.start}>
-              <MonitorUp size={16} />{call.starting ? 'Waiting for sharing…' : 'Start sharing'}
+            <button className="btn-primary flex items-center gap-2" disabled={!validPosition} onClick={openBoard}>
+              {boardOpened ? <Check size={15} /> : <ArrowUpRight size={15} />} {boardOpened ? 'Board ready' : 'Open Analysis Board'}
             </button>
           </div>
           {!call.supported && <p className="text-xs text-amber-200 mt-4">This preview needs desktop Chrome or Edge with tab capture and speech recognition, on localhost or HTTPS.</p>}
@@ -115,25 +108,24 @@ export default function ShareScreen() {
           <p>Headphones help keep your voice clear. Listening pauses while the coach speaks; use Interrupt to take your turn.</p>
           <button onClick={call.testSpeaker} disabled={!call.supported} className="mt-3 text-violet-300 flex gap-1.5 items-center disabled:opacity-40"><Play size={12} /> Test English voice</button></div>
         <div className="card p-5"><h3 className="text-text-0 font-medium mb-2">Free to start</h3>
-          <p>Local Stockfish explanations need no API key. Optional AI wording uses your configured Groq account and its quota; enable it only with free quota available.</p>
-          <label className="flex items-center gap-2 mt-3 text-text-1"><input type="checkbox" className="accent-violet-500" checked={call.useLlm} onChange={e => call.setUseLlm(e.target.checked)} /> Use AI wording (Groq)</label></div>
+          <p>The same evidence-based Coach explains your moves aloud using the configured Groq free tier. If its quota is unavailable, a local explanation takes over.</p>
+          <label className="flex items-center gap-2 mt-3 text-text-1"><input type="checkbox" className="accent-violet-500" checked={call.useLlm} onChange={e => call.setUseLlm(e.target.checked)} /> Coach explanations (Groq free tier)</label></div>
         <div className="card p-5"><h3 className="text-text-0 font-medium mb-2">A connected board, a private preview</h3>
-          <p>The selected Forked tab supplies the exact position and last move. Screen video stays in your browser. Speech recognition may send audio to your browser’s speech service. Calls aren’t recorded by Forked.</p></div>
+          <p>Play and talk in this tab. The board supplies the exact position and last move. Screen video stays in your browser. Speech recognition may send audio to your browser’s speech service. Calls aren’t recorded by Forked.</p></div>
       </div>
     </> : <div className="space-y-4" data-testid="live-call">
       <div className="flex justify-between items-center text-xs text-text-2 px-1 gap-4">
-        <span className="flex gap-2 items-center"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />Sharing Analysis Board <CallClock since={call.startedAt} /></span>
-        <span>{call.useLlm ? 'AI wording enabled' : 'Local coach'}</span>
+        <span className="flex gap-2 items-center"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />{call.stream ? 'Sharing this workspace ' : 'Board ready '}{call.stream && <CallClock since={call.startedAt} />}</span>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={call.useLlm} onChange={e => call.setUseLlm(e.target.checked)} />Coach explanations</label>
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_270px] gap-4">
-        <div className="relative rounded-2xl overflow-hidden border border-border bg-black min-h-[320px] flex items-center">
-          <video ref={video} muted autoPlay playsInline className="w-full max-h-[65vh] object-contain" aria-label="Your shared Analysis Board" />
-          <span className="absolute left-4 bottom-4 text-xs bg-black/75 px-3 py-1.5 rounded-full flex items-center gap-2"><MonitorUp size={13} />You’re presenting</span>
+        <div className="rounded-2xl border border-border bg-bg-1 p-4">
+          <AnalysisBoard key={startingFen} embedded liveSession={call.session} startingFen={startingFen} />
         </div>
         <div className="rounded-2xl border border-accent/20 bg-gradient-to-b from-accent/10 to-bg-1 p-6 flex flex-col items-center justify-center min-h-[300px] text-center">
           <VoiceOrb speaking={call.speaking} listening={call.listening} />
           <h2 className="text-lg font-semibold mt-6">Forked Coach</h2>
-          <p className="text-sm text-violet-300 mt-2" role="status">{state}</p>
+          <p className="text-sm text-violet-300 mt-2" role="status">{call.stream ? state : 'Start sharing to begin'}</p>
           <div className="h-8 flex items-center justify-center gap-1 mt-4" aria-hidden="true">
             {[12, 22, 32, 18, 26, 14, 22].map((h, i) => <span key={i} className={`w-1 rounded-full bg-violet-400/60 ${call.speaking || call.listening ? 'animate-pulse' : ''}`} style={{ height: call.speaking || call.listening ? h : 4, animationDelay: `${i * 110}ms` }} />)}
           </div>
@@ -141,12 +133,15 @@ export default function ShareScreen() {
         </div>
       </div>
       <div className="rounded-2xl border border-border bg-bg-1 p-4 flex flex-wrap justify-center gap-3">
+        {!call.stream && <button className="btn-primary flex gap-2 items-center" disabled={!call.supported || call.starting} onClick={call.start}><MonitorUp size={17} />{call.starting ? 'Choose this browser tab...' : 'Start sharing'}</button>}
+        {!call.stream && <button className="btn-ghost" onClick={() => setBoardOpened(false)}>Back to setup</button>}
+
         <button className={`btn-ghost border flex items-center gap-2 ${call.muted ? 'border-red-400/30 text-red-300' : 'border-border'}`} aria-pressed={call.muted} onClick={call.toggleMic}>{call.muted ? <MicOff size={17} /> : <Mic size={17} />}{call.muted ? 'Unmute' : 'Mute'}</button>
         <button className="btn-ghost border border-border flex items-center gap-2" onClick={call.interrupt}><Square size={15} />Interrupt</button>
         <button className="btn-ghost border border-border flex items-center gap-2 disabled:opacity-30" disabled={!call.hasAnswer || call.busy} onClick={call.repeat}><RotateCcw size={15} />Repeat answer</button>
-        <button className="btn-danger flex items-center gap-2" onClick={call.end}><PhoneOff size={17} />End call</button>
+        <button className="btn-danger flex items-center gap-2" onClick={() => { call.end(); setBoardOpened(false) }}><PhoneOff size={17} />End call</button>
       </div>
-      <p className="text-center text-xs text-text-2">Keep this tab open while you play in the shared board tab. Say “what should I play now” to discuss the current position.</p>
+      <p className="text-center text-xs text-text-2">Play on this board while you talk. Say “what should I play now” to discuss the current position.</p>
     </div>}
   </div>
 }

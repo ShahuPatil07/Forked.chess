@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useUserStore } from './store/userStore'
-import Onboarding from './pages/Onboarding'
+import Onboarding from './pages/Home'
 import Loading from './pages/Loading'
 import Dashboard from './pages/Dashboard'
 import BlindspotDetail from './pages/BlindspotDetail'
@@ -16,6 +16,7 @@ import MistakeReplay from './pages/MistakeReplay'
 import DNAPage from './pages/DNAPage'
 import Coach from './pages/Coach'
 import ShareScreen from './pages/ShareScreen'
+import GameReview from './pages/GameReview'
 import AppShell from './components/layout/AppShell'
 import { ChessBackground } from './components/layout/ChessBackground'
 
@@ -43,6 +44,7 @@ export default function App() {
 
         <Route element={<RequireUser><AppShell /></RequireUser>}>
           <Route path="/share-screen" element={<ShareScreen />} />
+          <Route path="/game-review" element={<GameReview />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/coach" element={<Coach />} />
           <Route path="/blindspot/:id" element={<BlindspotDetail />} />

@@ -11,6 +11,7 @@ from backend.coach.investigation import (
     InvestigationRequest, factual_explanation, investigate, score_label,
 )
 from backend.coach.config import MODEL, NARRATION_MAX_TOKENS, reasoning_options
+from backend.coach.teaching import teaching_evidence, concise_explanation
 
 log = logging.getLogger(__name__)
 NARRATION_PROMPT = """You are a careful chess coach. Explain the supplied investigation evidence,
@@ -45,6 +46,17 @@ Do not claim a move is the only saving move; only a subset of root moves was
 searched. Do not claim the alternative loses the game from a centipawn score.
 For terminal lines use final_pieces exactly: captured pieces are no longer there.
 Be concise; avoid repeating a conclusion with additional untested claims."""
+NARRATION_PROMPT += """
+Teaching structure: answer the question in the first sentence, then connect one or
+two supplied board changes to the concrete defense and consequence. Use the teaching
+observations to explain quiet moves (development, central squares, open files, passed
+pawns); distinguish a plausible idea from a proven tactic. Compare the requested move
+with the strongest relevant alternative. Usually 80-160 words, no repetitive caveats.
+Include ONE illustrative legal continuation, up to 6-8 plies (3-4 moves by each side)
+when it resolves the user's question; do not dump every candidate or a bare move list.
+Use the same depth and teaching quality in voice and text. If asked to go deeper,
+explain the supplied continuation in detail rather than inventing extra moves.
+"""
 
 
 def _score_to_str(score: chess.engine.PovScore) -> str:
@@ -77,6 +89,7 @@ def evidence_for_model(result: dict) -> dict:
                          "line": r["line"]["san"], "score": r["score"]} for r in c["replies"]],
         } for c in result.get("candidates", [])],
         "claims": result.get("claims", []), "budget": result.get("budget", {}),
+        "teaching": result.get("teaching", {}),
     }
 
 
@@ -161,7 +174,7 @@ def narrate_evidence(result: dict, history: list[dict] | None = None,
         return result["explanation"], "template"
     prompt = NARRATION_PROMPT
     if spoken:
-        prompt += ("\nThis is an English voice conversation. Answer in at most 130 words, "
+        prompt += ("\nThis is an English voice conversation. Usually answer in 80-160 words, "
                    "without headings, markdown or tables. Explain the requested move's quality, "
                    "one checked reason or defense, and a better alternative if supported. "
                    "Retain SAN notation; the speech renderer will expand it. Prior conversation "
@@ -221,9 +234,11 @@ performs narrative synthesis separately so this tool remains local and testable.
         return {"explanation": str(exc), "best_move_san": None, "eval": None,
                 "source": "error", "status": "error", "candidates": [], "claims": []}
     result = investigation.to_dict()
+    result["teaching"] = teaching_evidence(result)
     top = investigation.candidates[0] if investigation.candidates else None
     result.update({"explanation": factual_explanation(investigation),
                    "best_move_san": top.move_san if top else None,
                    "eval": score_label(top.score) if top else None,
                    "source": "stockfish", "narration_source": "template"})
+    result["explanation"] = concise_explanation(result, investigation.focus_move)
     return result

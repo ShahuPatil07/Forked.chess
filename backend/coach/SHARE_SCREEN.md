@@ -1,248 +1,145 @@
-# Share Screen coach: implementation, limits, and testing
+# Share Screen: current implementation and testing
 
-This is the handoff for the first **Forked Analysis Board-only** voice session,
-added alongside the existing Coach. Read [README.md](README.md) for the underlying
-position investigation and its verification limits. Nothing replaces the original
-Coach, Analysis Board, or other training sections.
+Updated October 2026. Read [Coach architecture](README.md) for the underlying
+investigation and [Game Review](../GAME_REVIEW.md) for the other new study surface.
+The accepted scope is **Forked's own Analysis Board**. External website recognition
+and arbitrary-screen FEN recovery are not implemented.
 
-## What is implemented
+## What changed and why
 
-- `/share-screen`, with a navigation entry immediately above Dashboard.
-- A static tutorial and call preview before permissions are requested.
-- A separate linked Analysis Board tab, with New game, Checkmate, and Knight fork
-  starting positions. Normal board moves, undo, reset, and flip remain available.
-- Actual browser tab capture and a muted live video preview in the call.
-- Exact position and last-move synchronization after **2.5 seconds** without a
-  position change, rather than attempting to recover incomplete FEN state from pixels.
-- English voice questions and English spoken replies. The call renders statuses
-  and controls, but no question transcript, answer text, chat feed, or evidence cards.
-- Move review using the position **before** the last move; current-position
-  questions use the board **after** it. The backend validates the relationship.
-- Stockfish investigation, candidate comparison, checked tactical evidence,
-  concise local narration, and optional existing Groq narration.
-- Mute/unmute, interrupt, repeat answer, end call, stale-board detection, and
-  cancellation of outdated answers when the position or shared source changes.
-- A small banner in the linked board tab shows the call state and lets the user
-  interrupt without returning to the call tab.
+The original version opened a second Analysis Board tab and defaulted to a shorter
+local summary. Background-tab microphone behavior made people switch back to the
+call repeatedly, and local wording was much less helpful than ordinary Coach.
 
-This is a working first slice, **not a measured SOTA claim**, arbitrary-screen
-vision model, or full-duplex low-latency audio model. Physical microphone/speaker
-quality and native browser-picker behavior require the user's hardware trial.
+The current version embeds the same Analysis Board inside Share Screen. The board,
+voice controls and browser speech recognition stay in one foreground document.
+The default is now the **same configured Groq narrator as text Coach**, using the
+same evidence and 8-second investigation budget. Local fallback also gained quiet
+move observations and a concrete continuation. There is no separate weaker voice
+analysis policy. All users get the same policy; profiles and prior sessions are
+not loaded.
 
-## Start a session
+## Start and use a session
 
-1. Run the existing frontend/backend (commands in the Coach README), then open
-   `http://localhost:5173/share-screen` after resuming a local user profile.
-2. Use desktop **Chrome first**. Edge is feature-detected but speech-service
-   availability depends on its browser/device configuration. Use localhost or HTTPS.
-3. Optionally press **Test English voice**. Check the browser's sound setting and
-   use headphones to reduce feedback.
-4. Choose a starting position and click **Open Analysis Board**. Return to the
-   Share Screen tab, leaving that board open.
-5. Click **Start sharing**. In the browser picker, select the browser tab named
-   **Forked • Board for live coach**. Do not choose the entire desktop, an application
-   window, an unrelated board, or the call itself.
-6. Allow microphone access when the browser asks. Wait until the coach says it has
-   your board. Keep the call tab open while making moves in the board tab.
-7. Pause briefly, then ask “Was that a good move?” or “What should I play now?”
-8. Use **Interrupt coach** in the board tab, or **Interrupt** in the call, to stop
-   an answer. **End call** releases capture and stops speech/listening.
+1. Open `http://localhost:5173/share-screen` in desktop Chrome (or a compatible
+   Edge setup). Enter through the home page if there is no local profile.
+2. The initial screen is a static tutorial/demo. Test English voice if desired.
+3. Select New game, Checkmate or Knight fork, or paste your own starting FEN.
+4. Click **Open Analysis Board**. The board opens **in this workspace**.
+5. Click **Start sharing**. Select this browser tab, named
+   **Forked - Board for live coach** (the actual title uses a bullet separator).
+   Choose the browser-tab source, not an entire display/application window.
+6. Allow microphone access and wait about 2.5 seconds for a stable position.
+7. Play on the embedded board, pause briefly, and ask "Was that a good move?"
+   Ask "What should I play now?" to analyze the current side to move instead.
+8. Use Mute, Interrupt, Repeat answer and End call as needed. No tab switching
+   is necessary. Undo, Reset, Flip and move navigation remain available.
 
-The browser decides which picker choices to offer and always owns capture
-permission. Forked cannot silently choose a tab or retain capture permission.
+The browser always owns the capture picker/permission. The app requests that the
+current tab be offered; it cannot silently select it. There is no live video
+thumbnail of the current tab, avoiding a recursive screen-within-screen effect.
+The capture track still binds the chosen source to the exact board publisher.
 
-## Free operation and configuration
+## Data flow
 
-The default path uses local Stockfish, browser SpeechRecognition, and browser
-SpeechSynthesis. It does not invoke a hosted model and requires **no new API key,
-subscription, model download, or dependency installation** in this checkout.
+1. The embedded Analysis Board owns chess.js state and publishes a session-scoped
+   snapshot: board ID, full FEN, previous FEN, last move in UCI.
+2. `setCaptureHandleConfig` identifies that document/board. The capture track's
+   handle and origin must match the session and publisher before any snapshot
+   is accepted. A different Forked tab cannot replace it accidentally.
+3. BroadcastChannel carries snapshots and status inside the same origin. A second
+   channel instance in the same document receives the embedded board's messages.
+4. A snapshot must remain unchanged for **2500 ms**. Heartbeats expire after
+   **5500 ms**; stale, changed, muted or mismatched capture sources invalidate it.
+5. Browser SpeechRecognition collects a final English question. Requests carry
+   exact state, a short in-session conversation and a previous question target.
+6. `POST /api/coach/live-turn` validates that the legal last move actually transforms
+   `before_fen` into `fen`. Deterministic temporal routing selects the last move's
+   pre-move root or the current position. It does not ask an LLM to guess the board.
+7. The shared investigator calculates candidates, alternatives, checked claims,
+   defenses and teaching observations. The shared narrator explains them.
+8. SAN is expanded for speech (e.g. Nf6+ becomes "knight to f 6, check"). Browser
+   SpeechSynthesis speaks the English answer in sentence chunks. Listening pauses
+   while the coach speaks, then restarts; Interrupt gives control back immediately.
 
-**Use AI wording (Groq)** is an explicit, off-by-default option. It uses the
-existing server-side `GROQ_API_KEY`, `FORKED_COACH_MODEL`, evidence prompt, and
-narration checks. It never invokes C1. Enable it only when the account has free
-quota available: code cannot certify an account's billing state or promise that
-a provider's quota is unlimited. Missing credentials, rate limits, model failures,
-and rejected prose fall back to the local spoken summary. No key reaches the browser.
+Responses contain structured evidence for debugging, but the call displays only
+statuses and controls. **No question transcript, answer text or chat feed** is
+rendered. Video stays in the browser and is not sent to an OCR/vision service.
+Speech recognition can send audio to the browser vendor's speech service. Forked
+does not record calls. Position/question context goes to Groq only when narration
+is enabled; credentials stay on the backend.
 
-Local wording is a deterministic summary of evidence. It can discuss the move,
-score gap when comparable, a checked tactical fact/defense, and an alternative.
-It does **not** give the flexible semantic follow-ups of a language model. Groq
-wording enables that conversational layer while preserving the same investigation.
-Neither mode proves arbitrary strategic explanations; the existing Coach caveats
-still apply.
+## Free tools and fallback
 
-Browser speech recognition can send audio to the browser vendor's speech service
-and can require internet even when the chess explanation is local. Browser TTS
-prefers an English local voice when available and otherwise uses an available
-English voice. No paid speech API is integrated.
+No new API key, paid speech API, model download or dependency is required for this
+checkout. Existing local Stockfish handles calculation; browser APIs handle speech.
+**Coach explanations** defaults on and uses the existing `GROQ_API_KEY` and
+`FORKED_COACH_MODEL` configuration, subject to the configured account's free quota.
+Missing credentials, quota limits, provider failure or rejected prose trigger the
+local engine explanation; the voice explicitly announces that fallback. C1 is
+bypassed in both active text-position and voice paths.
 
-## Why this does not reconstruct FEN from an image
+Disable the checkbox for completely local chess wording. Browser speech may still
+need internet. Local explanations describe verified changes, material/terminal
+consequences, sampled defenses and legal continuations. They are less flexible on
+semantic follow-ups than the model. Neither path proves every strategic claim.
 
-A board image does not reveal castling rights, en passant, halfmove counters, or
-reliable move history. Since the approved first scope is Forked's own board, the
-implementation uses an explicit connection to that board's chess.js state.
+## Lifecycle and limitations
 
-The screen is genuinely captured for the call preview. **No screenshot is sent
-to a vision model or OCR service.** Selecting a valid board tab also exposes a
-browser Capture Handle. That handle binds the captured source to the exact board
-publisher. The coach gets FEN through this connection, not by recognizing piece
-pixels. It does not verify whether the board is currently scrolled into view.
+- Board change cancels a pending answer, speech and stale follow-up context. The
+  question can queue briefly while its unchanged position settles.
+- Capture source change, track end, page exit and End call release/invalidate the
+  stream and stop speech. Generation checks discard late responses.
+- The frontend times out an analysis turn after 35 seconds. A disconnected client
+  can stop receiving a result; the underlying bounded Coach engine search may
+  finish before releasing its shared lock.
+- Screen capture, Capture Handle and SpeechRecognition availability limit support
+  to appropriate desktop browsers on localhost/HTTPS. Mobile and Firefox are not
+  supported by this preview. Headphones help avoid feedback.
+- This is turn-taking conversation, not a full-duplex low-latency audio model.
+- FEN preserves castling/en-passant/counters; this voice API does not reconstruct
+  repetition from a full PGN history. Pixel recognition cannot recover those
+  hidden rights reliably, which is why the approved Forked-only scope uses state.
+- Capture proves source identity, not that the board is currently visible in the
+  captured pixels. No claim of arbitrary screen recognition or measured SOTA.
 
-External sites, physical boards, entire-display capture, and window capture are
-outside this slice. They are rejected rather than silently paired with an arbitrary
-open Forked board. Another Forked tab cannot overwrite the selected board's state.
+## Files
 
-## File map
-
-| File | Responsibility |
+| File | Role |
 | --- | --- |
-| `frontend/src/pages/ShareScreen.tsx` | Tutorial, demo, starting positions, call preview, status and controls. |
-| `frontend/src/features/share-screen/boardLink.ts` | Capture Handle identity, session-scoped BroadcastChannel, exact board publication. |
-| `frontend/src/features/share-screen/useShareSession.ts` | Capture lifecycle, stabilization, stale detection, turn requests, history and cancellation. |
-| `frontend/src/features/share-screen/useLiveVoice.ts` | Browser recognition, English TTS, turn-taking, errors and cleanup. |
-| `frontend/src/pages/AnalysisBoard.tsx` | Opt-in publisher for `?coachShare=<uuid>`, live banner and interruption. Illegal drag attempts now return false rather than throwing. |
-| `backend/coach/live.py` | Request validation, temporal question routing, local spoken summary and notation expansion. |
-| `backend/coach/router.py` | `POST /api/coach/live-turn`. |
-| `backend/coach/explain.py` | Optional short spoken-style prompt on the existing evidence narrator. |
-| `tests/test_coach_live.py` | Root selection, special moves, stale transition rejection, free-mode isolation, scores and speech notation. |
-| `scripts/test_share_screen.cjs` | Browser integration test using the real board and local API, with simulated capture/speech hardware by default. |
+| `frontend/src/pages/ShareScreen.tsx` | Tutorial, starting FEN, embedded board and audio-only call controls. |
+| `frontend/src/pages/AnalysisBoard.tsx` | Existing board plus a compact embedded mode; automatic background eval disabled in that mode. |
+| `frontend/src/features/share-screen/boardLink.ts` | Capture identity, exact-state publisher and session channel. |
+| `frontend/src/features/share-screen/useShareSession.ts` | Stable snapshots, request cancellation, temporal context and call lifecycle. |
+| `frontend/src/features/share-screen/useLiveVoice.ts` | STT/TTS, interruption, recognition restart and audio errors. |
+| `backend/coach/live.py` | Legal transition validation, question routing, shared narrator and speech conversion. |
+| `backend/coach/teaching.py` | Shared concise explanation and board-derived quiet-move observations. |
 
-## Session flow and lifecycle
+## Validation and feedback checklist
 
-1. A Share Screen page creates a random session UUID, held in memory.
-2. Opening its Analysis Board passes the UUID in `coachShare`. The board creates
-   its own random board ID and publishes `forked:<session>:<boardId>` as a Capture
-   Handle visible **only to the same origin**. Unlinked boards do not publish.
-3. The board broadcasts `{type, boardId, fen, beforeFen, lastMove}` on a channel
-   named for the session. `lastMove` is UCI, including promotion; `beforeFen`
-   comes from chess.js verbose history, not inferred from square changes.
-4. After the user grants capture, the coach checks the actual video track's Capture
-   Handle and origin. Only messages from that board ID are accepted.
-5. The board sends a heartbeat every 750 ms and responds to coach polls every
-   500 ms. A snapshot settles after 2,500 ms; silence over 5,500 ms disconnects it.
-   Timers can be throttled by the browser; reconnection waits for fresh state.
-6. A question received while the known board is still settling is queued for that
-   exact snapshot. A further board change discards it; ask again after settling.
-7. Each request has an AbortController and generation counter. Changed FEN/history,
-   lost source, interrupted turns, unmounting, or ending the call invalidate the
-   request and stop speech. Late responses cannot narrate the old board.
-8. Source changes and muted capture invalidate immediately, with polling as a
-   fallback. The browser's Stop sharing event ends the call.
-9. A board change clears the previous answer and short conversation history. Up
-   to six user/assistant messages are held only for the current snapshot.
-10. End/unmount stops capture tracks, recognition, TTS, timers and the channel.
-    No call, audio, transcript, or screenshot persistence is added.
+Automated: `node scripts/test_share_screen.cjs` with servers running and desktop
+Chrome installed. It uses simulated capture/STT/TTS but the real embedded board,
+BroadcastChannel and local Stockfish API. It checks default narrator selection,
+wrong-source rejection, no popup/tab switching, pre-move root, meaningful local
+center explanation, audio-only output, stale-answer cancellation, reconnection,
+mute/unmute, undo and cleanup. `--real-capture` attempts the native picker in an
+appropriate browser environment; mocked success does not certify native hardware.
 
-Aborting an HTTP request suppresses its answer; it does not kill an already-running
-backend Stockfish call. The existing bounded investigation/engine lock continues
-until it completes. Searches normally have a 5-second budget; hosted narration
-has its separate timeout. The frontend abandons requests after 35 seconds.
+Please try these with your microphone:
 
-## Backend contract and move quality
+1. New game, play e4 or Nf3, ask why. Expect central control/development plus an
+   actual continuation; compare the same FEN/move in text Coach.
+2. Knight fork example, play Nf6+, ask if it wins. The queen capture leads to an
+   insufficient-material **draw**, not a won game. Ask about an alternative.
+3. Checkmate example, play Ra8#. Expect checkmate, with no invented continuation.
+4. Stay on the board for several successive questions. Recognition should restart
+   after every answer without navigating to another section.
+5. Ask a question and immediately move again. The old answer must not play.
+6. Interrupt a long answer, mute/unmute, repeat, then End call. Browser capture and
+   microphone indicators should clear when the session ends.
+7. Disable Coach explanations, then repeat a quiet-move question. Local wording
+   should still explain a board change and a legal line.
 
-`POST /api/coach/live-turn` accepts:
-
-```json
-{
-  "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-  "before_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-  "last_move": "e2e4",
-  "question": "Was that a good move?",
-  "previous_target": null,
-  "history": [],
-  "budget_seconds": 5,
-  "use_llm": false
-}
-```
-
-The backend validates full legal FENs, requires before/move together, replays the
-move, and compares the resulting complete canonical FEN. Castling, promotion,
-en passant and counters must match. No model decides whether a transition is legal.
-
-With a last move, ordinary move reviews analyze `before_fen` with `last_move` as an
-explicit focus. Questions with “now,” “next,” “who is better,” or “what should I
-play” analyze the current FEN. A brief follow-up reuses `previous_target` unless
-explicit temporal wording overrides it. This is a bounded English heuristic;
-ambiguous questions may need rephrasing. The last move belongs to whichever side
-just moved on the board, not an inferred permanent user color.
-
-Explicit spoken piece/square phrases such as “knight to f 3” are normalized to
-SAN-like notation for the existing legal-move extractor. Homophones and vague
-references such as “the horse here” are not guessed. The endpoint returns
-`speech`, `target`, `analyzed_fen`, `focus_move`, `source`, `status`, and `evidence`.
-Only `speech` is played; evidence is available in the network response for diagnosis.
-
-The local verdict uses original-mover-relative cp scores **only when both searches
-were refined at matching completed depths**. A gap under 0.30 pawns is described
-as close, 0.30 to under 1.00 as a small concession, and 1.00 or greater as significant.
-These are simple communication thresholds, not calibrated accuracy/brilliancy
-labels or win probabilities. Mate scores are never subtracted as centipawns.
-Unequal-depth and incomplete searches are qualified. Verified short terminal
-consequences outrank generic material claims; e.g. the demonstration fork saves a
-draw even though it captures a queen.
-
-SAN is expanded for speech: `Nf6+` becomes “knight to f six, check”, castling names
-the side, and capture/promotion/disambiguation are retained. English TTS receives
-short sentence chunks, avoiding long-utterance stalls and preserving decimal scores.
-
-## Relation to AIM.txt and the end goal
-
-[AIM.txt](../../AIM.txt) remains direction material, not an override of the user's
-current request. This feature takes its position explanation, counterfactual move
-comparison, grounded teaching, and conversational interaction goals into a spoken
-setting. Calculation stays in Stockfish; legal state and tactical checks stay in
-chess libraries; a language model optionally explains the checked evidence.
-
-The long-term goal remains a reliable conversational chess coach that explains
-why a move works, investigates alternatives, answers follow-ups, and teaches from
-the actual position. The screen-share layer makes the context effortless. It
-does not by itself advance or validate the underlying research on causal chess
-explanations. Improved strategic verification, explanation quality benchmarks,
-lower response latency, richer memory, flexible visual input and full-duplex
-conversation remain separate future work guided by user feedback.
-
-## Validation and manual acceptance tests
-
-Automated commands (from the repo root):
-
-```powershell
-& .\.venv\Scripts\python.exe -m pytest tests/test_coach_live.py tests/test_coach_investigation.py -q -p no:cacheprovider
-node scripts/test_share_screen.cjs
-Set-Location frontend
-npm.cmd run build
-```
-
-The Python tests passed (57 at implementation time). The browser test passed with
-the actual app, two tabs, BroadcastChannel, legal moves, and real Stockfish API.
-It checks the tutorial/nav, local default, rejected wrong source, exact pre-move
-request, audio-only rendering, stale-answer cancellation, source changes, mute,
-undo and cleanup. Capture streams/handles and speech devices are simulated in the
-default test. `--real-capture` attempted Chrome/Edge's native picker but timed out
-in this environment; it is **not** counted as a passing physical capture test.
-Browser screenshots under ignored `logs/` illustrate UI, not successful speech
-recognition or actual captured board pixels. The build has the repo's existing
-large-bundle warning. No new runtime dependencies were added.
-
-Please try these tests on your actual microphone/speaker setup:
-
-| Test | Steps | Expected result |
-| --- | --- | --- |
-| Start and sound | Test English voice, open New game, share the named browser tab, allow microphone. | Live board preview, greeting after about 2–3 seconds, listening status. No answer text. |
-| Review the last move | Play e2–e4 and ask “Was that a good move?” | Coach reviews White's e4 from the starting position; does not call Black's next move your move. |
-| Current position | After e4 ask “What should I play now?” | Coach explicitly discusses Black to move. |
-| Checkmate | Start a new call with Try a checkmate. Move the rook a2–a8; ask about it. | Checkmate explanation; no suggested opponent reply after mate. |
-| Counterfactual | In the same sample, undo and play a2–a3; ask about the move. | Coach considers Ra8 as a stronger alternative, with mate handled separately from pawn evaluation. |
-| Fork versus win | Start Try a knight fork, play d5–f6, ask why it works. | Check/fork; taking the queen leads to insufficient-material draw, not a winning endgame. |
-| Follow-up | Keep the board fixed, ask “Why is the alternative better?” | Same comparison context. Local mode repeats bounded facts; optional AI wording can explain them conversationally. |
-| Change mid-answer | Move a piece while the coach analyzes or speaks. | Old analysis/speech stops; new position settles before another question. |
-| Undo/reset/flip | Undo, reset, then flip and ask again. | Current visible position stays authoritative. Flip alone doesn't change FEN or restart a turn. |
-| Wrong source | Choose an unrelated tab/window or the call tab. | Clear rejection; no analysis based on another open board. |
-| Disconnect | Close the board or navigate away; then use browser Stop sharing. | Board becomes unavailable; call ends on Stop sharing, microphone and playback stop. |
-| Mute/interruption | Mute, speak, unmute; interrupt a long reply from the board banner. | No questions submitted while muted; coach stops and resumes listening after interruption. |
-| Permissions | Cancel capture; deny microphone; retry after allowing it. | Recoverable status/error, no stuck call or hidden recording. |
-| Optional AI | Enable AI wording only with free Groq quota. Ask a follow-up. | Same engine evidence, more natural spoken reply. Provider failure produces an announced local fallback. |
-
-For useful feedback, note browser/version, starting sample, move, exact spoken
-question, which board the coach seemed to discuss, answer accuracy, pronunciation,
-and delay. If possible inspect `/api/coach/live-turn` in DevTools and save the
-response manually; the UI deliberately has no text transcript or automatic recording.
+For a bad explanation, keep the initial FEN, moves played, exact question, whether
+AI wording was enabled, the spoken answer and expected correction. That is more
+useful for the next research step than adding a larger agent framework blindly.

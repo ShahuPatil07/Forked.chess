@@ -88,6 +88,8 @@ app.include_router(card_router)
 # Forked Coach — persistent agentic chess coach (capstone feature)
 from backend.coach import router as coach_router
 app.include_router(coach_router)
+from backend.game_review import router as game_review_router
+app.include_router(game_review_router)
 
 # OTB Scanner — scoresheet OCR -> PGN
 from backend.scoresheet import router as scoresheet_router

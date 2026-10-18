@@ -5,10 +5,9 @@ import { SectionHeader } from '../components/layout/SectionHeader'
 import { EndgameTree } from '../components/endgames/EndgameTree'
 import { EndgameDetail } from '../components/endgames/EndgameDetail'
 import { EndgamePractice } from '../components/endgames/EndgamePractice'
-import { EndgameCoach, type CoachContext } from '../components/endgames/EndgameCoach'
 import { ENDGAME_TREE, endgameLeafCount, type EndgameLeaf } from '../data/endgameTree'
 
-type TabId = 'theory' | 'practice' | 'coach'
+type TabId = 'theory' | 'practice'
 
 interface TabSpec {
   id:    TabId
@@ -19,7 +18,6 @@ interface TabSpec {
 const TABS: TabSpec[] = [
   { id: 'theory',   label: 'Theory',   icon: BookOpen },
   { id: 'practice', label: 'Practice', icon: Sword },
-  { id: 'coach',    label: 'Coach',    icon: Bot },
 ]
 
 export default function Endgames() {
@@ -32,40 +30,10 @@ export default function Endgames() {
   // Practice tab — a position handed over from the Theory tab
   const [practicePosition, setPracticePosition] = useState<EndgameLeaf | null>(null)
 
-  // Coach — context handed over from Theory or Practice
-  const [coachExternal, setCoachExternal] = useState<CoachContext | null>(null)
-
-  // ── Cross-tab handlers ───────────────────────────────────────────────────
   const handlePracticeRequest = useCallback((leaf: EndgameLeaf) => {
     setPracticePosition(leaf)
     setTab('practice')
   }, [])
-
-  const handleAskCoachFromTheory = useCallback((leaf: EndgameLeaf) => {
-    setCoachExternal({
-      fen:           leaf.fen,
-      category:      leaf.category,
-      label:         leaf.title,
-      prefillPrompt: `Explain the ${leaf.title} and how to play it correctly`,
-    })
-    setTab('coach')
-  }, [])
-
-  const handleAskCoachFromPractice = useCallback((fen: string, category: string, description: string) => {
-    setCoachExternal({
-      fen, category,
-      label:         description,
-      prefillPrompt: `I'm practising this position: ${description}. What's the key idea?`,
-    })
-    setTab('coach')
-  }, [])
-
-  const handleCoachContextConsumed = useCallback(() => {
-    // Don't reset coachExternal — the coach component dedupes via its lastExternalRef.
-    // Resetting here would cause flicker. Leaving it ensures any re-mount re-applies.
-  }, [])
-
-  // ── Render ───────────────────────────────────────────────────────────────
 
   const sectionCount   = ENDGAME_TREE.length
   const positionsCount = endgameLeafCount()
@@ -75,7 +43,7 @@ export default function Endgames() {
       <SectionHeader
         icon={Crown}
         title="Endgames"
-        description={`Theoretical positions, practice vs Maia, and a tablebase-grounded coach · ${positionsCount} positions across ${sectionCount} categories`}
+        description={`Theoretical positions and practice vs Maia · ${positionsCount} positions across ${sectionCount} categories`}
         right={
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-text-2 uppercase tracking-wider">Tablebase</span>
@@ -116,7 +84,6 @@ export default function Endgames() {
             <EndgameDetail
               leaf={selectedLeaf}
               onPracticeRequest={handlePracticeRequest}
-              onAskCoach={handleAskCoachFromTheory}
             />
           </div>
         </div>
@@ -125,18 +92,10 @@ export default function Endgames() {
       {tab === 'practice' && (
         <EndgamePractice
           forcedPosition={practicePosition}
-          onAskCoach={handleAskCoachFromPractice}
         />
       )}
 
-      {tab === 'coach' && (
-        <div className="max-w-2xl mx-auto">
-          <EndgameCoach
-            externalContext={coachExternal}
-            onContextConsumed={handleCoachContextConsumed}
-          />
-        </div>
-      )}
+
     </div>
   )
 }

@@ -18,7 +18,7 @@ const ELO_OPTIONS = [1100, 1300, 1500, 1700, 1900]
 
 interface Props {
   forcedPosition: EndgameLeaf | null
-  onAskCoach: (fen: string, category: string, description: string) => void
+  onAskCoach?: (fen: string, category: string, description: string) => void
 }
 
 type WsMsg =
@@ -451,7 +451,7 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
                 className="btn-ghost flex-1 flex items-center justify-center gap-1.5 text-sm">
                 <Flag size={13} /> Resign
               </button>
-              {position && (
+              {position && onAskCoach && (
                 <button onClick={() => onAskCoach(position.fen, position.category, position.description)}
                   className="btn-ghost flex-1 flex items-center justify-center gap-1.5 text-sm">
                   <MessageSquare size={13} /> Ask coach

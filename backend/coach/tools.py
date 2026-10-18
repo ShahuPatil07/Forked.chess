@@ -18,7 +18,6 @@ import chess.pgn
 
 from ml.config import DATA_DIR
 from backend.coach.explain import explain_position
-from backend.coach.context import top_cluster_id
 
 OUTPUT_DIR = DATA_DIR / "output"
 log = logging.getLogger(__name__)
@@ -71,15 +70,15 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "get_puzzle",
-            "description": ("Fetch one tactics puzzle for the user to solve inline. Defaults to their top "
-                            "blindspot. Pass a theme (e.g. 'fork', 'backRankMate') or a cluster_id to target "
-                            "a specific weakness. Returns FEN + solution for an interactive board."),
+            "description": ("Fetch one tactics puzzle to solve inline. Uses a fixed default difficulty "
+                            "of 1500. Pass a theme (e.g. 'fork', 'backRankMate') or a skill-family key. "
+                            "Returns FEN + solution for an interactive board. No user history is used."),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "theme": {"type": "string", "description": "Optional Lichess theme tag."},
                     "cluster_id": {"type": "string", "description": "Optional blindspot cluster_id."},
-                    "difficulty_elo": {"type": "integer", "description": "Optional target rating (default = user's elo)."},
+                    "difficulty_elo": {"type": "integer", "description": "Optional requested puzzle difficulty (default 1500)."},
                 },
                 "required": [],
             },
@@ -173,14 +172,13 @@ def _tool_get_puzzle(username: str, args: dict) -> dict:
     from ml.puzzles.retriever import get_index
     from ml.clustering.families import family_lichess_themes, family_of
 
-    settings = _read_json(OUTPUT_DIR / f"{username}_settings.json", {}) or {}
-    elo = int(args.get("difficulty_elo") or settings.get("elo") or 1500)
+    elo = int(args.get("difficulty_elo") or 1500)
 
     themes: list[str] = []
     if args.get("theme"):
         themes = [str(args["theme"])]
     else:
-        cid = str(args.get("cluster_id") or (top_cluster_id(username) or ""))
+        cid = str(args.get("cluster_id") or "")
         if cid:
             fam = cid if cid in family_lichess_themes() else family_of(cid)
             themes = family_lichess_themes().get(fam, [])

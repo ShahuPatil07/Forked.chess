@@ -22,12 +22,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.coach.context import build_user_context
 from backend.coach.tools import TOOL_SCHEMAS, dispatch_tool
-from backend.coach.memory import update_memory
 from backend.coach.explain import explain_position, narrate_evidence, evidence_for_model
 from backend.coach.config import MODEL, reasoning_options
 from backend.coach.live import LiveTurnRequest, live_turn
+from backend.coach.agent import run_agent
 from backend.coach.profile import (
     load_coach_profile, load_coach_memory, save_questionnaire,
     has_completed_questionnaire,
@@ -42,47 +41,30 @@ MAX_HISTORY = 12
 # Payloads from these tools carry board data the frontend renders inline.
 _BOARD_TOOLS = {"get_puzzle", "get_mistake_positions", "analyze_pgn", "explain_position"}
 
-SYSTEM_PROMPT = """You are the Forked Coach — a personal chess coach with access to this specific player's complete game history, mistake patterns, and improvement data. You are not a generic chess assistant. You know this player.
-
-YOUR ROLE:
-- Coach this specific player on their improvement journey.
-- Use their actual data (injected below) for specific, grounded advice.
-- Remember prior conversations (summary injected below).
-- Proactively connect questions to their known blindspots.
-
-WHAT YOU CAN DO (via tools — call them, don't guess):
-- get_mistake_positions: show the player's real mistakes in a blindspot.
-- explain_position: explain a FEN (best move, eval, idea). Never calculate long lines yourself.
-- get_puzzle: give an inline puzzle (defaults to their top blindspot).
-- analyze_pgn: analyse a game/position they paste.
-- get_opening_theory / get_endgame_theory: curated theory.
-
-TONE:
-- Warm but direct, never sycophantic. Specific, never generic ("play more actively" is not advice).
-- Reference their actual data ("your king_safety cluster score is 0.34 — still your most urgent leak").
-- Honest about what helps at their level.
-
-CONSTRAINTS:
-- Do not invent game data — only reference what is injected below or returned by tools.
-- Do not give advice that contradicts their data.
-- For concrete positions, use explain_position and only cite its legal lines and
-  checked claims. Verified board facts do not establish a strategic cause. Keep
-  likely/uncertain labels, disclose partial searches, and omit rejected hypotheses.
-- Scores are White-relative. More negative favors Black. Small score gaps and
-  different search depths do not establish that a move is definitively superior.
-- Keep replies focused (a few short paragraphs). Offer a concrete next step.
-
+SYSTEM_PROMPT = """You are Forked Coach, a concise chess teacher and analyst.
+Everyone receives the same coaching policy. Do not use account identity, stored
+profiles, previous sessions, ratings or inferred personal weaknesses. Only the
+current conversation and explicitly supplied position/game provide context.
+Use tools to calculate and verify chess claims. Explain the move's point, the
+opponent's strongest relevant defense, and one concrete alternative. Usually
+80-160 words; show a single legal 3-4 move continuation if it helps. Lead with the
+answer. Avoid generic praise, repetitive qualifications and lists of raw scores.
+For positions use explain_position, respecting checked claims and uncertainty.
+Do not turn a geometric attack into a forced win. Never invent a move or a game.
+For theory consult curated opening/endgame tools. For a puzzle use a requested
+theme and a fixed default difficulty of 1500. If a position is missing, ask for it.
 {mode_line}
-
 {user_context_block}"""
 
 _MODE_LINES = {
-    "coach":  "MODE: Coach — conversational coaching, use the player's data proactively.",
-    "puzzle": "MODE: Puzzle — the player wants a puzzle. Call get_puzzle (target their top blindspot unless they specify), then coach them through it.",
-    "import": "MODE: Import — the player pasted a game or position. Call analyze_pgn on it, then explain the most significant mistake and connect it to their blindspots.",
-    "theory": "MODE: Theory — answer universally from the knowledge base; do NOT personalise with their game data. Route opening questions to get_opening_theory and endgame questions to get_endgame_theory. Afterwards, offer to practise it.",
-    "position": "MODE: Position — investigate the supplied board and compare legal alternatives.",
+    "coach": "MODE: Coach - teach from the supplied position and question.",
+    "puzzle": "MODE: Puzzle - use the requested theme or the fixed default; never personalize.",
+    "import": "MODE: Import - analyze the supplied game, then explain its important decisions.",
+    "theory": "MODE: Theory - consult the curated opening/endgame tools.",
+    "position": "MODE: Position - investigate the supplied board and compare legal alternatives.",
+    "agent": "MODE: Agent",
 }
+
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
@@ -90,6 +72,8 @@ _MODE_LINES = {
 class ChatMessage(BaseModel):
     role: str
     content: str
+    notes: str | None = Field(default=None, max_length=2000)   # agent analysis notes for follow-ups
+    fen: str | None = Field(default=None, max_length=200)      # board the turn was about
 
 
 class CoachChatRequest(BaseModel):
@@ -102,6 +86,12 @@ class CoachChatRequest(BaseModel):
     alternative_move: str | None = Field(default=None, max_length=20)
     budget_seconds: float = Field(default=8.0, ge=0.25, le=15, allow_inf_nan=False)
     use_llm: bool = True
+    # Agent mode: the user's board, how it was reached, a loaded game, level.
+    board_moves: list[str] = Field(default_factory=list, max_length=400)
+    game_pgn: str | None = Field(default=None, max_length=150000)
+    level: str = Field(default="", max_length=40)
+    style: str = Field(default="balanced", max_length=20)
+    review: dict | None = None   # Game Review: {move, classification, best, move_number, color}
 
 
 class PositionRequest(BaseModel):
@@ -126,6 +116,7 @@ class QuestionnaireRequest(BaseModel):
     goal: str = ""
     study_time: str = ""
     struggle: str = ""
+    explanation_style: str = ""
 
 
 # ── Groq ───────────────────────────────────────────────────────────────────────
@@ -141,11 +132,7 @@ def _groq_client():
 
 def _build_messages(req: CoachChatRequest) -> list[dict]:
     mode = req.mode if req.mode in _MODE_LINES else "coach"
-    context_block = "" if mode == "theory" else build_user_context(req.username)
-    system = SYSTEM_PROMPT.format(
-        mode_line=_MODE_LINES[mode],
-        user_context_block=context_block or "(theory mode — game data intentionally omitted)",
-    )
+    system = SYSTEM_PROMPT.format(mode_line=_MODE_LINES[mode], user_context_block="")
     messages: list[dict] = [{"role": "system", "content": system}]
     for m in req.conversation_history[-MAX_HISTORY:]:
         if m.role in ("user", "assistant") and m.content.strip():
@@ -153,10 +140,7 @@ def _build_messages(req: CoachChatRequest) -> list[dict]:
 
     user_msg = req.message.strip()
     if not user_msg:
-        # Empty message = session greeting. Ask for a personalised opener.
-        user_msg = ("[SESSION START] Greet me in 2-3 sentences. Reference my most "
-                    "recent activity and my top blindspot from the context. End with a "
-                    "concrete offer (e.g. drilling it or reviewing a game). Do not call tools.")
+        user_msg = "[SESSION START] Offer to explain a supplied position or chess question. Do not call tools."
     messages.append({"role": "user", "content": user_msg})
     return messages
 
@@ -204,9 +188,9 @@ def _salvage_failed_generation(exc: Exception) -> str:
 def _create(client, messages: list[dict], allow_tools: bool):
     """Groq completion with a guard against Llama's `tool_use_failed`: salvage the
     model's prose if present, else retry once with tools disabled."""
-    kwargs = dict(model=MODEL, messages=messages, temperature=0.4, max_tokens=2000, **reasoning_options())
+    kwargs = dict(model=MODEL, messages=messages, temperature=0, max_tokens=2000, **reasoning_options())
     if allow_tools:
-        kwargs["tools"] = TOOL_SCHEMAS
+        kwargs["tools"] = [t for t in TOOL_SCHEMAS if t["function"]["name"] != "get_mistake_positions"]
         kwargs["tool_choice"] = "auto"
     try:
         return client.chat.completions.create(**kwargs)
@@ -231,8 +215,26 @@ def _chunk_text(text: str, size: int = 60) -> Iterator[str]:
         yield text[i:i + size]
 
 
+def _agent_stream(req: CoachChatRequest) -> Iterator[str]:
+    """The investigate → verify → explain agent (Coach page + Game Review)."""
+    level = req.level
+    if not level and req.username:
+        level = (load_coach_profile(req.username) or {}).get("rating_bucket", "")
+    try:
+        for event in run_agent(message=req.message, history=[m.model_dump() for m in req.conversation_history],
+                               fen=req.position_fen, moves_context=req.board_moves, game_pgn=req.game_pgn,
+                               level=level, style=req.style, review=req.review):
+            yield _sse(event)
+    except Exception as exc:
+        log.error("coach agent failed: %s", exc, exc_info=True)
+        yield _sse({"type": "error", "message": f"Coach error: {exc}"})
+
+
 def _chat_stream(req: CoachChatRequest) -> Iterator[str]:
     mode = req.mode if req.mode in _MODE_LINES else "coach"
+    if mode == "agent":
+        yield from _agent_stream(req)
+        return
     yield _sse({"type": "meta", "mode": mode})
 
     # A position request cannot silently skip investigation because the LLM key
@@ -246,13 +248,18 @@ def _chat_stream(req: CoachChatRequest) -> Iterator[str]:
         yield _sse({"type": "tool_result", "name": "explain_position", "payload": result})
         if req.use_llm and result.get("source") != "error":
             yield _sse({"type": "tool", "name": "narrate_evidence", "status": "running"})
-            text, source = narrate_evidence(result, [m.model_dump() for m in req.conversation_history])
+            text, source = narrate_evidence(result, [m.model_dump() for m in req.conversation_history], force_groq=True)
         else:
             text, source = result["explanation"], "template"
         yield _sse({"type": "meta", "mode": mode, "narration_source": source,
                     "narration_warnings": result.get("narration_warnings", [])})
         for piece in _chunk_text(text):
             yield _sse({"type": "token", "text": piece})
+        yield _sse({"type": "done"})
+        return
+
+    if not req.message.strip():
+        yield _sse({"type": "token", "text": "Bring me a position, a move, or a chess question. I'll explain the idea, check the strongest reply, and compare an alternative."})
         yield _sse({"type": "done"})
         return
 
@@ -280,7 +287,8 @@ def _chat_stream(req: CoachChatRequest) -> Iterator[str]:
                     except Exception:
                         args = {}
                     yield _sse({"type": "tool", "name": name, "status": "running"})
-                    result = dispatch_tool(req.username, name, args)
+                    result = ({"error": "Personal history is disabled. Supply a position or game."}
+                              if name == "get_mistake_positions" else dispatch_tool("", name, args))
                     # Surface board-bearing results so the UI can render inline.
                     if name in _BOARD_TOOLS:
                         yield _sse({"type": "tool_result", "name": name, "payload": result})
@@ -315,8 +323,27 @@ def coach_investigate(req: PositionRequest):
     if result.get("source") == "error":
         raise HTTPException(400, result["explanation"])
     if req.use_llm:
-        result["explanation"], result["narration_source"] = narrate_evidence(result)
+        result["explanation"], result["narration_source"] = narrate_evidence(result, force_groq=True)
     return result
+
+
+class EngineMoveRequest(BaseModel):
+    fen: str = Field(max_length=200)
+    strength: str = Field(default="intermediate", max_length=20)
+
+
+@router.post("/engine-move")
+def coach_engine_move(req: EngineMoveRequest):
+    """Play mode: a strength-limited Stockfish move (shared engine options untouched)."""
+    import chess
+    from backend.coach.agent.engine import pick_move_for_strength
+    try:
+        board = chess.Board(req.fen)
+        if not board.is_valid() or board.is_game_over():
+            raise ValueError("The game is over or the position is invalid.")
+        return pick_move_for_strength(board.fen(), req.strength)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.post("/live-turn")
@@ -338,6 +365,7 @@ def coach_save_questionnaire(req: QuestionnaireRequest):
     profile = save_questionnaire(req.username, {
         "rating_bucket": req.rating_bucket, "play_style": req.play_style,
         "goal": req.goal, "study_time": req.study_time, "struggle": req.struggle,
+        "explanation_style": req.explanation_style,
     })
     return {"ok": True, "profile": profile}
 
@@ -365,5 +393,4 @@ class UpdateMemoryRequest(BaseModel):
 
 @router.post("/update-memory/{username}")
 def coach_update_memory(username: str, req: UpdateMemoryRequest):
-    mem = update_memory(username, [m.model_dump() for m in req.messages])
-    return {"ok": True, "session_count": mem.get("session_count", 0)}
+    return {"ok": True, "session_count": 0, "personalization": False}

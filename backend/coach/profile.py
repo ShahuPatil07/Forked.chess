@@ -68,6 +68,7 @@ def save_questionnaire(username: str, answers: dict) -> dict:
         "goal":                   answers.get("goal", ""),
         "study_time":             answers.get("study_time", ""),
         "struggle":               (answers.get("struggle", "") or "")[:200],
+        "explanation_style":      answers.get("explanation_style", "") or "balanced",
         "questionnaire_complete": True,
         "updated_at":             _now_iso(),
     })

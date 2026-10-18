@@ -17,7 +17,7 @@ const DETAIL_BOARD_PX = 240
 interface Props {
   leaf:                EndgameLeaf | null
   onPracticeRequest:   (leaf: EndgameLeaf) => void
-  onAskCoach:          (leaf: EndgameLeaf) => void
+  onAskCoach?:         (leaf: EndgameLeaf) => void
 }
 
 const RESULT_COLOR: Record<EndgameResult, string> = {
@@ -150,12 +150,12 @@ function DetailContent({ leaf, onPracticeRequest, onAskCoach }: Props & { leaf: 
         >
           <Sword size={13} /> Practice this position
         </motion.button>
-        <button
+        {onAskCoach && <button
           onClick={() => onAskCoach(leaf)}
           className="btn-ghost w-full flex items-center justify-center gap-1.5 text-sm"
         >
           <MessageSquare size={13} /> Ask the coach
-        </button>
+        </button>}
         <button
           onClick={() => navigate(`/analysis?fen=${encodeURIComponent(leaf.fen)}`)}
           className="btn-ghost w-full flex items-center justify-center gap-1.5 text-sm"

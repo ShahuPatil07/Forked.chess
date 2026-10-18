@@ -6,7 +6,7 @@
  * explanation) are surfaced so the chat can render inline boards.
  */
 
-export type CoachMode = 'coach' | 'puzzle' | 'import' | 'theory' | 'audio' | 'position'
+export type CoachMode = 'coach' | 'puzzle' | 'import' | 'theory' | 'audio' | 'position' | 'agent'
 
 export interface CoachQuestionnaire {
   rating_bucket: string
@@ -14,6 +14,7 @@ export interface CoachQuestionnaire {
   goal: string
   study_time: string
   struggle: string
+  explanation_style?: string
 }
 
 export interface CoachProfileResponse {
@@ -140,17 +141,54 @@ export interface InvestigationClaim {
 export type ToolPayload =
   | PuzzlePayload | MistakePositionsPayload | AnalyzePayload | ExplainPayload
 
+// ── Agent (board-aware coach) payloads ────────────────────────────────────────
+
+export interface AgentLine {
+  label: string
+  start_fen: string
+  san: string[]
+  uci: string[]
+  fens: string[]
+}
+
+export interface AgentBoardEvent {
+  type: 'board'
+  fen: string
+  label: string
+  line: { san: string[]; uci: string[]; fens: string[] }
+  game?: { pgn: string; headers: Record<string, string> }
+}
+
+export type PlayStrength = 'beginner' | 'intermediate' | 'advanced' | 'strong' | 'engine'
+
+export interface GameMoment { ply: number; type: string; move: string }
+
+/** Game Review hand-off: the move being explained. */
+export interface ReviewContext {
+  move: string
+  classification?: string
+  best?: string
+  move_number?: number
+  color?: string
+}
+
 // ── Stream events ──────────────────────────────────────────────────────────────
 
 export type CoachStreamEvent =
   | { type: 'meta'; mode: CoachMode; narration_source?: 'groq' | 'c1' | 'template'; narration_warnings?: string[] }
-  | { type: 'tool'; name: string; status: string }
+  | { type: 'tool'; name: string; status: string; label?: string }
+  | { type: 'tool_done'; name: string; label: string; summary: string }
   | { type: 'tool_result'; name: string; payload: ToolPayload }
+  | AgentBoardEvent
+  | { type: 'lines'; lines: AgentLine[] }
+  | { type: 'puzzle'; payload: PuzzlePayload }
+  | { type: 'play'; fen: string; user_color: 'white' | 'black'; strength: PlayStrength }
+  | { type: 'moments'; moments: GameMoment[] }
   | { type: 'token'; text: string }
-  | { type: 'done' }
+  | { type: 'done'; notes?: string; fen?: string; provider?: string }
   | { type: 'error'; message: string }
 
-export interface CoachChatMessage { role: 'user' | 'assistant'; content: string }
+export interface CoachChatMessage { role: 'user' | 'assistant'; content: string; notes?: string; fen?: string }
 
 export const coachApi = {
   getProfile: async (username: string): Promise<CoachProfileResponse> => {
@@ -179,6 +217,16 @@ export const coachApi = {
     } catch { /* best-effort — memory update never blocks the UI */ }
   },
 
+  engineMove: async (fen: string, strength: PlayStrength): Promise<{ move_uci: string; move_san: string; eval: string; best_san: string }> => {
+    const res = await fetch('/api/coach/engine-move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fen, strength }),
+    })
+    if (!res.ok) throw new Error(await res.text().catch(() => res.statusText))
+    return res.json()
+  },
+
   chatStream: async (
     body: {
       username: string
@@ -190,6 +238,11 @@ export const coachApi = {
       alternative_move?: string
       budget_seconds?: number
       use_llm?: boolean
+      board_moves?: string[]
+      game_pgn?: string
+      level?: string
+      style?: string
+      review?: ReviewContext
     },
     onEvent: (evt: CoachStreamEvent) => void,
     signal?: AbortSignal,

@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles, ScanLine, MonitorUp } from 'lucide-react'
+import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles, ScanLine, MonitorUp, ScanSearch } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { useUserStore } from '../../store/userStore'
@@ -7,6 +7,7 @@ import { liveApi } from '../../api/live'
 
 const NAV: { to: string; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { to: '/share-screen', label: 'Share Screen', icon: MonitorUp },
+  { to: '/game-review', label: 'Game Review', icon: ScanSearch },
   { to: '/dashboard', label: 'Dashboard',      icon: LayoutDashboard },
   { to: '/coach',     label: 'Coach',          icon: Sparkles, badge: 'AI' },
   { to: '/session',   label: 'Drill Session',  icon: Sword },

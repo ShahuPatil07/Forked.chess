@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from backend.coach.explain import explain_position, narrate_evidence
+from backend.coach.teaching import concise_explanation as local_answer
 
 
 class VoiceMessage(BaseModel):
@@ -23,9 +24,9 @@ class LiveTurnRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     previous_target: Literal["current", "last_move"] | None = None
     history: list[VoiceMessage] = Field(default_factory=list, max_length=6)
-    budget_seconds: float = Field(default=5, ge=0.25, le=10, allow_inf_nan=False)
-    # Never call a metered provider implicitly. Local speech/evidence is the default.
-    use_llm: bool = False
+    budget_seconds: float = Field(default=8, ge=0.25, le=15, allow_inf_nan=False)
+    # Match Coach narration by default; the existing free-tier provider has a local fallback.
+    use_llm: bool = True
 
 
 def validated_board(fen: str) -> chess.Board:
@@ -110,57 +111,6 @@ def normalize_question(question: str) -> str:
     return question
 
 
-def local_answer(result: dict, focus: str | None) -> str:
-    """Short spoken evidence summary with mover-relative, depth-qualified comparison."""
-    candidates = result.get("candidates", [])
-    if not candidates:
-        return result["explanation"]
-    best = candidates[0]
-    played = next((c for c in candidates if c["move_uci"] == focus), None)
-    relevant = played or best
-    parts = []
-    if focus and not played:
-        parts.append("I haven't completed a search of your move, so I cannot judge it yet.")
-    if played:
-        if played.get("immediate_mate"):
-            return (f"{played['move_san'].rstrip('+#')} is checkmate. "
-                    "The opposing king is in check and has no legal move to escape it. Well spotted.")
-        elif played == best:
-            parts.append(f"{played['move_san']} is the strongest move I found in this search.")
-        else:
-            top_cp, played_cp = best["score"]["mover_cp"], played["score"]["mover_cp"]
-            comparable = best["refined"] and played["refined"] and best["depth"] == played["depth"]
-            if top_cp is not None and played_cp is not None and comparable:
-                gap = max(0, top_cp - played_cp) / 100
-                verdict = "very close to my top choice" if gap < .3 else "a small concession" if gap < 1 else "a significant concession"
-                parts.append(f"{played['move_san']} is {verdict}. {best['move_san']} scores about {gap:.2f} pawns better for {result['side_to_move']} in this search. That's evaluation, not material lost.")
-            else:
-                parts.append(f"I would investigate {best['move_san']} instead of {played['move_san']}. These searches don't support a precise pawn-loss comparison.")
-            mate = played["score"]["mover_mate"]
-            best_mate = best["score"]["mover_mate"]
-            if mate is not None:
-                parts.append(f"The engine reports {'a mating attack' if mate > 0 else 'an opponent mating attack'} in this line.")
-            elif best_mate is not None and best_mate > 0:
-                parts.append("The alternative has a mating attack according to the engine search.")
-    else:
-        parts.append(f"For {result['side_to_move']}, the strongest move I found is {best['move_san']}.")
-    claims = [c for c in result.get("claims", []) if c["candidate_id"] == relevant["id"]
-              and c["status"] in ("verified", "likely") and "search scores" not in c["hypothesis"].lower()]
-    # Exact terminal consequences matter more than generic 'wins material'.
-    claims.sort(key=lambda c: ("ends the game" not in c["hypothesis"], c["status"] != "verified"))
-    for claim in claims[:2]:
-        parts.append(("In the sampled lines, " if claim["status"] == "likely" else "") + claim["hypothesis"])
-    if not claims:
-        parts.append("I don't have a verified positional reason yet; the score alone doesn't explain why.")
-    replies = relevant.get("replies", [])
-    if replies:
-        parts.append("One defense I checked is " + replies[0]["move_san"] + ".")
-    if played and played != best:
-        parts.append("The alternative line begins " + ", ".join(best["line"]["san"][:3]) + ".")
-    if result.get("status") == "partial" or result.get("warnings"):
-        parts.append("This was a short search; the ranking and unproven ideas may change with deeper analysis.")
-    return " ".join(parts)
-
 
 def live_turn(req: LiveTurnRequest) -> dict:
     board, focus, target = select_position(req)
@@ -171,7 +121,7 @@ def live_turn(req: LiveTurnRequest) -> dict:
     effective_focus = focus or result.get("focus_move")
     answer, source = local_answer(result, effective_focus), "template"
     if req.use_llm:
-        # Explicit opt-in uses only the existing Groq integration, never C1.
+        # Voice and text use the same existing Groq narrator and evidence ledger.
         answer, source = narrate_evidence(result, [m.model_dump() for m in req.history],
                                          force_groq=True, spoken=True)
         if source == "template":

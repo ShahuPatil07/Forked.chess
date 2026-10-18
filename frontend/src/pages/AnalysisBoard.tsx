@@ -184,14 +184,14 @@ function getMoveOptions(chess: Chess, square: Square): Record<string, object> {
 const BOARD_SIZE = 520
 const START_FEN  = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
-export default function AnalysisBoard() {
+export default function AnalysisBoard({ embedded = false, liveSession, startingFen }: { embedded?: boolean; liveSession?: string; startingFen?: string } = {}) {
   const location = useLocation()
   const navigate  = useNavigate()
   const [searchParams] = useSearchParams()
   const navState  = location.state as AnalysisNavState | null
 
   // Positions can come from router state (preferred) OR a ?fen= query param.
-  const queryFen = searchParams.get('fen')
+  const queryFen = startingFen || searchParams.get('fen')
   const positions: NavPosition[] =
     navState?.positions
     ?? (queryFen ? [{ fen: queryFen, label: 'Position' }] : [])
@@ -216,7 +216,16 @@ export default function AnalysisBoard() {
   // Copied FEN toast
   const [copied, setCopied] = useState(false)
   const [orient, setOrient] = useState<'white' | 'black'>('white')
-  const liveCoach = useBoardPublisher(searchParams.get('coachShare'), chess, fen)
+  const liveCoach = useBoardPublisher(liveSession ?? searchParams.get('coachShare'), chess, fen)
+  const embeddedWrap = useRef<HTMLDivElement>(null)
+  const [embeddedWidth, setEmbeddedWidth] = useState(440)
+  useEffect(() => {
+    if (!embedded || !embeddedWrap.current) return
+    const element = embeddedWrap.current
+    const observer = new ResizeObserver(() => setEmbeddedWidth(Math.max(180, Math.min(560, element.clientWidth))))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [embedded])
 
   function goToPosition(idx: number) {
     const newFen = positions[idx]?.fen ?? START_FEN
@@ -291,6 +300,7 @@ export default function AnalysisBoard() {
       }),
     staleTime: Infinity,
     retry: false,
+    enabled: !embedded,
   })
 
   const isAtBase = sanMoves.length === 0 || moveIdx === -1
@@ -376,6 +386,19 @@ export default function AnalysisBoard() {
   }
 
   const squareStyles = { ...lastMoveSqs, ...optionSqs }
+
+  if (embedded) return <div ref={embeddedWrap} className="w-full max-w-[560px] mx-auto" data-testid="call-analysis-board">
+    <Chessboard id="call-board" position={fen} boardOrientation={orient} onPieceDrop={handlePieceDrop}
+      onSquareClick={handleSquareClick} boardWidth={embeddedWidth} customSquareStyles={squareStyles}
+      customDarkSquareStyle={{ backgroundColor: '#454161' }} customLightSquareStyle={{ backgroundColor: '#b8b2ce' }} />
+    <div className="flex justify-between items-center gap-2 mt-3">
+      <span className="text-xs text-text-2">{chess.turn() === 'w' ? 'White' : 'Black'} to move</span>
+      <div className="flex gap-1"><button className="btn-ghost text-xs" onClick={handleUndo} disabled={moveIdx < 0}>Undo</button>
+        <button className="btn-ghost text-xs" onClick={handleReset}>Reset</button>
+        <button className="btn-ghost text-xs" onClick={() => setOrient(o => o === 'white' ? 'black' : 'white')}>Flip</button></div>
+    </div>
+    <div className="mt-3 max-h-24 overflow-y-auto"><MoveList moves={sanMoves} currentIdx={moveIdx} onNavigate={navigateToMove} baseFen={baseFenRef.current} /></div>
+  </div>
 
   return (
     <div className="p-6 max-w-6xl mx-auto">

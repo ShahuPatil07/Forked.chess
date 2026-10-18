@@ -7,7 +7,7 @@
     A complete adaptive chess training platform. Forked watches your real game
     history and detects your personal recurring blindspots with a chess
     transformer + a deterministic skill-family profile — then surrounds that core
-    loop with a persistent agentic AI coach, an interactive opening explorer, an
+    loop with a evidence-based AI coach, an interactive opening explorer, an
     endgame trainer, a human-like bot to practise against, and an intelligence
     layer that tracks repeats live, replays your mistakes, estimates the rating
     they cost you, and renders a shareable Chess DNA card.
@@ -18,24 +18,29 @@
 
 ## What Forked is
 
-**New: Share Screen coach preview** — open `/share-screen` (above Dashboard) for
-a spoken session with a linked Forked Analysis Board. Includes a tutorial, browser
-tab capture, exact FEN/move context, and English audio replies. Local mode needs
-no API key; optional AI wording uses the configured Groq account. Start with desktop
-Chrome. See the [implementation and testing guide](backend/coach/SHARE_SCREEN.md).
+**New: Game Review and a connected voice coach.** Review an uploaded/pasted PGN
+at `/game-review`, or play and discuss moves in one `/share-screen` workspace.
+Coach answers are concise, compare alternatives and follow concrete continuations.
+The redesigned home page lets you enter these tools immediately, without importing
+an account. The main Coach, voice and review currently use **no personal profile
+or cross-session memory**; existing personalized dashboard/training features remain.
 
-Forked started as a personalised blindspot trainer and has grown into a full
-learning suite. Seven pillars, all built around the same engine + data stack:
-
-| Pillar | What it does |
+| Area | What it does |
 |---|---|
-| **Blindspot Profile** | Pull your last 80–200 games, annotate every move with Stockfish, classify each mistake with a **chess transformer (83.1% acc)**, and group them into your top recurring **skill families** ("Loose-piece awareness — 99 mistakes"). |
-| **Forked Coach** | A **persistent agentic coach** (Groq Llama-3.3-70B + 6 tools) that knows your games, blindspots, drills and history. Streams answers, shows inline solvable puzzles, analyses pasted games, explains positions, remembers prior sessions, and talks (audio mode). The capstone that ties every feature together. |
-| **Drill Session** | Spaced-repetition puzzle queue targeting *your* blindspot families, retrieved from 100K+ Lichess puzzles by theme + rating band. |
-| **Openings** | Interactive lazy-loaded opening tree from real Lichess game data — engine eval, win/draw/loss bars and AI "typical ideas" on every node, plus a RAG opening coach grounded in chess literature. |
-| **Endgames** | A theory tree of canonical positions (Syzygy-verified), practice vs a human-like bot from any material configuration, and a tablebase-grounded endgame coach. |
-| **Play vs Maia** | Play full games against Maia (human-move model) tuned near your rating, then get a Stockfish accuracy report, a blindspot debrief, and an interactive game-analysis view. |
-| **OTB Scan** | Digitise an over-the-board game three ways — record live with your phone camera (on-device TFJS vision), upload a video of the game, or photograph a scoresheet (vision-LLM/OCR → PGN) — then send it straight to the playable Analysis Board. |
+| **Game Review** | Local Stockfish review with move classifications, navigable boards/branches, an evaluation graph, separate accuracy for each side and experimental game-strength estimates. No daily limit or hosted API needed. |
+| **Forked Coach** | Bounded tool orchestration plus MultiPV investigation, alternative-move searches and checked evidence. Wide chat, concise explanations, inline puzzles, PGN/FEN analysis and opening/endgame knowledge. |
+| **Share Screen** | Tutorial, exact Forked-board connection, playable board and English voice in one tab. Uses the same narrator as Coach, with a local fallback. |
+| **Blindspot Profile / Drills** | Existing transformer-based mistake classification, recurring skill-family profiles and spaced-repetition training from Lichess puzzles. |
+| **Openings / Endgames** | Opening explorer, engine evaluations, curated theory, tablebase-backed endgame positions and practice. Separate section chats have been removed; ask the main Coach instead. |
+| **Play vs Maia** | Human-like opponent, game report, blindspot debrief and analysis board. |
+| **OTB Scan** | Live camera, uploaded video or scoresheet-to-PGN tools feeding the analysis board. |
+
+Game Review is an **independent implementation**, not Chess.com's proprietary
+CAPS2. Published move-classification bands inform it; special labels and ratings
+are disclosed heuristics. Short or uninformative games may not support a rating
+estimate. See [review methodology and tests](backend/GAME_REVIEW.md),
+[Coach architecture and AIM handoff](backend/coach/README.md), and
+[voice setup/testing](backend/coach/SHARE_SCREEN.md).
 
 ### Intelligence layer
 
@@ -114,23 +119,37 @@ whole intelligence layer keys on it. See **instructions/AGENT.md** for the full 
 
 ## The learning surfaces
 
-### Forked Coach  (`/coach`)  — the capstone
-- A **persistent agentic coach** built on Groq `llama-3.3-70b-versatile` with **6 callable tools**, streamed over SSE with mid-conversation tool orchestration.
-- **Three personalisation layers**: a one-time onboarding questionnaire (cold start), a rolling cross-session memory summary, and a live game-data context block injected every session — so it opens already knowing your recent games and top blindspot.
-- **Tools**: pull your real mistake positions, explain any FEN (C1-ready, Stockfish fallback), serve an inline **solvable** puzzle, analyse a pasted PGN/FEN, and query the opening/endgame knowledge bases.
-- **Modes**: Coach · Puzzle · Import · Theory · **Audio** (browser-native speech-to-text + text-to-speech, Chrome/Edge). Inline boards render right in the chat; mistake positions are navigable with a live eval bar.
+### Forked Coach (`/coach`)
+- Wide workspace with Coach, Position, Puzzle, Import and Theory modes; optional browser audio.
+- Five active tools: investigate a position, fetch a puzzle, analyze supplied PGN/FEN, consult opening theory and consult endgame theory.
+- Local investigation validates legal moves, compares candidates and counterfactuals, checks opponent replies and returns an inspectable evidence ledger.
+- Shared text/voice narrator uses the existing Groq `openai/gpt-oss-120b` default (overridable with `FORKED_COACH_MODEL`), with local fallback for position explanations.
+- Typical answer: verdict, one or two ideas, relevant defense and a concrete continuation up to 3-4 moves when useful.
+- No questionnaire gating, stored-profile prompting, personal mistake retrieval or cross-session memory in the active Coach. Those storage modules remain for future work.
+
+### Game Review (`/game-review`)
+- Upload/paste one PGN, choose Quick/Standard/Deep and stream local move-by-move analysis.
+- Book, Best, Excellent, Good, Inaccuracy, Mistake, Blunder, Miss, Great and Brilliant labels.
+- Move list, keyboard navigation, flip, evaluation graph, candidate-line playback, export and **Explain the idea**.
+- Independent White/Black accuracy and explicitly experimental game-strength estimates when enough informative decisions exist.
+- Dedicated Stockfish process, cancellation, no paid review API and no daily limit.
+
+### Share Screen (`/share-screen`)
+- Tutorial first, then a playable Analysis Board beside the voice controls in the same tab.
+- Share the current browser tab, wait 2.5 seconds, then ask about your move or the current position.
+- Exact FEN and last move come from Forked's board state; video is not uploaded or interpreted with OCR.
+- English spoken replies only, with mute, interrupt, repeat and stale-answer cancellation.
+- Defaults to the same configured Groq narrator as text Coach. Disable Coach explanations for local wording. Desktop Chrome/Edge support and speech-service availability are required.
 
 ### Openings Explorer  (`/openings`)
 - Lazy-loaded tree from the live **Lichess Opening Explorer API**, filtered to your rating band.
 - Every node shows a mini-board thumbnail, engine eval, popularity and a WDL bar.
 - Detail panel: full board, ECO + name, Stockfish eval, AI-generated "typical ideas".
 - Fuzzy opening search ("veina" → Vienna) jumps the tree to any named line.
-- **Opening Coach** — streaming RAG chatbot grounded in a curated opening corpus + live Lichess stats, rating-aware, with source citations. Independent of the tree.
 
-### Endgames  (`/endgames`)  — three tabs
+### Endgames  (`/endgames`) — Theory and Practice
 - **Theory** — a hardcoded tree of canonical positions (K+P, K+R, K+Q, minor-piece, rook, pawn endings). Each leaf is **Syzygy-verified** (≤7-piece tablebase) with result, difficulty and key idea.
 - **Practice** — a piece configurator (pick exact material or type "queen pawn endgame") fetches an *instructive* position (Lichess puzzle DB first, Stockfish-filtered generation as fallback), then you play it out vs Maia. The result is judged against the theoretical objective ("Correct draw!" / "You drew a winning position").
-- **Coach** — a streaming endgame RAG chatbot that injects **Syzygy results as verified fact** and shows a "Tablebase verified" badge.
 
 ### Play vs Maia  (`/bot-game`)
 - Full games against the **Maia2** human-move model, tuned near your rating, with human-like thinking delays.
@@ -156,8 +175,8 @@ chess transformer** (Stage 1 classifier), Maia2 (PyTorch), Groq (LLM coaches +
 the agentic Forked Coach with tool-calling), Pillow (DNA card PNG), SQLite for
 caches. Stage 2 is a deterministic family map (no UMAP/HDBSCAN/LLM at request
 time). Background annotation + live sync run in worker threads with SSE progress.
-Position explanation prefers **C1** (CSSLab, via a vLLM endpoint when configured)
-and always falls back to Stockfish. **OTB Scan** scoresheet OCR uses a vision-LLM
+Position chat and voice share a Groq narrator and a local evidence fallback.
+The optional C1 adapter remains for research scripts, outside these active paths. **OTB Scan** scoresheet OCR uses a vision-LLM
 (Qwen2.5-VL via Ollama/OpenRouter) with Google Vision + Tesseract fallbacks and a
 python-chess legality layer. In production one process serves both the API and
 the built frontend (single-origin).
@@ -191,7 +210,7 @@ backend/live_sync.py     — background sync + blindspot alerts
 backend/replay.py        — mistake replay: per-cluster mistakes / insight / note / explain
 backend/counterfactual.py— counterfactual rating estimate
 backend/card.py          — Chess DNA: compute-style / style / dna-card (Pillow PNG)
-backend/coach/           — Forked Coach package: chat (SSE+tools) / questionnaire / profile / memory
+backend/coach/           — Forked Coach package: chat (SSE+tools) / investigation / live voice; legacy profile storage retained
 backend/scoresheet.py    — OTB Scan OCR: /api/ocr/scoresheet (VLM 2-pass / Vision / Tesseract)
 backend/scoresheet_parser.py — grid + legality-constrained SAN parser/corrector
 backend/bot/             — Maia2 move generator + human thinking-delay
@@ -208,7 +227,8 @@ backend/bot/             — Maia2 move generator + human thinking-delay
 | **Live sync / alerts** | `GET /api/alerts/{user}`, `POST /api/alerts/{user}/mark-seen`, `GET /api/sync/status/{user}`, `POST /api/sync/trigger/{user}` |
 | **Mistake Replay** | `GET /api/cluster/{user}/{id}/mistakes`, `/insight`, `POST /api/cluster/note`, `POST /api/cluster/explain` |
 | **Counterfactual / DNA** | `GET /api/profile/{user}/counterfactual`, `POST /api/profile/{user}/compute-style`, `GET /api/profile/{user}/style`, `GET /api/profile/{user}/dna-card` |
-| **Forked Coach** | `POST /api/coach/chat` (SSE + tools), `POST /api/coach/save-questionnaire`, `GET /api/coach/profile/{user}`, `POST /api/coach/update-memory/{user}` |
+| **Forked Coach** | `POST /api/coach/chat` (SSE), `POST /api/coach/investigate`, `POST /api/coach/live-turn` |
+| **Game Review** | `POST /api/game-review/analyse` (SSE: start/move/done/error) |
 | **OTB Scan** | `POST /api/ocr/scoresheet` (multipart image → reviewed PGN) |
 | **Settings** | `GET/PUT /api/settings/{user}`, `GET /api/check/{user}` |
 
@@ -310,8 +330,8 @@ Forked/
 
 ### 1 — Clone and install
 ```bash
-git clone https://github.com/ShahuPatil07/Forked
-cd Forked
+git clone https://github.com/ShahuPatil07/Zugzwang.git
+cd Zugzwang
 
 python -m venv .venv
 .venv\Scripts\activate          # Windows
@@ -328,8 +348,8 @@ Create `.env` in the project root:
 ```
 GROQ_API_KEY=gsk_...     # Free at console.groq.com — powers the LLM coaches, the Forked Coach + insights
 LICHESS_TOKEN=lip_...    # Free at lichess.org/account/oauth/token — needed for the Opening Explorer API
-# C1_ENDPOINT=http://...  # Optional: a vLLM C1 (CSSLab) OpenAI-compatible endpoint for richer
-#                         # position explanations. Omit it and the coach uses the Stockfish fallback.
+FORKED_COACH_MODEL=openai/gpt-oss-120b  # Existing Groq-hosted narrator; no OpenAI key
+# C1_ENDPOINT=http://... # Optional research adapter, not used by active chat/voice
 # OTB Scan scoresheet OCR (optional; pick one). Vision-LLM is best for handwriting:
 # VLM_OCR_BASE=http://localhost:11434/v1   # local Ollama (free/offline)
 # VLM_OCR_MODEL=qwen2.5vl:7b
@@ -406,13 +426,13 @@ python scripts/verify_category_alignment.py
 
 **Deterministic blindspot families, not learned clustering** — Stage 2 maps each mistake's threat type to one of 5 fixed skill families (no UMAP/HDBSCAN/LLM at request time). Clustering on board geometry produced motif-agnostic clusters (ARI ≈ 0); grouping by the failed skill is coherent, instant, and gives **stable keys**. The whole intelligence layer (live alerts, debrief, replay, counterfactual, DNA, coach) matches a fresh mistake by `family_of(threat_type)` — the family `cluster_id` is the key; the display label is never used for matching.
 
-**Agentic coach with a guaranteed fallback** — the Forked Coach orchestrates 6 tools over Groq tool-calling, streamed via SSE. Position explanation prefers C1 (CSSLab, Qwen3) over a vLLM endpoint when one is configured, but always falls back to Stockfish depth-18, so the feature never blocks on GPU/model availability. A salvage guard recovers the answer when Llama emits a malformed tool call (`tool_use_failed`).
+**Evidence-based coaching with a local fallback** - position investigation runs before narration. MultiPV, constrained alternatives, independent defenses and legal board facts feed the shared Coach/voice narrator. A bounded five-tool loop handles general questions; local position explanations remain available without a hosted provider. Prose guards are conservative checks, not a general proof of strategic correctness.
 
 **Bounded counterfactual rating** — the rating estimate uses a performance-rating model over real game results (re-fetched, since game metadata doesn't store outcomes) and is capped — an early flat per-game-Elo version produced fantasy +1000-point ratings.
 
 **Chess DNA from the mistake set** — the 5 style axes are derived from the existing mistake/eval data with documented proxies rather than re-annotating every move; axes without enough data are omitted from the card instead of guessed.
 
-**Groq, not Anthropic, for LLM** — free tier (30 RPM) is ample for coach turns + cluster naming; no cost in the core loop. Streaming via SSE.
+**Free tools** - review runs entirely on local Stockfish and bundled CC0 opening data. Coach uses the existing configured Groq free-tier workflow, subject to account/model quotas, with local position fallback. Browser speech adds no paid API. No new paid service is introduced.
 
 **SQLite + numpy, not a database** — every cache (eval, ideas, Syzygy, suggestions, puzzle vectors) is a file under `data/`. Zero infra to run locally.
 
@@ -433,3 +453,18 @@ python scripts/verify_category_alignment.py
 | Requires login | No (username only) | Yes | Yes | Yes |
 | Focus | Whole-game improvement | General | Generic tactics | Openings |
 ```
+
+## Validate the current coaching/review slice
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/test_coach_investigation.py tests/test_coach_live.py tests/test_game_review.py -q -p no:cacheprovider
+npm.cmd --prefix frontend run build
+# With both local servers running and Chrome installed:
+node scripts/test_share_screen.cjs
+node scripts/test_game_review.cjs
+```
+
+For hands-on validation, try the Opera Game sample in Game Review, upload a game
+containing a known blunder, compare a quiet developing move in Coach and voice,
+and move again while a voice answer is being calculated. Detailed procedures and
+known limitations are in the linked Coach/voice/review handoffs above.
