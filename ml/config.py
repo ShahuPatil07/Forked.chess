@@ -23,13 +23,16 @@ ANNOTATION_DEPTH_FULL = 18     # deep re-analysis pass
 
 # Eval-drop thresholds (centipawns)
 FAST_THRESHOLD_CP = 30         # flag for deep re-analysis if drop >= this
-MISTAKE_THRESHOLD_CP = 100     # record as a mistake event if drop >= this (blunders only)
+MISTAKE_THRESHOLD_CP = 100     # legacy cp threshold (v2 uses win-probability: ml/ingestion/winprob.py)
 
-# Maia2 human-move probability filter
-# Positions where Maia2 rarely plays the engine's best move are "universally hard"
-# and are not personal blindspots — filter them out to reduce noise.
+# Which games feed the blindspot profile: rated, standard, these time classes.
+GAME_TIME_CLASSES: tuple[str, ...] = tuple(
+    t for t in os.environ.get("FORKED_TIME_CLASSES", "rapid").split(",") if t)
+
+# Maia2 human-move model. v2 uses it as a soft "personalness" weight (probability
+# a player at your rating avoids the mistake), not a hard filter.
 USE_MAIA2 = True
-MAIA2_MIN_PROB_BEST = 0.04     # discard events where maia2_prob_best < this
+MAIA2_MIN_PROB_BEST = 0.04     # legacy hard filter (only used by ml/eval/legacy.py)
 
 # Opening filter — moves 1-20 are classified as opening phase (many lines extend through move 18-20)
 EXCLUDE_OPENING_MISTAKES = False   # set True (or use --exclude-opening CLI flag)

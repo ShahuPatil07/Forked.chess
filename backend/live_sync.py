@@ -162,7 +162,7 @@ def _process_new_games(username: str, platform: str, existing_game_ids: set):
     Stage 1 logic stays identical to a full analysis run.
     """
     import chess.engine
-    from ml.pipeline import _fetch_and_parse, _annotate_batch
+    from ml.pipeline import _fetch_and_parse, process_games, classify_bundle, default_classifier
 
     if not STOCKFISH_PATH.exists():
         log.warning("Sync %s: Stockfish not found at %s — cannot annotate", username, STOCKFISH_PATH)
@@ -173,14 +173,20 @@ def _process_new_games(username: str, platform: str, existing_game_ids: set):
     if not new_games:
         return [], {}
 
+    # Same Stage-1 v2 path as a full analysis (win-probability mistakes,
+    # allowed/missed framing, transformer + verifier), so synced mistakes are
+    # labelled exactly like the profile they are matched against.
     with chess.engine.SimpleEngine.popen_uci(str(STOCKFISH_PATH)) as engine:
         engine.configure({"Threads": 1, "Hash": 128})
-        events = _annotate_batch(
-            new_games, engine,
-            exclude_opening=False,
-            progress_callback=lambda *_: None,   # silence tqdm in the sync thread
-            classifier=None,                      # rule-based threat labels (matcher-tolerant)
-        )
+        bundle = process_games(new_games, engine=engine)
+    classify_bundle(bundle, default_classifier())
+    events = bundle.mistakes
+    for suffix, rows in (("peer_mistakes", [asdict(m) for m in bundle.peer_mistakes]),
+                         ("opportunities", [asdict(o) for o in bundle.opportunities]),
+                         ("exposure", bundle.exposure)):
+        if rows:
+            path = OUTPUT_DIR / f"{username}_{suffix}.json"
+            _write_json(path, _read_json(path, []) + rows)
 
     # Persist game meta so the History view can show opponents
     meta = _read_json(_game_meta_path(username), {})
@@ -248,11 +254,13 @@ def sync_user(username: str, platform: str = "lichess") -> list[dict]:
         appended: list[dict] = []
         for ev, res in zip(events, results):
             ev_dict = asdict(ev)
-            ev_dict["cluster_id"] = res.cluster_id if res.matched else None
+            # Always the family key (incl. "unclassified"), never None — the
+            # profile, replay and counterfactual group mistakes by it.
+            ev_dict["cluster_id"] = ev.cluster_id or (res.cluster_id if res.matched else "unclassified")
             appended.append(ev_dict)
 
-            if not res.matched:
-                continue   # genuine non-match — logged to history, no alert
+            if not res.matched or ev.cascade:
+                continue   # non-tactical, or the same root cause as an earlier move
 
             game = game_map.get(ev.game_id, {})
             reset = reset_cluster_mastery(username, res.cluster_id)

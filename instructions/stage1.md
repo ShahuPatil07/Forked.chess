@@ -1,327 +1,185 @@
-# Stage 1 — Ingestion & Classification Pipeline
+# Stage 1 & 2 — Ingestion, Classification and the Blindspot Profile (v2)
 
-Complete reference for a developer picking up Stage 1 with no prior context.
-
----
-
-## Overview
-
-Stage 1 takes a chess player's username and platform, fetches their recent games, annotates every position with Stockfish, extracts the moves where they blundered, classifies what tactical theme they missed, and (optionally) filters out positions that are universally hard using Maia2.
-
-The output is a list of `MistakeEvent` objects saved to `data/output/<username>_mistakes.json`.
+Reference for a developer picking up the blindspot pipeline with no prior
+context. Measured results live in `reports/stage12_eval/` (see "Evaluation").
 
 ---
 
-## Data-flow diagram
+## Data flow
 
 ```
-  username + platform
-        |
-        v
-  [1] Game Fetcher        ml/ingestion/fetcher.py
-      Lichess / Chess.com APIs (no auth needed)
-        |
-        v
-  [2] PGN Annotator       ml/ingestion/annotator.py
-      Two-pass Stockfish:
-        Pass A — depth 12 (fast screen, every move)
-        Pass B — depth 18 (deep re-analysis, only flagged positions)
-        |
-        v
-  [3] Mistake Extractor   ml/ingestion/mistake_extractor.py
-      Filter: eval_drop >= 100cp, eval_before >= -300cp
-      Enriches each event with game_phase + threat_type
-        |
-        v
-  [4] HybridThreatClassifier   ml/classifier/hybrid_classifier.py
-      Stage 0: eval_drop guard
-      Stage 1: rule-based (threat_classifier.py)
-      Stage 2: depth lookahead (Stockfish PV)
-      Stage 3: LightGBM ML model
-      Stage 4: uncertain — log, return "other"
-        |
-        v
-  [5] Maia2 filter        ml/ingestion/maia_annotator.py
-      Annotate with human-move probabilities.
-      Discard positions where even strong humans miss it (prob_best < 0.04).
-        |
-        v
-  [6] Save                data/output/<username>_mistakes.json
-      List of MistakeEvent dicts (all fields serialised)
+username + platform
+   │
+   ▼  [1] Fetch                 ml/ingestion/fetcher.py
+   │     rated, standard chess, GAME_TIME_CLASSES only (rapid by default)
+   ▼  [2] Annotate              ml/ingestion/annotator.py  (+ engine_pool.py, annotation_cache.py)
+   │     depth-12 every position → depth-18 on flagged ones; PV + mate kept per
+   │     position; cached per game in data/annotation_cache.db
+   ▼  [3] Extract (both sides)  ml/ingestion/mistake_extractor.py
+   │     mistakes by win-probability loss, mechanism tag (allowed / missed /
+   │     both / quiet), tactical opportunities (found / missed), exposure
+   ▼  [4] Maia2 personalness    ml/ingestion/maia_annotator.py
+   │     P(a player at the mover's real rating avoids this mistake) → weight
+   ▼  [5] Classify (batch)      ml/ingestion/classify_events.py
+   │     v2 multi-label transformer in the RIGHT framing + deterministic
+   │     verifier → soft family probabilities; cascades collapsed
+   ▼  [6] Stage 2 profile       ml/clustering/profile.py (via profile_pipeline.run_clustering)
+         peer-relative rates, shrinkage, status, direction, hit rate
 ```
+
+Outputs (`data/output/<user>_*.json`): `mistakes` (user), `peer_mistakes`
+(opponents), `opportunities`, `exposure` (moves per game), `game_meta`,
+`ingest_stats`, then Stage 2's `clusters` and `profile`.
 
 ---
 
-## Step 1 — Game Fetching
+## Stage 1
 
-**File:** `ml/ingestion/fetcher.py`
+### Fetch
+Lichess: `perfType=rapid&rated=true`, variant standard. Chess.com: archive list
+walked newest-first, `rules == "chess"`, `time_class` in GAME_TIME_CLASSES,
+rated. `FORKED_TIME_CLASSES=rapid,blitz` widens it. Each game carries ratings,
+initial/increment seconds and the user's result.
 
-**What:** Fetches PGN game data from the public Lichess or Chess.com APIs.
-No API keys or OAuth required — both APIs are publicly accessible by username.
+### Annotate
+Two passes per game over N+1 boards. A move is flagged for depth 18 when its
+depth-12 win-probability loss is ≥ 4%, or when the depth-12 line shows a tactic
+for the mover (so found/missed opportunities are judged at full depth too).
+Every position keeps its PV (12 plies) and mate distance, which gives each move
+both the mover's best line and the opponent's refutation at no extra cost.
+Engine work runs on a pool of single-thread Stockfish processes
+(`FORKED_SF_WORKERS`, default min(6, cores−2)) and is cached per game, so
+re-runs and reclassification never re-analyse.
 
-**Why:** We need the raw PGN strings to drive Stockfish annotation.
-Clock data (if available) is also extracted for time-pressure analysis.
+### What counts as a mistake
+Expected-score loss ≥ 10% (Lichess "mistake"; Lichess inaccuracy = 5%,
+blunder = 15%) using Lichess's win-probability curve, and the mover not already
+lost (expected score ≥ 0.15). This drops "+9 → +6" non-events and makes mate
+scores behave (no 30,000cp drops). See `ml/ingestion/winprob.py`.
 
-**Lichess endpoint:** `https://lichess.org/api/games/user/{username}?max={n}&clocks=true&perfType=rapid,blitz`
+### Mechanism — the most important fix
+The classifier is trained on Lichess puzzles = (position after a blunder, the
+winning reply). A mistake is only in that distribution if we show the
+classifier the right position:
 
-**Chess.com endpoint:** `https://api.chess.com/pub/player/{username}/games/{year}/{month}`
-
-**Output:** List of normalised game dicts:
-```python
-{
-    "game_id":        str,   # Lichess game ID or Chess.com UUID
-    "pgn":            str,   # full PGN string
-    "user_color":     str,   # "white" | "black"
-    "white_username": str,
-    "black_username": str,
-    "played_at":      int,   # Unix timestamp (ms for Lichess, s for Chess.com)
-    "time_control":   str,   # e.g. "600+5"
-    "url":            str,   # game URL
-}
-```
-
-**Edge cases:**
-- Lichess returns NDJSON; Chess.com returns monthly JSON pages. Both are normalised to the same dict schema.
-- Very old Chess.com games may lack clock data (`time_remaining_ms = None`).
-- Lichess timestamps are in milliseconds; the pipeline normalises to seconds.
-
----
-
-## Step 2 — Stockfish Annotation
-
-**File:** `ml/ingestion/annotator.py`
-
-**What:** Runs every position in a game through Stockfish and records the evaluation before and after the move that was played, plus the engine's best move.
-
-**Why:** To identify positions where the eval dropped significantly (blunders) and to know what the engine preferred.
-
-**Two-pass strategy:**
-1. **Pass A (depth 12):** Annotate every position quickly. Flag positions where `eval_drop >= 30cp`.
-2. **Pass B (depth 18):** Re-analyse only the flagged positions deeply. Overwrites the shallow annotation.
-
-This gives full accuracy on the positions that matter while keeping the total annotation time reasonable (~1 second per game on a modern CPU).
-
-**Key output per position — `PositionAnnotation`:**
-```python
-@dataclass
-class PositionAnnotation:
-    fen:               str    # board FEN after the opponent's last move
-    move_played_uci:   str    # the move this player actually played
-    move_played_san:   str
-    best_move_uci:     str    # Stockfish's top choice
-    eval_before_cp:    int    # centipawn eval before the move (from this player's POV)
-    eval_after_cp:     int    # centipawn eval after the move
-    eval_drop_cp:      int    # eval_before - eval_after (positive = blunder)
-    is_white_move:     bool
-    move_number:       int
-    clock_remaining_ms: Optional[int]
-```
-
-**Performance:** ~30–60 games/minute on a laptop with a single Stockfish thread.
-
----
-
-## Step 3 — Mistake Extraction
-
-**File:** `ml/ingestion/mistake_extractor.py`
-
-**What:** Filters the annotations to only positions where the user made a significant error, then enriches each with game phase and threat classification.
-
-**Filters applied (in order):**
-1. Only the target user's moves (skip opponent moves).
-2. `eval_drop_cp >= MISTAKE_THRESHOLD_CP` (default: 100cp — blunders only).
-3. `eval_before_cp >= -300` — skip already-losing positions to avoid noise.
-4. Optionally skip opening moves (move_number <= 20) when `EXCLUDE_OPENING_MISTAKES=True`.
-
-**Game phase detection:**
-- Move 1–20 → `"opening"`
-- Combined non-pawn material ≤ 15 → `"endgame"`
-- Otherwise → `"middlegame"`
-
-**MistakeEvent fields:**
-```python
-@dataclass
-class MistakeEvent:
-    game_id, user_id, fen, move_played_uci, move_played_san
-    best_move_uci, eval_before_cp, eval_after_cp, eval_drop_cp
-    threat_type          # from HybridThreatClassifier
-    game_phase           # "opening" | "middlegame" | "endgame"
-    time_remaining_ms    # from PGN clock comments
-    move_number
-    played_at_unix       # game timestamp
-    cluster_id           # filled in Stage 2
-    # Classification metadata
-    classification_confidence  # float [0,1] — how sure the classifier was
-    classification_method      # "rule_based"|"depth_lookahead"|"ml_model"|"ml_uncertain"|"skip"
-    eval_drop_category         # "skip"|"inaccuracy"|"blunder"
-    # Maia2 fields (populated separately)
-    maia2_prob_best, maia2_prob_played, maia2_surprise, maia2_difficulty
-```
-
----
-
-## Step 4 — Hybrid Threat Classification
-
-**File:** `ml/classifier/hybrid_classifier.py`
-
-**What:** Classifies what tactical theme the player missed. Returns one of 14 threat types.
-
-**Why a hybrid funnel?** Rule-based classification is deterministic and fast but only covers clear tactical motifs. The ML model handles ambiguous positions. The funnel minimises ML calls (expensive) while maximising accuracy.
-
-### Threat types (14)
-
-```
-back_rank       fork            pin             skewer
-hanging_piece   discovered_attack  removing_defender  deflection
-trapped_piece   king_attack     passed_pawn     piece_activity
-endgame_technique  other
-```
-
-### 4-Stage funnel
-
-```
-Stage 0 — eval_drop guard
-  < 50cp  → method="skip", threat="other"  (not a real mistake)
-  50–99cp → eval_drop_category="inaccuracy"
-  >= 100cp → eval_drop_category="blunder"
-
-Stage 1 — Rule-based  (ml/ingestion/threat_classifier.py)
-  Always runs. Priority order (highest precision first):
-    back_rank → fork → pin → skewer → hanging_piece → discovered_attack
-    → removing_defender → deflection → trapped_piece → king_attack
-    → passed_pawn → piece_activity → endgame_technique → other
-  If result != "other" AND pv_length < 3:
-    → method="rule_based", confidence=1.0, DONE
-
-Stage 2 — Depth lookahead  (requires Stockfish engine)
-  Plays out engine PV up to 4 half-moves.
-  Stops early if position stops being forcing (> 10 legal moves).
-  Classifies terminal position with rule-based classifier.
-  If result != "other":
-    → method="depth_lookahead", confidence=0.85, DONE
-
-Stage 3 — LightGBM ML model  (ml/classifier/hybrid_classifier.py)
-  Extracts 805-dim raw feature vector (bitboard + move + context).
-  Gets class probabilities from LightGBM.
-  Applies per-class confidence thresholds:
-    removing_defender → 0.75
-    deflection, trapped_piece → 0.65
-    skewer → 0.60
-    all others → 0.55
-  If max probability >= threshold:
-    → method="ml_model", confidence=max_prob, DONE
-
-Stage 4 — Uncertain
-  Logs (FEN, move, predicted class, confidence) for future fine-tuning.
-  → method="ml_uncertain", threat="other"
-```
-
-**Expected healthy distribution:** rule_based ~65%, depth_lookahead ~15%, ml_model ~12%, ml_uncertain <5%.
-
-**File:** `ml/ingestion/threat_classifier.py` — rule-based logic only (no ML).
-**File:** `ml/classifier/features.py` — 805-dim feature extraction for the ML model.
-**File:** `ml/classifier/label_map.py` — mapping between Lichess puzzle theme names and our threat types.
-
-### ML model details
-
-Trained on 2M Lichess puzzles (Lichess puzzle DB, `.zst` format).
-16 Lichess-native classes used for training; mapped to 14 THREAT_TYPES at inference time.
-Algorithm: LightGBM gradient-boosted trees.
-Feature dim: 805 raw (768 bitboard + 20 move features + 12 context + 5 post-move).
-No PCA — tree models handle high-dimensional sparse binary features natively.
-Test accuracy: 63.5% on held-out 200K-example test set.
-Strong classes: back_rank (F1=0.91), mate/king_attack (0.78), passed_pawn (0.73).
-
-**Model artifacts:** `models/threat_lgbm.pkl`, `models/label_encoder.pkl`
-
----
-
-## Step 5 — Maia2 Filter
-
-**File:** `ml/ingestion/maia_annotator.py`, `ml/pipeline.py:_run_maia2_pass()`
-
-**What:** Annotates each mistake event with the probability that a human player at the user's ELO would play the engine's best move. Filters out positions where `maia2_prob_best < 0.04` (universally hard).
-
-**Why:** Some positions are objectively difficult for humans of all skill levels. Including them in the blindspot corpus would dilute the signal — they're not personal weaknesses, they're hard positions. Maia2 identifies these.
-
-**Maia2 fields populated:**
-- `maia2_prob_best` — probability of playing the engine's best move
-- `maia2_prob_played` — probability of playing the move the user actually played
-- `maia2_surprise` — log-odds of the engine's move relative to the user's move (higher = engine move more surprising)
-- `maia2_difficulty` — 1 - maia2_prob_best (difficulty for a human of this ELO)
-
-**Config:** `USE_MAIA2 = True`, `MAIA2_MIN_PROB_BEST = 0.04` in `ml/config.py`.
-
-**Graceful fallback:** If `maia2` package is not installed, a warning is logged and all events are kept unfiltered.
-
-**Install:** `pip install maia2` (requires PyTorch; installed in this project's venv).
-
----
-
-## Step 6 — Persistence
-
-**File:** `ml/pipeline.py:_save()`
-
-**Output:** `data/output/<username>_mistakes.json`
-
-Format: JSON array of `MistakeEvent` dicts. All fields are included. `None` values are serialised as `null`. The file is overwritten on each run.
-
-**Game metadata** is saved separately to `data/output/<username>_game_meta.json` for the game history view in the frontend.
-
----
-
-## Configuration
-
-`ml/config.py`:
-
-| Variable | Default | Meaning |
+| Direction | Meaning | Classified as |
 |---|---|---|
-| `MISTAKE_THRESHOLD_CP` | 100 | Min centipawn drop to record as a mistake |
-| `ANNOTATION_DEPTH_FAST` | 12 | Stockfish depth for initial screen |
-| `ANNOTATION_DEPTH_FULL` | 18 | Stockfish depth for deep re-analysis |
-| `USE_MAIA2` | True | Enable Maia2 human-probability filter |
-| `MAIA2_MIN_PROB_BEST` | 0.04 | Filter threshold (discard if below this) |
-| `EXCLUDE_OPENING_MISTAKES` | False | Skip mistakes on moves 1–20 |
-| `STOCKFISH_PATH` | auto-discovered | Path to Stockfish binary |
+| `allowed` | your move created a tactic for the opponent (`allowed_kind`: `walked_into` or `ignored_threat`, from a null-move threat probe) | (position after your move, opponent's refutation) |
+| `missed` | you had a tactic and didn't play it | (position before, engine best move) |
+| `both` | both | both; family mass mixed by material swing |
+| `quiet` | no material/mate swing within 10 plies | (position before, best move); the learned "none" class decides |
+
+Swings are settled material along the PV relative to a baseline that ignores
+exchanges in progress (a recapture is not a tactic). `ml/ingestion/mechanism.py`.
+
+The pre-v2 pipeline classified every mistake as (position before, best move).
+For an allowed mistake the best move is usually a quiet defence, so the label
+was effectively noise.
+
+### Cascades
+Consecutive mistakes with one root cause (the opponent didn't cash in the
+refutation and you allowed the same thing again, or the same family failed on
+the next move) are linked into one incident (`incident_id`, `cascade`). Stage 2
+counts incidents.
+
+### Classifier (v2)
+`models/stage1_transformer_v2.pt`: the Chessformer encoder fine-tuned from v1
+into a 17-way MULTI-LABEL model (`ml/classifier/label_map_v2.py`):
+- label space rebuilt from the real Lichess theme vocabulary — v1 keyed classes
+  on names that don't exist in the DB (`overloadedPiece`, `zwischenzug`,
+  `removeDefender`, `check`, …) so two outputs never trained, and dropped
+  `exposedKing`, `defensiveMove`, `discoveredCheck`, `intermezzo`, many mates;
+- `endgame` is a phase tag, used as a class only when no motif is present;
+- a learned `none` class from 30K Stockfish-mined real-game quiet positions;
+- sigmoid/BCE: a puzzle can be fork + discovered attack + mate.
+Rebuild: `python -m ml.classifier.transformer.prepare_data`,
+`python -m ml.classifier.transformer.mine_negatives`,
+`python -m ml.classifier.transformer.train_mt --minutes 170`,
+`python -m ml.classifier.transformer.predict --fit-v2` (temperature + OOD ref).
+The v1 checkpoint stays as the fallback.
+
+### Verifier
+`ml/classifier/verifier.py` ports the relevant detectors from Lichess's own
+puzzle tagger (lichess-puzzler `cook.py`): mate, back-rank mate, hanging piece,
+fork, discovered attack/check, skewer, pin, capturing the defender, advanced
+pawn. Proven motifs are combined with the transformer by noisy-OR weighted by
+their measured precision on engine lines (`reports/stage12_eval/verifier_precision.json`).
+
+### Maia2
+Run at the players' real ratings. `maia2_prob_safe` = Maia probability mass on
+moves losing < 5% expected score; `personal_weight = 0.5 + 0.5 × prob_safe`.
+The old hard filter (drop if P(best move) < 0.04 at 1500) is gone — it discarded
+positions with many safe moves, i.e. exactly the "walked into it" mistakes.
 
 ---
 
-## Running Stage 1
+## Stage 2 — the profile (`ml/clustering/profile.py`)
+
+Five fixed families (`families.py`) plus `unclassified`; `cluster_id` is the
+family key (contract unchanged; `family_of(threat_type) == cluster_id`).
+
+Per family:
+- **rate** — incidents per 100 moves, soft-assigned by `family_probs`, weighted
+  by Maia personalness and by game recency (half-life 50 games);
+- **peer rate** — the same measured on the opponents in the same games
+  (rating-matched, same time control, free);
+- **posterior** — Gamma–Poisson shrinkage toward the peer rate (prior worth
+  2,000 moves) with an 80% interval and P(you > peers);
+- **status** — `confirmed` (P ≥ 0.9, ≥ 5 incidents), `emerging` (P ≥ 0.7),
+  `typical`, `strength` (P ≤ 0.15), `insufficient_data` (< 3), then raised by
+  a second, independent test: when ≥ 12 opportunities exist on each side and
+  P(your hit rate < peers') ≥ 0.95 → `confirmed` (≥ 0.85 → `emerging`).
+  `status_reasons` says which test fired. (A player can make an average number
+  of mistakes in a family yet miss most of the chances it offers — the
+  benchmark's own owner finds 53% of defender-disruption shots vs peers' 85%.)
+- **impact / excess** — expected points lost per 10 games, and the part above
+  peer level (excess from a higher mistake rate + from missed available
+  tactics); **score = 0.75·excess + 0.25·impact** ranks the families;
+- **direction** split, **hit rate** (tactics found / available vs peers),
+  **context** (ahead/equal/behind, time trouble), and for `unclassified` the
+  reason (opening / endgame technique / time trouble / positional).
+
+Clusters carry these under `BlindspotCluster.profile`; the dashboard shows
+status, × peers, the allowed/missed mix and hit rate.
+
+---
+
+## Running
 
 ```bash
-# Full pipeline (programmatic)
+# product path (backend job or programmatic)
 from ml.pipeline import run_ingestion
-mistakes = run_ingestion("ShahuPatil07", platform="lichess", min_games=80)
+mistakes = run_ingestion("ShahuPatil27", platform="chesscom", min_games=150)
 
-# Via the backend API (triggers background job)
-POST /api/ingest  {"username": "ShahuPatil07", "platform": "lichess", "min_games": 80}
+# relabel saved events with the current model + rebuild Stage 2 (no Stockfish)
+python -m ml.clustering.reclassify ShahuPatil27
 
-# CLI analysis script
-python scripts/run_analysis.py ShahuPatil07 --platform lichess --games 80
-
-# Re-classify existing mistakes with updated classifier (no re-annotation needed)
-python -m ml.clustering.reclassify ShahuPatil07
+# benchmark accounts (frozen games in data/bench/) and the evaluation
+python scripts/run_stage12_bench.py
+python scripts/eval_stage12.py --all
 ```
 
----
+## Evaluation (`scripts/eval_stage12.py` → `reports/stage12_eval/`)
+
+| | What it measures |
+|---|---|
+| E1 | classifier on 40K held-out Lichess puzzles (v1 test split) |
+| E2 | end-to-end Stage 1 on held-out real-game blunders: right family for allowed and missed mistakes; ablations for framing / retrain / verifier |
+| E3 | noise & hygiene on the benchmark accounts (same engine annotations) |
+| E4 | split-half stability of the family ranking |
+| E5 | predictive validity: profile from older games vs points lost in the next games |
+| E6 | gold set: accuracy vs the user's own labels (`scripts/build_gold_set.py` builds the labelling page) |
+
+Unit tests: `tests/test_stage12.py`.
 
 ## Key files
 
 | File | Role |
 |---|---|
-| `ml/pipeline.py` | Orchestrates all 4 sub-steps |
-| `ml/ingestion/fetcher.py` | Lichess / Chess.com API clients |
-| `ml/ingestion/annotator.py` | Two-pass Stockfish annotation |
-| `ml/ingestion/mistake_extractor.py` | Filter + enrich annotations |
-| `ml/ingestion/threat_classifier.py` | Rule-based detector (14 threat types) |
-| `ml/classifier/hybrid_classifier.py` | 4-stage HybridThreatClassifier |
-| `ml/classifier/features.py` | 805-dim feature extraction for ML |
-| `ml/classifier/label_map.py` | Lichess theme → THREAT_TYPE mapping |
-| `ml/classifier/hybrid_classifier.py` | ML model singleton + confidence thresholds |
-| `ml/ingestion/maia_annotator.py` | Maia2 human-probability annotation |
-| `ml/config.py` | All tuneable constants |
-| `models/threat_lgbm.pkl` | Trained LightGBM threat classifier |
-| `models/label_encoder.pkl` | Encodes/decodes ML class indices |
-| `data/output/<user>_mistakes.json` | Stage 1 output |
-| `scripts/verify_category_alignment.py` | Asserts rule + ML labels are in sync |
-| `tests/test_hybrid_classifier.py` | Unit tests for known positions |
+| `ml/pipeline.py` | orchestration, engine pool, output files |
+| `ml/ingestion/{fetcher,annotator,annotation_cache,engine_pool}.py` | games → cached engine annotations |
+| `ml/ingestion/{winprob,mechanism,mistake_extractor}.py` | mistakes, mechanism, opportunities, cascades |
+| `ml/ingestion/{maia_annotator,classify_events}.py` | personalness, classification |
+| `ml/classifier/{label_map_v2,verifier}.py`, `ml/classifier/transformer/*` | model, labels, verifier, training |
+| `ml/clustering/{families,profile,profile_pipeline,reclassify}.py` | Stage 2 |
+| `ml/eval/{legacy,legacy_profile}.py` | the pre-v2 logic, kept only for comparisons |

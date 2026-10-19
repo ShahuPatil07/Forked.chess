@@ -42,6 +42,7 @@ import torch.nn.functional as F
 from ml.classifier.transformer.board_encoding import encode_position
 from ml.classifier.transformer.model import ChessformerClassifier, ModelConfig
 from ml.classifier.label_map import ML_LICHESS_CLASSES, ML_CLASS_TO_THREAT
+from ml.classifier import label_map_v2 as v2
 # NOTE: dataset/DataLoader are imported lazily inside fit_reference() so that
 # production INFERENCE (Predictor) needs only board_encoding + model + label_map.
 
@@ -49,21 +50,27 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger(__name__)
 
 MODELS_DIR = Path(__file__).resolve().parents[3] / "models"
-DEFAULT_CKPT = MODELS_DIR / "stage1_transformer.pt"
-DEFAULT_REF  = MODELS_DIR / "stage1_reference.pkl"
+V1_CKPT = MODELS_DIR / "stage1_transformer.pt"
+V1_REF  = MODELS_DIR / "stage1_reference.pkl"
+V2_CKPT = MODELS_DIR / "stage1_transformer_v2.pt"
+V2_REF  = MODELS_DIR / "stage1_reference_v2.pkl"
+# Prefer the v2 multi-label model once it has been trained; v1 stays the fallback.
+DEFAULT_CKPT = V2_CKPT if V2_CKPT.exists() else V1_CKPT
+DEFAULT_REF  = V2_REF if V2_CKPT.exists() else V1_REF
 N_CLASSES = len(ML_LICHESS_CLASSES)
 
 
-def _load_model(ckpt: Path):
+def _load_model(ckpt: Path, with_blob: bool = False):
     blob = torch.load(ckpt, map_location="cpu", weights_only=False)
     cfg = ModelConfig(**blob["config"])
     model = ChessformerClassifier(cfg)
     model.load_state_dict(blob["state_dict"])
     model.eval()
-    if cfg.proj_dim <= 0:
+    if cfg.proj_dim <= 0 and not blob.get("multilabel"):
         raise ValueError("Checkpoint has no SupCon projection head (proj_dim=0); "
                          "OOD scoring needs a model trained with --supcon-weight>0.")
-    return model, cfg
+    meta = {k: v for k, v in blob.items() if k != "state_dict"}
+    return (model, cfg, meta) if with_blob else (model, cfg)
 
 
 def _batch_to_dict(batch: dict) -> dict:
@@ -75,7 +82,7 @@ def _batch_to_dict(batch: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @torch.no_grad()
-def fit_reference(ckpt: Path = DEFAULT_CKPT, n_centroid: int = 20000,
+def fit_reference(ckpt: Path = V1_CKPT, n_centroid: int = 20000,
                   n_temp: int = 8000, batch_size: int = 512) -> None:
     from torch.utils.data import DataLoader
     from ml.classifier.transformer.dataset import TokenDataset, collate
@@ -136,10 +143,72 @@ def fit_reference(ckpt: Path = DEFAULT_CKPT, n_centroid: int = 20000,
         "threshold": threshold,
         "classes": list(ML_LICHESS_CLASSES),
     }
-    with open(DEFAULT_REF, "wb") as fh:
+    with open(V1_REF, "wb") as fh:
         pickle.dump(ref, fh)
     log.info("Temperature %.3f | OOD threshold (95pct ID) %.3f | saved %s",
-             temperature, threshold, DEFAULT_REF.name)
+             temperature, threshold, V1_REF.name)
+
+
+@torch.no_grad()
+def _v2_logits(model, d: dict, bs: int = 512):
+    from ml.classifier.transformer.train_mt import to_batch
+    logits, zs = [], []
+    for s0 in range(0, len(d["labels"]), bs):
+        idx = np.arange(s0, min(s0 + bs, len(d["labels"])))
+        emb = model.encode(to_batch(d, idx))
+        logits.append(model.head(emb))
+        if model.proj is not None:
+            zs.append(F.normalize(model.proj(emb), dim=1))
+    return torch.cat(logits), (torch.cat(zs) if zs else None)
+
+
+def fit_reference_v2(ckpt: Path = V2_CKPT, out: Path = V2_REF, n: int = 12000) -> dict:
+    """v2 (multi-label) reference: a sigmoid temperature fitted on val by BCE,
+    plus class centroids in the projection space (rarest-label bucket) for an
+    OOD distance. Reads data/processed/mt_val.npz (+ mt_neg.npz)."""
+    from ml.classifier.transformer.train_mt import load_npz, concat, take
+    from ml.config import DATA_DIR
+    model, _cfg = _load_model(ckpt)
+    val = load_npz("mt_val.npz")
+    if (DATA_DIR / "processed" / "mt_neg.npz").exists():
+        neg = load_npz("mt_neg.npz")
+        val = concat(val, take(neg, np.arange(min(2000, len(neg["labels"])))))
+    d = take(val, np.random.default_rng(1).permutation(len(val["labels"]))[:n])
+    logits, z = _v2_logits(model, d)
+    y = torch.from_numpy(d["labels"].astype(np.float32))
+
+    T = torch.nn.Parameter(torch.ones(1))
+    opt = torch.optim.LBFGS([T], lr=0.05, max_iter=80)
+    bce = torch.nn.BCEWithLogitsLoss()
+
+    def closure():
+        opt.zero_grad()
+        loss = bce(logits / T.clamp(min=0.05), y)
+        loss.backward()
+        return loss
+    with torch.enable_grad():
+        opt.step(closure)
+    temperature = float(T.detach().clamp(min=0.05).item())
+
+    ref = {"temperature": temperature, "classes": list(v2.MOTIF_CLASSES), "multilabel": True}
+    if z is not None:
+        bucket = np.array([v2.CLASS_INDEX[v2.rarest([v2.MOTIF_CLASSES[j] for j in np.flatnonzero(row)]) or "none"]
+                           for row in d["labels"]])
+        cents = torch.zeros(v2.N_CLASSES, z.shape[1])
+        present = np.zeros(v2.N_CLASSES, dtype=bool)
+        for c in range(v2.N_CLASSES):
+            m = bucket == c
+            if c != v2.NONE_INDEX and m.sum() >= 20:
+                cents[c] = F.normalize(z[torch.from_numpy(m)].mean(0), dim=0)
+                present[c] = True
+        sim = z @ cents[torch.from_numpy(present)].t()
+        dist = (1 - sim.max(1).values).numpy()
+        ref.update({"centroids": cents.numpy(), "present": present,
+                    "threshold": float(np.quantile(dist[bucket != v2.NONE_INDEX], 0.95))})
+    with open(out, "wb") as fh:
+        pickle.dump(ref, fh)
+    log.info("v2 reference: temperature %.3f -> %s", temperature, out.name)
+    return ref
 
 
 # ---------------------------------------------------------------------------
@@ -148,13 +217,18 @@ def fit_reference(ckpt: Path = DEFAULT_CKPT, n_centroid: int = 20000,
 
 class Predictor:
     def __init__(self, ckpt: Path = DEFAULT_CKPT, ref: Path = DEFAULT_REF):
-        self.model, self.cfg = _load_model(ckpt)
-        with open(ref, "rb") as fh:
-            r = pickle.load(fh)
-        self.centroids = torch.from_numpy(r["centroids"]).float()
-        self.present = torch.from_numpy(np.asarray(r["present"]))
-        self.temperature = r["temperature"]
-        self.threshold = r["threshold"]
+        self.model, self.cfg, meta = _load_model(ckpt, with_blob=True)
+        self.multilabel = bool(meta.get("multilabel"))
+        self.classes = list(meta.get("classes") or ML_LICHESS_CLASSES)
+        self.version = "v2" if self.multilabel else "v1"
+        r: dict = {}
+        if ref is not None and Path(ref).exists():
+            with open(ref, "rb") as fh:
+                r = pickle.load(fh)
+        self.temperature = float(r.get("temperature", 1.0))
+        self.centroids = torch.from_numpy(np.asarray(r["centroids"])).float() if "centroids" in r else None
+        self.present = torch.from_numpy(np.asarray(r["present"])) if "present" in r else None
+        self.threshold = float(r.get("threshold", 1.0))
 
     @torch.no_grad()
     def _encode(self, fens: list[str], moves: list[str]):
@@ -186,11 +260,16 @@ class Predictor:
             return {"keep": keep}
         emb = self.model.encode(batch)
         logits = self.model.head(emb)
+        if self.centroids is not None and self.model.proj is not None:
+            z = F.normalize(self.model.proj(emb), dim=1)
+            sim = z @ self.centroids[self.present].t()
+            ood = (1 - sim.max(1).values)
+        else:
+            ood = torch.zeros(logits.shape[0])
+        if self.multilabel:
+            return self._predict_v2(logits, ood, keep)
         probs = F.softmax(logits / self.temperature, dim=1)
         conf, pred = probs.max(1)
-        z = F.normalize(self.model.proj(emb), dim=1)
-        sim = z @ self.centroids[self.present].t()
-        ood = (1 - sim.max(1).values)
 
         pred = pred.numpy()
         ml_class = [ML_LICHESS_CLASSES[i] for i in pred]
@@ -204,6 +283,26 @@ class Predictor:
             "is_positional": (ood.numpy() > self.threshold),
         }
 
+    def _predict_v2(self, logits: torch.Tensor, ood: torch.Tensor, keep: np.ndarray) -> dict:
+        probs = torch.sigmoid(logits / self.temperature).numpy()
+        core = probs.copy()
+        for m in v2.MODIFIERS:
+            core[:, v2.CLASS_INDEX[m]] = -1
+        core[:, v2.NONE_INDEX] = -1
+        top = core.argmax(1)
+        conf = core[np.arange(len(top)), top]
+        p_none = probs[:, v2.NONE_INDEX]
+        ml_class = [self.classes[i] for i in top]
+        # No motif evident (the learned "none" wins, or nothing clears a floor) -> positional.
+        positional = (p_none >= np.maximum(conf, 0.5)) | (conf < 0.2)
+        threat = ["other" if pos else (v2.CLASS_TO_THREAT.get(c) or "other")
+                  for c, pos in zip(ml_class, positional)]
+        return {
+            "keep": keep, "ml_class": ml_class, "threat_type": threat,
+            "confidence": conf, "ood_distance": ood.numpy(),
+            "is_positional": positional, "probs": probs, "p_none": p_none,
+        }
+
     def predict(self, fen: str, move_uci: str) -> dict:
         out = self.predict_many([fen], [move_uci])
         if not out["keep"][0]:
@@ -214,6 +313,7 @@ class Predictor:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Stage-1 predictor / reference fitter.")
     ap.add_argument("--fit", action="store_true", help="Fit the reference (centroids + temperature).")
+    ap.add_argument("--fit-v2", action="store_true", help="Fit the v2 multi-label reference.")
     ap.add_argument("--ckpt", default=str(DEFAULT_CKPT))
     ap.add_argument("--fen", default=None)
     ap.add_argument("--move", default=None)
@@ -221,6 +321,9 @@ def main() -> None:
 
     if args.fit:
         fit_reference(Path(args.ckpt))
+        return
+    if args.fit_v2:
+        fit_reference_v2()
         return
     if args.fen and args.move:
         p = Predictor(Path(args.ckpt))

@@ -1,6 +1,13 @@
 """
 TransformerThreatClassifier — pure transformer threat classification.
 
+v2 note: loads models/stage1_transformer_v2.pt (17-way MULTI-LABEL, real Lichess
+theme vocabulary, learned "none" class) when present, else the v1 checkpoint.
+Stage-1 ingestion no longer calls `classify()` per event: it batches through
+`ml.ingestion.classify_events` (allowed/missed framing + verifier + soft family
+probabilities) via this object's `_predictor`. `classify()` stays for callers
+that want a single (fen, move) label.
+
 This REPLACES the old rule-based / depth-lookahead / LightGBM funnel
 (`ml.classifier.hybrid_classifier.HybridThreatClassifier`) entirely. A mistake's
 threat type now comes directly from the Stage-1 Chessformer's prediction — no

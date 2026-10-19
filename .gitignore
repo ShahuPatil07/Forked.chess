@@ -64,3 +64,9 @@ desktop.ini
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 logs/
+
+# Stage-1/2 v2 working data (recreated by the pipeline / eval scripts)
+data/annotation_cache.db
+data/bench/
+data/gold/
+logs/

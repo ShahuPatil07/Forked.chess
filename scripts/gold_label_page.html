@@ -1,0 +1,427 @@
+<title>Mistake Labelling</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: phone-first review card — one big board (before/after toggle), thumb-sized answers, a fixed bottom bar. Wide screens show both boards beside the answers. */
+:root {
+  --bg: #eef1ef; --surface: #ffffff; --ink: #18211d; --muted: #59665f; --line: #d3dbd6;
+  --accent: #2456c9; --accent-ink: #ffffff; --accent-soft: #e3eafb;
+  --sq-light: #dfe4d6; --sq-dark: #8ea08e; --coord: #3c4a41;
+  --piece-w: #fbfbf7; --piece-b: #1b211e;
+  --arrow-played: #c4372f; --arrow-best: #1f8a4c; --arrow-reply: #d0820f;
+  --ok: #1f8a4c; --warn: #b26a00;
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font-pieces: "Segoe UI Symbol", "Noto Sans Symbols 2", "Apple Symbols", "DejaVu Sans", serif;
+  --bar-h: 64px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111614; --surface: #19201c; --ink: #e5ebe7; --muted: #9ba8a1; --line: #2c3631;
+  --accent: #7ea4ff; --accent-ink: #0d1530; --accent-soft: #1f2a44;
+  --sq-light: #a7b2a2; --sq-dark: #687a69; --coord: #1b241f;
+  --arrow-played: #ff6b5f; --arrow-best: #3fcf7c; --arrow-reply: #ffb23f;
+  --ok: #3fcf7c; --warn: #ffb23f; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #111614; --surface: #19201c; --ink: #e5ebe7; --muted: #9ba8a1; --line: #2c3631;
+  --accent: #7ea4ff; --accent-ink: #0d1530; --accent-soft: #1f2a44;
+  --sq-light: #a7b2a2; --sq-dark: #687a69; --coord: #1b241f;
+  --arrow-played: #ff6b5f; --arrow-best: #3fcf7c; --arrow-reply: #ffb23f;
+  --ok: #3fcf7c; --warn: #ffb23f; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 16px; line-height: 1.45;
+  -webkit-tap-highlight-color: transparent; }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 14px;
+  padding-block: 14px calc(var(--bar-h) + 24px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header { display: grid; gap: 8px; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+h1 { font-size: 1.2rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--muted); margin: 0; font-size: .88rem; }
+.progress { display: flex; align-items: center; gap: 10px; }
+.bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .25s; }
+.count { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: .82rem; white-space: nowrap; }
+.pill { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill.ok { color: var(--ok); border-color: currentColor; }
+.pill.warn { color: var(--warn); border-color: currentColor; }
+.notice { border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px; font-size: .88rem; overflow-wrap: anywhere; }
+
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.desk { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.boardcard { display: grid; gap: 10px; min-width: 0; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; border-radius: 8px; padding: 9px 6px; font-weight: 500; font-size: .92rem; min-height: 42px; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.boards { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; }
+figure svg { width: 100%; height: auto; display: block; border-radius: 6px; max-width: 100%; touch-action: manipulation; }
+figcaption { font-size: .92rem; color: var(--muted); min-width: 0; display: grid; gap: 4px; }
+figcaption b { color: var(--ink); font-weight: 600; }
+.mv { font-family: var(--font-data); color: var(--ink); font-weight: 500; }
+.line { font-family: var(--font-data); font-size: .8rem; color: var(--ink); overflow-wrap: anywhere; }
+.key { display: inline-block; width: .75em; height: .75em; border-radius: 2px; margin: 0 4px 0 2px; vertical-align: -1px; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .86rem; color: var(--muted); }
+.facts b { color: var(--ink); font-family: var(--font-data); font-weight: 500; font-variant-numeric: tabular-nums; }
+.facts a { color: var(--accent); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 14px; min-width: 0; }
+fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+legend { font-weight: 600; padding: 0; margin-bottom: 2px; }
+.hint { color: var(--muted); font-size: .82rem; }
+.chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.chip { text-align: left; display: grid; align-content: start; gap: 2px; min-height: 56px; min-width: 0;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; }
+.chip .t { font-weight: 500; font-size: .93rem; line-height: 1.25; }
+.chip .d { font-size: .76rem; color: var(--muted); line-height: 1.25; }
+.chip kbd { display: none; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.chip:disabled { opacity: .4; cursor: not-allowed; }
+input[type="text"] { font: inherit; font-size: 16px; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); }
+.foot { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; color: var(--muted); font-size: .82rem; }
+.btn { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-height: 40px; }
+.keys { display: none; }
+
+.navbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line);
+  padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.navbar .in { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px; gap: 10px; align-items: center; }
+.navbar button { min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 1.15rem; }
+.navbar #nextOpen { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-size: .92rem; font-weight: 500;
+  display: grid; gap: 0; line-height: 1.2; padding: 4px 8px; }
+.navbar #nextOpen small { font-family: var(--font-data); font-size: .72rem; opacity: .85; font-weight: 400; }
+
+/* wide screens: both boards side by side, answers beside them, keyboard hints */
+@media (min-width: 900px) {
+  .desk { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
+  .boards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .seg { display: none; }
+  .boards figure[hidden] { display: grid !important; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .chip { grid-template-columns: auto 1fr; column-gap: 8px; }
+  .chip kbd { display: inline-block; grid-row: span 2; align-self: center; font-family: var(--font-data); font-size: .72rem; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; background: var(--surface); }
+  .keys { display: inline; }
+}
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="title-row">
+      <h1>Mistake Labelling</h1>
+      <span class="pill" id="sync">Connecting…</span>
+    </div>
+    <p class="sub">__USER__ · rapid · say what really went wrong. Your answers are the ground truth the blindspot pipeline is scored against.</p>
+    <div class="progress">
+      <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+      <span class="count" id="count">0 of 0</span>
+    </div>
+    <div class="notice" id="notice" hidden></div>
+  </header>
+
+  <div class="desk">
+    <section class="boardcard" id="top" aria-label="Position">
+      <div class="seg" role="group" aria-label="Which board">
+        <button type="button" id="segBefore" aria-pressed="true">Before your move</button>
+        <button type="button" id="segAfter" aria-pressed="false">After your move</button>
+      </div>
+      <div class="boards">
+        <figure id="figBefore">
+          <svg id="b1" viewBox="0 0 8 8" role="img" aria-label="Position before your move"></svg>
+          <figcaption>
+            <span><b>You played</b> <span class="mv" id="played"></span><span class="key" style="background:var(--arrow-played)"></span>
+              · engine preferred <span class="mv" id="best"></span><span class="key" style="background:var(--arrow-best)"></span></span>
+            <span class="line" id="bestLine"></span>
+          </figcaption>
+        </figure>
+        <figure id="figAfter" hidden>
+          <svg id="b2" viewBox="0 0 8 8" role="img" aria-label="Position after your move"></svg>
+          <figcaption>
+            <span><b>Opponent's best reply</b> <span class="mv" id="reply"></span><span class="key" style="background:var(--arrow-reply)"></span></span>
+            <span class="line" id="replyLine"></span>
+          </figcaption>
+        </figure>
+      </div>
+      <div class="facts" id="facts"></div>
+    </section>
+
+    <form class="panel" id="panel" autocomplete="off">
+      <fieldset>
+        <legend>What went wrong?</legend>
+        <div class="chips" id="dirChips"></div>
+      </fieldset>
+      <fieldset id="famSet">
+        <legend>Which skill failed?</legend>
+        <span class="hint" id="famHint">Pick the motif the tactic used.</span>
+        <div class="chips" id="famChips"></div>
+      </fieldset>
+      <fieldset>
+        <legend><label for="note">Note (optional)</label></legend>
+        <input type="text" id="note" placeholder="e.g. didn't see the queen was undefended" enterkeyhint="done">
+      </fieldset>
+      <div class="foot">
+        <span class="keys">Keys: 1–7, Q–Y, ← →, N</span>
+        <button class="btn" id="copy" type="button">Copy labels</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<nav class="navbar" aria-label="Positions">
+  <div class="in">
+    <button type="button" id="prev" aria-label="Previous position">‹</button>
+    <button type="button" id="nextOpen"><span>Next unlabelled</span><small id="where">1 / 1</small></button>
+    <button type="button" id="next" aria-label="Next position">›</button>
+  </div>
+</nav>
+
+<script>
+const ITEMS = /*__ITEMS__*/[];
+const DIRS = [
+  ["walked_into", "1", "Walked into a tactic", "My move allowed it"],
+  ["ignored_threat", "2", "Ignored a threat", "It was there before my move"],
+  ["missed", "3", "Missed my tactic", "I had a winning shot"],
+  ["both", "4", "Both", "Allowed one, missed one"],
+  ["quiet", "5", "No tactic", "Slow / positional / technique"],
+  ["not_a_mistake", "6", "Not a real mistake", "Didn't change the result"],
+  ["unsure", "7", "Not sure", ""],
+];
+const FAMS = [
+  ["loose_pieces", "q", "Loose pieces", "Hanging, forks, trapped"],
+  ["alignment", "w", "Pins & skewers", "Lined up on a ray"],
+  ["defender_disruption", "e", "Defender tricks", "Discovered, deflection, removing defender"],
+  ["king_safety", "r", "King safety", "Mates, back rank, attacks"],
+  ["positional", "t", "Positional / technique", "Passed pawns, activity, endgames"],
+  ["unsure", "y", "Not sure", ""],
+];
+const TACTIC = new Set(["walked_into", "ignored_threat", "missed", "both"]);
+const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
+
+const labels = {};
+let idx = 0, db = null, readOnly = false, view = "before", placedFromStore = false;
+const pending = new Map();
+const inFlight = new Set();
+
+const $ = (id) => document.getElementById(id);
+const sq = (s) => [s.charCodeAt(0) - 97, +s[1] - 1];
+const uciToSan = (it, which) => which === "best" ? (it.best_line[0] || it.best_uci) : (it.reply_line[0] || it.reply_uci);
+
+function boardSVG(svg, fen, flip, arrows) {
+  const ns = "http://www.w3.org/2000/svg";
+  svg.textContent = "";
+  const defs = document.createElementNS(ns, "defs");
+  for (const name of ["played", "best", "reply"]) {
+    const m = document.createElementNS(ns, "marker");
+    m.setAttribute("id", `${svg.id}-${name}`); m.setAttribute("viewBox", "0 0 10 10");
+    m.setAttribute("refX", "5"); m.setAttribute("refY", "5"); m.setAttribute("markerWidth", "3.2");
+    m.setAttribute("markerHeight", "3.2"); m.setAttribute("orient", "auto-start-reverse");
+    const p = document.createElementNS(ns, "path"); p.setAttribute("d", "M0,0 L10,5 L0,10 z");
+    p.setAttribute("style", `fill:var(--arrow-${name})`); m.appendChild(p); defs.appendChild(m);
+  }
+  svg.appendChild(defs);
+  const xy = (f, r) => [flip ? 7 - f : f, flip ? r : 7 - r];
+  for (let f = 0; f < 8; f++) for (let r = 0; r < 8; r++) {
+    const [x, y] = xy(f, r);
+    const rect = document.createElementNS(ns, "rect");
+    rect.setAttribute("x", x); rect.setAttribute("y", y); rect.setAttribute("width", 1); rect.setAttribute("height", 1);
+    rect.setAttribute("style", `fill:var(${(f + r) % 2 ? "--sq-light" : "--sq-dark"})`);
+    svg.appendChild(rect);
+  }
+  for (let i = 0; i < 8; i++) {
+    const fl = document.createElementNS(ns, "text");
+    const [fx] = xy(i, 0); fl.setAttribute("x", fx + 0.93); fl.setAttribute("y", 7.93);
+    fl.setAttribute("text-anchor", "end"); fl.setAttribute("font-size", "0.2");
+    fl.setAttribute("style", "fill:var(--coord);font-family:var(--font-data)"); fl.textContent = "abcdefgh"[i]; svg.appendChild(fl);
+    const rl = document.createElementNS(ns, "text");
+    const [, ry] = xy(0, i); rl.setAttribute("x", 0.06); rl.setAttribute("y", ry + 0.24);
+    rl.setAttribute("font-size", "0.2"); rl.setAttribute("style", "fill:var(--coord);font-family:var(--font-data)");
+    rl.textContent = String(i + 1); svg.appendChild(rl);
+  }
+  fen.split(" ")[0].split("/").forEach((row, ri) => {
+    let f = 0;
+    for (const ch of row) {
+      if (/\d/.test(ch)) { f += +ch; continue; }
+      const [x, y] = xy(f, 7 - ri);
+      const t = document.createElementNS(ns, "text");
+      const white = ch === ch.toUpperCase();
+      t.setAttribute("x", x + 0.5); t.setAttribute("y", y + 0.56);
+      t.setAttribute("text-anchor", "middle"); t.setAttribute("dominant-baseline", "middle");
+      t.setAttribute("font-size", "0.8");
+      t.setAttribute("style", `font-family:var(--font-pieces);paint-order:stroke;stroke-linejoin:round;` +
+        (white ? "fill:var(--piece-w);stroke:var(--piece-b);stroke-width:0.06" : "fill:var(--piece-b);stroke:var(--piece-w);stroke-width:0.025"));
+      t.textContent = GLYPH[ch.toLowerCase()] + "︎";
+      svg.appendChild(t); f++;
+    }
+  });
+  for (const [uci, name] of arrows) {
+    if (!uci || uci.length < 4) continue;
+    const [f1, r1] = sq(uci.slice(0, 2)), [f2, r2] = sq(uci.slice(2, 4));
+    const [x1, y1] = xy(f1, r1), [x2, y2] = xy(f2, r2);
+    const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, cut = 0.32;
+    const l = document.createElementNS(ns, "line");
+    l.setAttribute("x1", x1 + 0.5); l.setAttribute("y1", y1 + 0.5);
+    l.setAttribute("x2", x2 + 0.5 - dx / len * cut); l.setAttribute("y2", y2 + 0.5 - dy / len * cut);
+    l.setAttribute("stroke-width", "0.15"); l.setAttribute("stroke-linecap", "round");
+    l.setAttribute("style", `stroke:var(--arrow-${name});opacity:.88`);
+    l.setAttribute("marker-end", `url(#${svg.id}-${name})`);
+    svg.appendChild(l);
+  }
+}
+
+function chip(container, [key, k, title, desc], selected, onPick, disabled) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "chip"; b.setAttribute("aria-pressed", selected ? "true" : "false");
+  b.disabled = !!disabled;
+  const kb = document.createElement("kbd"); kb.textContent = k.toUpperCase();
+  const t = document.createElement("span"); t.className = "t"; t.textContent = title;
+  b.append(kb, t);
+  if (desc) { const d = document.createElement("span"); d.className = "d"; d.textContent = desc; b.append(d); }
+  b.addEventListener("click", () => onPick(key));
+  container.appendChild(b);
+}
+
+const isComplete = (l) => !!(l && l.direction) && (!TACTIC.has(l.direction) || !!l.family);
+
+function setView(v) {
+  view = v;
+  $("segBefore").setAttribute("aria-pressed", String(v === "before"));
+  $("segAfter").setAttribute("aria-pressed", String(v === "after"));
+  $("figBefore").hidden = v !== "before";
+  $("figAfter").hidden = v !== "after";
+}
+
+function render() {
+  if (!ITEMS.length) { $("where").textContent = "No positions"; return; }
+  const it = ITEMS[idx];
+  const lab = labels[it.id] || {};
+  const flip = it.color === "black";
+  boardSVG($("b1"), it.fen, flip, [[it.best_uci, "best"], [it.played_uci, "played"]]);
+  boardSVG($("b2"), it.fen_after, flip, [[it.reply_uci, "reply"]]);
+  $("played").textContent = `${it.move_number}${it.color === "white" ? "." : "…"} ${it.played_san}`;
+  $("best").textContent = uciToSan(it, "best");
+  $("reply").textContent = it.reply_line.length ? uciToSan(it, "reply") : "none (game over)";
+  $("bestLine").textContent = it.best_line.length ? "Line: " + it.best_line.join(" ") : "";
+  $("replyLine").textContent = it.reply_line.length ? "Line: " + it.reply_line.join(" ") : "";
+  const facts = $("facts"); facts.textContent = "";
+  const add = (label, value) => { const s = document.createElement("span"); s.append(label + " "); const b = document.createElement("b"); b.textContent = value; s.append(b); facts.append(s); };
+  add("You:", it.color);
+  add("Win chance", `${it.win_before}% → ${it.win_after}%`);
+  add("Eval", `${it.eval_before} → ${it.eval_after}`);
+  if (it.url) { const a = document.createElement("a"); a.href = it.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Open game"; facts.append(a); }
+
+  const dc = $("dirChips"); dc.textContent = "";
+  DIRS.forEach((d) => chip(dc, d, lab.direction === d[0], (k) => setLabel({ direction: k, family: TACTIC.has(k) || k === "quiet" ? (lab.family || null) : null }), readOnly));
+  const famNeeded = TACTIC.has(lab.direction), famOptional = lab.direction === "quiet";
+  $("famHint").textContent = famNeeded ? "Pick the motif the tactic used." : famOptional ? "Optional for a slow mistake." : "Only needed when a tactic was involved.";
+  const fc = $("famChips"); fc.textContent = "";
+  FAMS.forEach((f) => chip(fc, f, lab.family === f[0], (k) => setLabel({ family: k }), readOnly || !(famNeeded || famOptional)));
+  if (document.activeElement !== $("note")) $("note").value = lab.note || "";
+  $("note").disabled = readOnly;
+
+  const done = ITEMS.filter((x) => isComplete(labels[x.id])).length;
+  $("count").textContent = `${done} of ${ITEMS.length}`;
+  $("bar").style.width = `${(done / ITEMS.length) * 100}%`;
+  $("where").textContent = `${idx + 1} / ${ITEMS.length}${isComplete(lab) ? " · done" : ""}`;
+}
+
+function setSync(text, cls) { const p = $("sync"); p.textContent = text; p.className = "pill" + (cls ? " " + cls : ""); }
+function showNotice(text) { const n = $("notice"); n.textContent = text; n.hidden = false; }
+
+async function flush(id) {
+  if (!db || inFlight.has(id) || !pending.has(id)) return;
+  const body = pending.get(id); pending.delete(id); inFlight.add(id);
+  setSync("Saving…");
+  try {
+    await db.collection("labels").doc(id).set(body);
+    setSync("Saved", "ok");
+  } catch (e) {
+    if (e && e.code === "invalid_argument") {
+      readOnly = true; setSync("Read-only", "warn");
+      showNotice("This view can't save labels. Open the page in the Claude app or claude.ai, signed in as its owner, or use Copy labels and paste them to Claude.");
+      render();
+    } else {
+      setSync("Not saved — retrying", "warn");
+      pending.set(id, body); setTimeout(() => flush(id), 1500 + Math.random() * 1000);
+    }
+  } finally { inFlight.delete(id); if (pending.has(id) && !readOnly) flush(id); }
+}
+
+function setLabel(patch) {
+  const it = ITEMS[idx];
+  const next = { ...(labels[it.id] || {}), ...patch, at: Date.now() };
+  labels[it.id] = next;
+  if (db) { pending.set(it.id, next); flush(it.id); }
+  else { try { localStorage.setItem("gold-labels", JSON.stringify(labels)); } catch (e) {} }
+  render();
+  if (isComplete(next) && ("direction" in patch || "family" in patch) && !("note" in patch)) setTimeout(() => go(nextOpen()), 260);
+}
+
+function nextOpen() {
+  for (let k = 1; k <= ITEMS.length; k++) { const j = (idx + k) % ITEMS.length; if (!isComplete(labels[ITEMS[j].id])) return j; }
+  return idx;
+}
+function firstOpen() { const j = ITEMS.findIndex((x) => !isComplete(labels[x.id])); return j < 0 ? 0 : j; }
+function go(j) {
+  const moved = j !== idx;
+  idx = Math.max(0, Math.min(ITEMS.length - 1, j));
+  setView("before"); render();
+  if (moved) $("top").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+$("segBefore").addEventListener("click", () => setView("before"));
+$("segAfter").addEventListener("click", () => setView("after"));
+$("b1").addEventListener("click", () => setView("after"));
+$("b2").addEventListener("click", () => setView("before"));
+$("prev").addEventListener("click", () => go(idx - 1));
+$("next").addEventListener("click", () => go(idx + 1));
+$("nextOpen").addEventListener("click", () => go(nextOpen()));
+$("panel").addEventListener("submit", (e) => e.preventDefault());
+$("note").addEventListener("change", (e) => setLabel({ note: e.target.value.trim() }));
+$("note").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.blur(); });
+$("copy").addEventListener("click", async () => {
+  const text = JSON.stringify(labels);
+  try { await navigator.clipboard.writeText(text); $("copy").textContent = "Copied"; }
+  catch (e) { showNotice(text); }
+  setTimeout(() => { $("copy").textContent = "Copy labels"; }, 1500);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "arrowleft") return go(idx - 1);
+  if (k === "arrowright") return go(idx + 1);
+  if (k === "n") return go(nextOpen());
+  if (readOnly) return;
+  const lab = labels[ITEMS[idx]?.id] || {};
+  const d = DIRS.find((x) => x[1] === k);
+  if (d) return setLabel({ direction: d[0], family: TACTIC.has(d[0]) || d[0] === "quiet" ? (lab.family || null) : null });
+  const f = FAMS.find((x) => x[1] === k);
+  if (f && (TACTIC.has(lab.direction) || lab.direction === "quiet")) setLabel({ family: f[0] });
+});
+
+setView("before");
+render();
+claude.use("db").then((d) => {
+  db = d;
+  if (!d) {
+    try { Object.assign(labels, JSON.parse(localStorage.getItem("gold-labels") || "{}")); } catch (e) {}
+    setSync("This device only", "warn");
+    showNotice("Labels are kept on this device only in this view. Open the page in the Claude app or on claude.ai while signed in to save them for Claude, or use Copy labels when you're done.");
+    go(firstOpen()); return;
+  }
+  setSync("Connected", "ok");
+  d.collection("labels").onSnapshot((snap) => {
+    for (const doc of snap.docs) if (!pending.has(doc.id) && !inFlight.has(doc.id)) labels[doc.id] = doc.data();
+    if (!placedFromStore) { placedFromStore = true; idx = firstOpen(); }
+    render();
+  }, () => setSync("Offline", "warn"));
+});
+</script>

@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 
 log = logging.getLogger(__name__)
 
 MAIA2_AVAILABLE = False
 _model_cache    = None
 _prepared_cache = None
+_INFER_LOCK     = threading.Lock()
 
 
 def _check_maia2() -> bool:
@@ -102,6 +104,79 @@ class MaiaAnnotator:
                 "maia2_surprise":    None,
                 "maia2_difficulty":  None,
             }
+
+    def move_probs(self, fen: str, elo_self: int, elo_oppo: int) -> dict[str, float]:
+        import maia2.inference as maia2_inf
+        with _INFER_LOCK:
+            probs, _ = maia2_inf.inference_each(self._model, self._prepared, fen, elo_self, elo_oppo)
+        return probs
+
+    def annotate_safety(self, event, engine, mass: float = 0.9, max_moves: int = 8,
+                        depth: int = 10, safe_es: float = 0.05) -> None:
+        """Personalness of a mistake: P(a player at the mover's rating would NOT
+        have made a mistake here) = Maia2 probability mass on moves that lose
+        < 5% expected score vs the best move. Replaces the old filter on the
+        single engine-best move, which wrongly discarded positions with many safe
+        moves (exactly the "you walked into a tactic" case).
+
+        Fills maia2_prob_best / _played / _surprise / _difficulty (as before,
+        now at the real ratings), maia2_prob_safe and personal_weight."""
+        import chess
+        import chess.engine
+        from ml.ingestion.winprob import expected_score
+        elo_self = int(event.user_elo or 1500)
+        elo_oppo = int(event.opp_elo or elo_self)
+        try:
+            probs = self.move_probs(event.fen, elo_self, elo_oppo)
+        except Exception as exc:
+            log.debug("Maia2 inference failed for %s: %s", event.fen, exc)
+            return
+        pb = max(float(probs.get(event.best_move_uci, 1e-6)), 1e-6)
+        pp = max(float(probs.get(event.move_played_uci, 1e-6)), 1e-6)
+        event.maia2_prob_best, event.maia2_prob_played = pb, pp
+        event.maia2_surprise, event.maia2_difficulty = math.log(pb / pp), 1.0 - pb
+
+        board = chess.Board(event.fen)
+        ranked = sorted(probs.items(), key=lambda kv: -kv[1])
+        moves, cum = [], 0.0
+        for uci, p in ranked:
+            try:
+                mv = chess.Move.from_uci(uci)
+            except ValueError:
+                continue
+            if mv not in board.legal_moves:
+                continue
+            moves.append((mv, p)); cum += p
+            if cum >= mass or len(moves) >= max_moves:
+                break
+        if not moves:
+            return
+        es_best = expected_score(event.eval_before_cp)
+        safe_mass = total = 0.0
+        known = {event.move_played_uci: expected_score(event.eval_after_cp)}
+        to_eval = [mv for mv, _ in moves if mv.uci() not in known]
+        if to_eval:
+            try:
+                infos = engine.analyse(board, chess.engine.Limit(depth=depth),
+                                       multipv=len(to_eval), root_moves=to_eval)
+                for info in infos if isinstance(infos, list) else [infos]:
+                    pv = info.get("pv") or []
+                    if pv:
+                        sc = info["score"].pov(board.turn)
+                        cp = (30_000 if (sc.mate() or 0) > 0 else -30_000) if sc.is_mate() else (sc.score() or 0)
+                        known[pv[0].uci()] = expected_score(cp)
+            except Exception as exc:
+                log.debug("safety eval failed: %s", exc)
+        for mv, p in moves:
+            es = known.get(mv.uci())
+            if es is None:
+                continue
+            total += p
+            if es_best - es < safe_es:
+                safe_mass += p
+        if total > 0:
+            event.maia2_prob_safe = round(safe_mass / total, 4)
+            event.personal_weight = round(0.5 + 0.5 * event.maia2_prob_safe, 4)
 
     def annotate_batch(
         self,

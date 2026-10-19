@@ -150,7 +150,8 @@ def _sf_eval_full(board) -> dict:
         pov = score.white()
         if pov.is_mate(): mate = pov.mate()
         else:             white_cp = pov.score()
-    return {"white_cp": white_cp, "mate": mate, "best": pv[0].uci() if pv else None}
+    return {"white_cp": white_cp, "mate": mate, "best": pv[0].uci() if pv else None,
+            "pv": [m.uci() for m in pv[:12]]}
 
 
 def _phase_for(board) -> str:
@@ -196,12 +197,33 @@ def _compute_debrief(game_id: str, username: str) -> dict:
     if rec is None:
         raise HTTPException(404, f"Bot game {game_id!r} not found")
 
+    from ml.ingestion.mechanism import tag_mechanism
+    from ml.ingestion.mistake_extractor import game_phase as _v2_phase, link_cascades
+    from ml.ingestion.winprob import expected_score, MISTAKE_ES, LOST_ES, judgement
+    from ml.ingestion.classify_events import classify_events
+    from ml.pipeline import default_classifier
+
     board      = chess.Board(rec["starting_fen"])
     user_white = rec["user_color"] == "white"
 
+    def _mover_cp(ev: dict, white: bool) -> int:
+        if ev["mate"] is not None:
+            m = ev["mate"] if white else -ev["mate"]
+            return 30_000 if m > 0 else -30_000
+        return ev["white_cp"] if white else -ev["white_cp"]
+
+    def _mates(ev: dict, white: bool):
+        if ev["mate"] is None:
+            return None
+        m = ev["mate"] if white else -ev["mate"]
+        return m if m > 0 else None
+
+    # Same Stage-1 v2 logic as game ingestion: win-probability mistakes, tagged
+    # allowed / missed, classified in the right framing (transformer + verifier).
     events: list = []
+    prev_fen = None
     eval_before = _sf_eval_full(board)
-    for uci in rec["moves"]:
+    for ply, uci in enumerate(rec["moves"]):
         side_white = board.turn == chess.WHITE
         is_user    = side_white == user_white
         fen_before = board.fen()
@@ -214,23 +236,48 @@ def _compute_debrief(game_id: str, username: str) -> dict:
         board.push(move)
         eval_after = _sf_eval_full(board)
 
-        if is_user and best_before["white_cp"] is not None and eval_after["white_cp"] is not None:
-            mover_before = best_before["white_cp"] if side_white else -best_before["white_cp"]
-            mover_after  = eval_after["white_cp"]  if side_white else -eval_after["white_cp"]
-            drop = mover_before - mover_after
-            if drop > 80:
-                threat = _classify_threat(fen_before, best_before["best"] or uci)
+        has_eval = (best_before["white_cp"] is not None or best_before["mate"] is not None) and \
+                   (eval_after["white_cp"] is not None or eval_after["mate"] is not None)
+        if is_user and has_eval:
+            mover_before = _mover_cp(best_before, side_white)
+            mover_after  = _mover_cp(eval_after, side_white)
+            es_b, es_a = expected_score(mover_before), expected_score(mover_after)
+            if es_b - es_a >= MISTAKE_ES and es_b >= LOST_ES:
                 bb = chess.Board(fen_before)
-                events.append(_MistakeEvent(
+                mech = tag_mechanism(bb, best_before["pv"], uci, eval_after["pv"],
+                                     _mates(best_before, side_white), _mates(eval_after, not side_white),
+                                     prev_board=chess.Board(prev_fen) if prev_fen else None,
+                                     es_before=es_b, es_after=es_a)
+                ev = _MistakeEvent(
                     game_id=game_id, user_id=username, fen=fen_before,
                     move_played_uci=uci, move_played_san=san,
                     best_move_uci=best_before["best"] or uci,
                     eval_before_cp=int(mover_before), eval_after_cp=int(mover_after),
-                    eval_drop_cp=int(drop), threat_type=threat,
-                    game_phase=_phase_for(bb), move_number=bb.fullmove_number,
-                    time_remaining_ms=None, classification_confidence=1.0,
-                ))
+                    eval_drop_cp=int(max(0, mover_before - mover_after)), threat_type="other",
+                    game_phase=_v2_phase(bb), move_number=bb.fullmove_number,
+                    time_remaining_ms=None, ply=ply, fen_after=board.fen(),
+                    best_line=best_before["pv"], reply_line=eval_after["pv"],
+                    refutation_uci=eval_after["best"] or "",
+                    es_before=round(es_b, 4), es_after=round(es_a, 4), es_loss=round(es_b - es_a, 4),
+                    judgement=judgement(es_b - es_a), direction=mech.direction,
+                    swing_missed_cp=mech.swing_missed_cp, swing_allowed_cp=mech.swing_allowed_cp,
+                    mate_missed=mech.mate_missed, mate_allowed=mech.mate_allowed,
+                    event_id=f"{game_id}:{ply}", incident_id=f"{game_id}:{ply}",
+                )
+                ev.opp_reply_played = rec["moves"][ply + 1] if ply + 1 < len(rec["moves"]) else ""
+                events.append(ev)
+        prev_fen = fen_before
         eval_before = eval_after
+
+    if events:
+        clf = default_classifier()
+        if clf is not None:
+            classify_events(events, [], clf)
+        else:
+            for ev in events:
+                ev.threat_type = _classify_threat(ev.fen, ev.best_move_uci)
+        link_cascades(events)
+        events = [ev for ev in events if not ev.cascade]
 
     ctx = _load_match_ctx(username, OUTPUT_DIR)
     matched: list[dict] = []
@@ -246,6 +293,8 @@ def _compute_debrief(game_id: str, username: str) -> dict:
                     "cluster_rank": res.cluster_rank, "similarity": round(res.similarity, 4),
                     "mastery_before": reset[0] if reset else None,
                     "mastery_after":  reset[1] if reset else None,
+                    "direction": ev.direction, "refutation": ev.refutation_uci,
+                    "threat_type": ev.threat_type,
                 })
             else:
                 unmatched += 1

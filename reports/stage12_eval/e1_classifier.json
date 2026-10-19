@@ -1,0 +1,26 @@
+{
+  "n": 40056,
+  "v1": {
+    "motif_hit1": 0.8224,
+    "family_hit1": 0.8634,
+    "family_recall": {
+      "alignment": 0.72,
+      "defender_disruption": 0.803,
+      "king_safety": 0.466,
+      "loose_pieces": 0.785,
+      "positional": 0.796
+    },
+    "v1_definition_accuracy": 0.8302
+  },
+  "v2": {
+    "motif_hit1": 0.8802,
+    "family_hit1": 0.9181,
+    "family_recall": {
+      "alignment": 0.705,
+      "defender_disruption": 0.696,
+      "king_safety": 0.706,
+      "loose_pieces": 0.733,
+      "positional": 0.808
+    }
+  }
+}

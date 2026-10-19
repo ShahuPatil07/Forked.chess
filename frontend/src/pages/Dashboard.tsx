@@ -34,9 +34,10 @@ const PHASE_PALETTE: Record<string, string> = { opening: ACCENT, middlegame: PUR
 
 // ── Small shared pieces ────────────────────────────────────────────────────────
 
-function UrgencyBar({ score }: { score: number }) {
-  // Scores are small (freq×recency×severity). Normalise against a sensible ceiling.
-  const pct = Math.min(100, Math.round((score / 0.04) * 100))
+function UrgencyBar({ score, v2 }: { score: number; v2?: boolean }) {
+  // v2 scores are points lost per 10 games (excess over peers + raw cost): ~1.0 is
+  // a severe leak. Legacy scores were freq×recency×severity (~0.04 ceiling).
+  const pct = Math.min(100, Math.round((score / (v2 ? 1.0 : 0.04)) * 100))
   const color = pct > 66 ? 'bg-danger' : pct > 33 ? 'bg-accent' : 'bg-success'
   return (
     <div className="flex-1 h-1.5 bg-bg-3 rounded-full overflow-hidden">
@@ -112,12 +113,35 @@ function PhaseStrip({ breakdown }: { breakdown: Record<string, number> }) {
   )
 }
 
+const STATUS_CHIP: Record<string, { label: string; tone: ChipTone; title: string }> = {
+  confirmed:         { label: 'Confirmed', tone: 'danger',  title: 'You make this mistake clearly more often than players at your rating (≥90% sure)' },
+  emerging:          { label: 'Emerging',  tone: 'amber',   title: 'Probably more often than your peers, but not certain yet' },
+  typical:           { label: 'Typical',   tone: 'muted',   title: 'About as often as players at your rating' },
+  strength:          { label: 'Strength',  tone: 'success', title: 'Less often than players at your rating' },
+  insufficient_data: { label: 'Not enough data', tone: 'muted', title: 'Too few incidents to judge yet' },
+}
+
+function directionSummary(d: Record<string, number> | undefined): string | null {
+  if (!d) return null
+  const allowed = (d.allowed ?? 0) + (d.both ?? 0) / 2
+  const missed = (d.missed ?? 0) + (d.both ?? 0) / 2
+  if (allowed + missed < 0.2) return null
+  return allowed >= missed
+    ? `${Math.round(allowed * 100)}% walked into`
+    : `${Math.round(missed * 100)}% missed shots`
+}
+
 function BlindspotCard({ cluster, idx, gain }: { cluster: ClusterSummary; idx: number; gain?: number }) {
   const navigate = useNavigate()
   const e = cluster.enrichment
   const rec = recencyTag(e?.last_seen_days)
   const tp = e?.time_pressure_share ?? null
   const cid = String(cluster.cluster_id)
+  const p = cluster.profile
+  const status = p ? STATUS_CHIP[p.status] : undefined
+  const rel = p?.relative_rate ?? null
+  const dir = directionSummary(p?.direction)
+  const hit = p?.hit_rate
 
   return (
     <motion.div
@@ -153,7 +177,26 @@ function BlindspotCard({ cluster, idx, gain }: { cluster: ClusterSummary; idx: n
 
       {/* Context chips */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <Chip icon={Crosshair} title="Times this pattern appeared in your games">
+        {status && (
+          <Chip tone={status.tone}
+            title={p?.status_reasons?.length ? `${status.title}. Why: ${p.status_reasons.join('; ')}` : status.title}>
+            {status.label}
+          </Chip>
+        )}
+        {rel != null && (
+          <Chip tone={rel >= 1.3 ? 'danger' : rel <= 0.8 ? 'success' : 'muted'}
+            title={`You: ${p!.rate_per_100.toFixed(2)} per 100 moves · players you faced: ${(p!.peer_rate_per_100 ?? 0).toFixed(2)}`}>
+            {rel.toFixed(1)}× peers
+          </Chip>
+        )}
+        {dir && <Chip tone="accent" title="Did you walk into the opponent's tactic, or miss your own?">{dir}</Chip>}
+        {hit && hit.user != null && hit.opportunities >= 3 && (
+          <Chip tone={hit.peer != null && hit.user_shrunk < hit.peer - 0.05 ? 'amber' : 'muted'}
+            title={`Tactics of this kind you found when they were available (peers: ${hit.peer != null ? Math.round(hit.peer * 100) + '%' : 'n/a'})`}>
+            finds {Math.round(hit.user * 100)}%
+          </Chip>
+        )}
+        <Chip icon={Crosshair} title="Times this pattern appeared in your games (repeats of one oversight count once)">
           {cluster.size} mistakes
         </Chip>
         {e && (
@@ -185,7 +228,7 @@ function BlindspotCard({ cluster, idx, gain }: { cluster: ClusterSummary; idx: n
       {/* Footer: urgency + actions */}
       <div className="flex items-center gap-3 pt-0.5">
         <span className="text-[10px] text-text-2 uppercase tracking-wide flex-shrink-0">Urgency</span>
-        <UrgencyBar score={cluster.score} />
+        <UrgencyBar score={cluster.score} v2={!!p} />
         <button
           onClick={() => navigate('/session', { state: { clusterId: cid } })}
           className="text-[11px] font-medium text-accent hover:text-accent/70 transition-colors whitespace-nowrap flex items-center gap-1 flex-shrink-0"

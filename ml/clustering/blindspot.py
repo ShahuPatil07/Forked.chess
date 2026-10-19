@@ -32,6 +32,9 @@ class BlindspotCluster:
     next_review_unix:     Optional[int]   # filled by SRS scheduler
     score:                float        # frequency × recency_weight × (1 – mastery)
     representative_events: list[dict]  # 5 closest events to centroid (serialisable)
+    # Stage-2 v2 metrics (peer-relative rate, confidence status, direction,
+    # hit rate, ...) — see ml/clustering/profile.py. Empty for legacy profiles.
+    profile:              dict = field(default_factory=dict)
 
 
 def build_cluster(
@@ -96,14 +99,19 @@ def _recency(last_unix: Optional[int]) -> float:
 
 
 def _event_summary(e: MistakeEvent) -> dict:
+    g = (lambda k, d=None: e.get(k, d)) if isinstance(e, dict) else (lambda k, d=None: getattr(e, k, d))
     return {
-        "fen":            e.fen,
-        "move_played":    e.move_played_san,
-        "best_move":      e.best_move_uci,
-        "eval_drop_cp":   e.eval_drop_cp,
-        "threat_type":    e.threat_type,
-        "game_phase":     e.game_phase,
-        "move_number":    e.move_number,
-        "maia2_surprise": e.maia2_surprise,    # None when Maia2 wasn't run
-        "maia2_difficulty": e.maia2_difficulty,
+        "fen":            g("fen"),
+        "move_played":    g("move_played_san"),
+        "best_move":      g("best_move_uci"),
+        "eval_drop_cp":   g("eval_drop_cp"),
+        "threat_type":    g("threat_type"),
+        "game_phase":     g("game_phase"),
+        "move_number":    g("move_number"),
+        "maia2_surprise": g("maia2_surprise"),    # None when Maia2 wasn't run
+        "maia2_difficulty": g("maia2_difficulty"),
+        "direction":      g("direction"),
+        "refutation":     g("refutation_uci"),
+        "es_loss":        g("es_loss"),
+        "game_id":        g("game_id"),
     }

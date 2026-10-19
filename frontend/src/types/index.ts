@@ -20,6 +20,27 @@ export interface ClusterEnrichment {
   last_seen_days: number | null
 }
 
+/** Stage-2 v2 metrics (peer-relative, uncertainty-aware). Absent on legacy profiles. */
+export interface ClusterProfileV2 {
+  status: 'confirmed' | 'emerging' | 'typical' | 'strength' | 'insufficient_data' | 'unknown'
+  status_reasons?: string[]
+  excess_from_missed_tactics?: number
+  rate_per_100: number
+  rate_ci80: [number, number]
+  peer_rate_per_100: number | null
+  relative_rate: number | null
+  p_worse_than_peers: number | null
+  impact_pts_per_10: number
+  excess_pts_per_10: number
+  severity_es: number
+  direction: Record<string, number>
+  allowed_kind: Record<string, number>
+  hit_rate: { user: number | null; user_shrunk: number; peer: number | null; opportunities: number;
+              p_lower_than_peers?: number | null } | null
+  context: { eval_bucket: Record<string, number>; time_trouble_share: number | null }
+  soft_count: number
+}
+
 export interface ClusterSummary {
   cluster_id: string | number
   label: string
@@ -34,6 +55,7 @@ export interface ClusterSummary {
   representative_events: RepresentativeEvent[]
   enrichment?: ClusterEnrichment
   skill?: string | null
+  profile?: ClusterProfileV2
 }
 
 export interface ProfileStats {

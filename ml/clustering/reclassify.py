@@ -1,75 +1,77 @@
 """
-Re-classify threat types in existing mistakes.json files using the improved
-11-type classifier — without re-running the slow Stage 1 annotation pipeline.
+Re-classify a user's saved Stage-1 events with the current classifier and
+rebuild the Stage-2 profile — without re-running Stockfish.
+
+Works on v2 files (mistakes / peer_mistakes / opportunities carry fen_after,
+reply_line and the mechanism tag). Pre-v2 files lack those fields: re-run
+ingestion instead; annotations are cached per game, so that is also cheap.
 
 Usage:
-    python -m ml.clustering.reclassify ShahuPatil07
-    python -m ml.clustering.reclassify ShahuPatil07 ShahuPatil27
-
-After running this, re-run Stage 2 clustering for the updated profiles:
-    python -m ml.clustering.pipeline ShahuPatil07   (or via the backend ingest endpoint)
+    python -m ml.clustering.reclassify ShahuPatil27
+    python -m ml.clustering.reclassify ShahuPatil27 --output-dir data/bench
 """
 from __future__ import annotations
 
+import argparse
 import json
-import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from ml.config import DATA_DIR
-from ml.ingestion.threat_classifier import classify_threat
+from ml.ingestion.mistake_extractor import MistakeEvent, Opportunity, link_cascades
+from ml.ingestion.classify_events import classify_events
 
 OUTPUT_DIR = DATA_DIR / "output"
 
 
-def reclassify_mistakes(username: str, output_dir: Path = OUTPUT_DIR) -> int:
-    """
-    Load {username}_mistakes.json, re-apply the improved classifier to every
-    event, and save the file in-place.
-
-    Returns the number of events whose threat_type changed.
-    """
-    path = output_dir / f"{username}_mistakes.json"
+def _load(path: Path, cls):
     if not path.exists():
-        print(f"  [reclassify] {path} not found — run Stage 1 first.")
+        return []
+    fields = cls.__dataclass_fields__
+    return [cls(**{k: v for k, v in d.items() if k in fields}) for d in json.loads(path.read_text(encoding="utf-8"))]
+
+
+def reclassify_mistakes(username: str, output_dir: Path = OUTPUT_DIR, rebuild_profile: bool = True) -> int:
+    """Relabel the user's saved events in place; returns how many user
+    mistakes changed family. Rebuilds clusters/profile unless told not to."""
+    from ml.pipeline import default_classifier
+    from ml.clustering.profile_pipeline import run_clustering
+
+    mp = output_dir / f"{username}_mistakes.json"
+    if not mp.exists():
+        print(f"  [reclassify] {mp} not found — run Stage 1 first.")
         return 0
+    mistakes = _load(mp, MistakeEvent)
+    if mistakes and not any(m.fen_after for m in mistakes):
+        print(f"  [reclassify] {username}: pre-v2 file (no engine lines). Re-run ingestion; "
+              "annotations are cached so only new games hit Stockfish.")
+        return 0
+    peers = _load(output_dir / f"{username}_peer_mistakes.json", MistakeEvent)
+    opps = _load(output_dir / f"{username}_opportunities.json", Opportunity)
+    before = {m.event_id: m.cluster_id for m in mistakes}
 
-    with open(path, encoding="utf-8") as fh:
-        mistakes: list[dict] = json.load(fh)
+    for m in mistakes + peers:
+        m.cascade, m.incident_id = False, m.event_id or m.incident_id
+    classify_events(mistakes + peers, opps, default_classifier())
+    link_cascades(mistakes + peers)
 
-    changed = 0
-    type_counts: dict[str, int] = {}
-
-    for m in mistakes:
-        fen      = m.get("fen", "")
-        best_uci = m.get("best_move_uci", "")
-        old_type = m.get("threat_type", "other")
-        new_type = classify_threat(fen, best_uci)
-
-        if new_type != old_type:
-            m["threat_type"] = new_type
-            changed += 1
-
-        type_counts[new_type] = type_counts.get(new_type, 0) + 1
-
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(mistakes, fh, indent=2, default=str)
-
-    total = len(mistakes)
-    print(f"\n  Re-classified {username}: {total} events, {changed} changed")
-    print(f"  Threat type breakdown:")
-    for t, cnt in sorted(type_counts.items(), key=lambda x: -x[1]):
-        bar = "#" * min(30, int(cnt / total * 60))
-        print(f"    {t:<22}  {cnt:>4}  ({cnt/total*100:4.1f}%)  {bar}")
-
+    for name, rows in (("peer_mistakes", peers), ("opportunities", opps)):
+        (output_dir / f"{username}_{name}.json").write_text(
+            json.dumps([asdict(r) for r in rows], indent=1, default=str), encoding="utf-8")
+    if rebuild_profile:
+        run_clustering(mistakes, username, output_dir=output_dir)     # also re-saves mistakes
+    else:
+        mp.write_text(json.dumps([asdict(m) for m in mistakes], indent=1, default=str), encoding="utf-8")
+    changed = sum(1 for m in mistakes if before.get(m.event_id) != m.cluster_id)
+    print(f"  Re-classified {username}: {len(mistakes)} mistakes ({changed} changed family), "
+          f"{len(peers)} peer mistakes, {len(opps)} opportunities")
     return changed
 
 
 if __name__ == "__main__":
-    usernames = sys.argv[1:]
-    if not usernames:
-        print("Usage: python -m ml.clustering.reclassify <username> [<username2> ...]")
-        sys.exit(1)
-
-    for uname in usernames:
-        reclassify_mistakes(uname)
-    print("\nDone. Re-run Stage 2 clustering to update blindspot profiles.")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("usernames", nargs="+")
+    ap.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    args = ap.parse_args()
+    for uname in args.usernames:
+        reclassify_mistakes(uname, args.output_dir)

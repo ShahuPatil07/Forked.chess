@@ -64,25 +64,55 @@ def family_info(family_key: str) -> dict:
     return FAMILIES.get(family_key, UNCLASSIFIED_INFO)
 
 
+def family_distribution(class_probs: dict[str, float], p_none: float = 0.0) -> dict[str, float]:
+    """Soft family assignment from v2 multi-label motif probabilities.
+
+    Each family's evidence is the noisy-OR of its motifs' probabilities (a
+    discovered-attack fork supports both loose_pieces and defender_disruption).
+    `unclassified` gets the learned no-tactic probability, and absorbs the mass
+    when no motif is convincing. Normalised to sum to 1.
+    """
+    from ml.classifier.label_map_v2 import CLASS_TO_THREAT
+    keep_out: dict[str, float] = {}
+    for cls, p in class_probs.items():
+        threat = CLASS_TO_THREAT.get(cls)
+        if not threat or threat == "other":
+            continue
+        fam = family_of(threat)
+        keep_out[fam] = 1.0 - (1.0 - keep_out.get(fam, 0.0)) * (1.0 - float(p))
+    best = max(keep_out.values(), default=0.0)
+    unc = max(float(p_none), 0.0)
+    if best < 0.2:
+        unc = max(unc, 0.5)
+    scores = {**keep_out, UNCLASSIFIED: unc}
+    total = sum(scores.values())
+    if total <= 0:
+        return {UNCLASSIFIED: 1.0}
+    return {f: round(v / total, 4) for f, v in sorted(scores.items(), key=lambda kv: -kv[1]) if v / total >= 0.01}
+
+
 def family_lichess_themes() -> dict[str, list[str]]:
     """Family -> the Lichess puzzle theme tags to fetch for it (Stage 3).
 
-    Derived by composing the canonical maps:
-        threat_type  <- ML_CLASS_TO_THREAT  <- ML class
-        ML class      <- LICHESS_TO_ML_CLASS <- Lichess theme
+    Derived by composing the canonical v2 maps (real Lichess theme names):
+        threat_type  <- label_map_v2.CLASS_TO_THREAT <- v2 motif class
+        motif class  <- label_map_v2.THEME_TO_CLASS  <- Lichess theme
     so a blindspot family resolves to the exact set of Lichess themes whose
-    puzzles train that skill. The `unclassified` family has no tactical theme
-    (its mistakes are positional) and is intentionally absent.
+    puzzles train that skill. Endgame-type tags feed the positional family's
+    technique drills. The `unclassified` family has no tactical theme (its
+    mistakes are positional) and is intentionally absent.
     """
     from collections import defaultdict
-    from ml.classifier.label_map import LICHESS_TO_ML_CLASS, ML_CLASS_TO_THREAT
+    from ml.classifier.label_map_v2 import THEME_TO_CLASS, CLASS_TO_THREAT, _ENDGAME_TAGS
 
     threat_to_mlclasses: dict[str, set] = defaultdict(set)
-    for mlc, threat in ML_CLASS_TO_THREAT.items():
-        threat_to_mlclasses[threat].add(mlc)
+    for mlc, threat in CLASS_TO_THREAT.items():
+        if threat:
+            threat_to_mlclasses[threat].add(mlc)
     mlclass_to_themes: dict[str, set] = defaultdict(set)
-    for theme, mlc in LICHESS_TO_ML_CLASS.items():
+    for theme, mlc in THEME_TO_CLASS.items():
         mlclass_to_themes[mlc].add(theme)
+    mlclass_to_themes["endgame"] |= set(_ENDGAME_TAGS)
 
     out: dict[str, list[str]] = {}
     for fam, d in FAMILIES.items():

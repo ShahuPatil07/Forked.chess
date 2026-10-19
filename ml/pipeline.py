@@ -1,24 +1,37 @@
 """
-End-to-end ingestion pipeline: fetch -> annotate -> extract mistakes -> Maia2 filter.
+End-to-end Stage-1 ingestion: fetch -> annotate -> extract -> Maia2 -> classify.
 
-Usage (programmatic):
     from ml.pipeline import run_ingestion
-    mistakes = run_ingestion("MagnusCarlsen", platform="chesscom", min_games=200)
+    mistakes = run_ingestion("MagnusCarlsen", platform="lichess", min_games=150)
 
-The pipeline saves results to data/output/<username>_mistakes.json and returns
-the list of MistakeEvent objects for downstream processing.
+Per game (in parallel over a Stockfish pool, cached per game id):
+  1. two-pass Stockfish annotation with stored lines (annotator.py)
+  2. both sides' mistakes by win-probability loss, each tagged allowed / missed /
+     both / quiet; tactical opportunities found / missed (mistake_extractor.py)
+  3. Maia2 at the players' real ratings: P(a peer avoids this mistake) as a
+     soft personal weight (maia_annotator.py)
+Then, in one batch:
+  4. motif classification in the right framing + verifier evidence + soft
+     family probabilities (classify_events.py), cascade linking
+
+Writes data/output/<user>_{mistakes,peer_mistakes,opportunities,exposure,
+game_meta,ingest_stats}.json and returns the user's MistakeEvents. Stage 2
+(ml/clustering/profile_pipeline.run_clustering) reads the peer / opportunity /
+exposure files to build the peer-relative profile.
 """
+from __future__ import annotations
+
 import json
 import logging
-import statistics
-from dataclasses import asdict
+import time
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import chess.engine
-from tqdm import tqdm
 
-from ml.config import DATA_DIR, STOCKFISH_PATH, USE_MAIA2, MAIA2_MIN_PROB_BEST
+from ml.config import DATA_DIR, STOCKFISH_PATH, USE_MAIA2, GAME_TIME_CLASSES
 from ml.ingestion.annotator import annotate_game
 from ml.ingestion.fetcher import (
     fetch_chesscom_games,
@@ -26,11 +39,23 @@ from ml.ingestion.fetcher import (
     parse_chesscom_game,
     parse_lichess_game,
 )
-from ml.ingestion.mistake_extractor import MistakeEvent, extract_mistakes
+from ml.ingestion.mistake_extractor import (
+    MistakeEvent, Opportunity, extract_game_events, link_cascades,
+)
 
 log = logging.getLogger(__name__)
 
 OUTPUT_DIR = DATA_DIR / "output"
+MIN_PLIES = 10
+
+
+@dataclass
+class IngestBundle:
+    mistakes:      list = field(default_factory=list)   # user
+    peer_mistakes: list = field(default_factory=list)   # opponents
+    opportunities: list = field(default_factory=list)   # both sides
+    exposure:      list = field(default_factory=list)   # per game
+    skipped:       int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +73,122 @@ def _fetch_and_parse(username: str, platform: str, min_games: int) -> list[dict]
     else:
         raise ValueError(f"Unknown platform '{platform}'. Choose 'chesscom' or 'lichess'.")
 
-    return [g for g in parsed if g is not None]
+    games = [g for g in parsed if g is not None]
+    if GAME_TIME_CLASSES:
+        games = [g for g in games if not g.get("time_class") or g["time_class"] in GAME_TIME_CLASSES]
+    return games
+
+
+def _unix(raw_ts) -> Optional[int]:
+    if not raw_ts:
+        return None
+    return int(raw_ts // 1000) if raw_ts > 1e10 else int(raw_ts)
+
+
+def default_classifier():
+    """The Stage-1 transformer (v2 multi-label when trained, else v1)."""
+    try:
+        from ml.classifier.transformer.classifier import get_classifier
+        return get_classifier()
+    except Exception as exc:
+        log.warning("Transformer classifier unavailable (%s) — rule-based labels only.", exc)
+        return None
+
+
+def _maia():
+    if not USE_MAIA2:
+        return None
+    try:
+        from ml.ingestion.maia_annotator import MaiaAnnotator
+        return MaiaAnnotator()
+    except Exception as exc:
+        log.warning("Maia2 unavailable (%s) — personal weights default to 1.0", exc)
+        return None
+
+
+def _process_game(engine: chess.engine.SimpleEngine, game: dict, maia) -> Optional[dict]:
+    try:
+        anns = annotate_game(game["pgn"], engine, game_id=game.get("game_id"),
+                             increment_s=game.get("increment_s") or 0.0)
+    except Exception as exc:
+        log.warning("Skipped game %s: %s", game.get("game_id", "?"), exc)
+        return None
+    if len(anns) < MIN_PLIES:
+        return None
+    ts = _unix(game.get("played_at"))
+    ev = extract_game_events(anns, game, game["user_color"], engine=engine,
+                             played_at_unix=ts, initial_s=game.get("initial_s"))
+    if maia is not None:
+        for m in ev.mistakes + ev.peer_mistakes:
+            try:
+                maia.annotate_safety(m, engine)
+            except Exception as exc:
+                log.debug("Maia safety failed: %s", exc)
+    uc = game["user_color"]
+    return {
+        "events": ev,
+        "exposure": {
+            "game_id": game.get("game_id", ""), "played_at_unix": ts,
+            "user_moves": ev.exposure["user"], "opp_moves": ev.exposure["opponent"],
+            "user_elo": game.get("white_elo" if uc == "white" else "black_elo"),
+            "opp_elo": game.get("black_elo" if uc == "white" else "white_elo"),
+            "result": game.get("result"), "time_control": game.get("time_control", ""),
+            "plies": len(anns),
+        },
+    }
+
+
+def process_games(games: list[dict], workers: Optional[int] = None, progress_callback=None,
+                  engine: Optional[chess.engine.SimpleEngine] = None, maia="auto") -> IngestBundle:
+    """Annotate + extract every game. Uses a Stockfish pool unless a single
+    `engine` is given (live sync)."""
+    if maia == "auto":
+        maia = _maia()
+    bundle = IngestBundle()
+    total = len(games)
+    found = [0]
+
+    def on_done(i, res):
+        if res:
+            found[0] += len(res["events"].mistakes)
+        if progress_callback:
+            progress_callback(i + 1, total, found[0])
+
+    if engine is not None:
+        results = []
+        for i, g in enumerate(games):
+            r = _process_game(engine, g, maia)
+            results.append(r); on_done(i, r)
+    else:
+        from ml.ingestion.engine_pool import EnginePool
+        with EnginePool(workers=workers) as pool:
+            results = pool.map(lambda eng, g: _process_game(eng, g, maia), games, on_done=on_done)
+
+    for r in results:
+        if r is None:
+            bundle.skipped += 1
+            continue
+        bundle.mistakes.extend(r["events"].mistakes)
+        bundle.peer_mistakes.extend(r["events"].peer_mistakes)
+        bundle.opportunities.extend(r["events"].opportunities)
+        bundle.exposure.append(r["exposure"])
+    return bundle
+
+
+def classify_bundle(bundle: IngestBundle, classifier, use_verifier: bool = True) -> None:
+    from ml.ingestion.classify_events import classify_events
+    from ml.ingestion.threat_classifier import classify_threat
+    events = bundle.mistakes + bundle.peer_mistakes
+    if classifier is not None:
+        classify_events(events, bundle.opportunities, classifier, use_verifier=use_verifier)
+    else:
+        from ml.clustering.families import family_of
+        for e in events:
+            e.threat_type = classify_threat(e.fen, e.best_move_uci)
+            e.cluster_id = family_of(e.threat_type)
+            e.family_probs = {e.cluster_id: 1.0}
+            e.classification_method = "rule_based"
+    link_cascades(events)
 
 
 def _annotate_batch(
@@ -56,108 +196,30 @@ def _annotate_batch(
     engine: chess.engine.SimpleEngine,
     exclude_opening: bool = False,
     progress_callback=None,
-    classifier=None,   # Optional[HybridThreatClassifier]
+    classifier=None,
 ) -> list[MistakeEvent]:
-    """Annotate a batch of games and return all mistake events."""
-    all_mistakes: list[MistakeEvent] = []
-    skipped = 0
-    total = len(games)
-    iterable = games if progress_callback else tqdm(games, desc="Annotating games", unit="game")
-
-    for idx, game in enumerate(iterable):
-        try:
-            annotations = annotate_game(game["pgn"], engine)
-        except Exception as exc:
-            log.warning("Skipped game %s: %s", game.get("game_id", "?"), exc)
-            skipped += 1
-            if progress_callback:
-                progress_callback(idx + 1, total, len(all_mistakes))
-            continue
-
-        raw_ts = game.get("played_at")
-        played_at_unix = int(raw_ts // 1000) if raw_ts and raw_ts > 1e10 else (int(raw_ts) if raw_ts else None)
-
-        mistakes = extract_mistakes(
-            annotations,
-            game_id=game["game_id"],
-            user_id=game.get("white_username" if game["user_color"] == "white" else "black_username", ""),
-            user_color=game["user_color"],
-            played_at_unix=played_at_unix,
-            exclude_opening=exclude_opening,
-            classifier=classifier,
-        )
-        all_mistakes.extend(mistakes)
-
-        if progress_callback:
-            progress_callback(idx + 1, total, len(all_mistakes))
-
-    if skipped:
-        log.warning("Skipped %d games due to parse/engine errors.", skipped)
-
-    return all_mistakes
+    """Back-compat (live sync): annotate + extract + classify with one engine,
+    returning the user's mistakes. classifier=None -> the default transformer."""
+    bundle = process_games(games, engine=engine, progress_callback=progress_callback)
+    classify_bundle(bundle, classifier or default_classifier())
+    out = bundle.mistakes
+    if exclude_opening:
+        out = [m for m in out if m.game_phase != "opening"]
+    return out
 
 
-def _run_maia2_pass(
-    mistakes: list[MistakeEvent],
-    min_prob_best: float = MAIA2_MIN_PROB_BEST,
-) -> tuple[list[MistakeEvent], dict]:
-    """
-    Annotate mistakes with Maia2 probabilities, then filter out events where
-    the engine's best move has very low human probability (universally hard positions).
-
-    Returns (filtered_mistakes, stats_dict).
-    Falls back gracefully if maia2 is not installed.
-    """
-    stats = {
-        "maia2_available": False,
-        "before": len(mistakes),
-        "after":  len(mistakes),
-        "filtered": 0,
-        "mean_surprise": None,
-        "median_surprise": None,
-    }
-
-    if not USE_MAIA2:
-        return mistakes, stats
-
-    try:
-        from ml.ingestion.maia_annotator import MaiaAnnotator
-        annotator = MaiaAnnotator()
-    except ImportError:
-        log.warning("maia2 not installed — skipping Maia2 filter (pip install maia2)")
-        return mistakes, stats
-    except Exception as exc:
-        log.warning("Maia2 model failed to load: %s — skipping filter", exc)
-        return mistakes, stats
-
-    stats["maia2_available"] = True
-    print(f"      Running Maia2 annotation on {len(mistakes)} events...")
-    annotator.annotate_batch(mistakes)
-
-    # Filter: remove events where the best move was universally hard
-    filtered = [
-        m for m in mistakes
-        if m.maia2_prob_best is None or m.maia2_prob_best >= min_prob_best
-    ]
-    n_filtered = len(mistakes) - len(filtered)
-
-    # Collect surprise statistics from remaining events
-    surprises = [m.maia2_surprise for m in filtered if m.maia2_surprise is not None]
-    if surprises:
-        stats["mean_surprise"]   = statistics.mean(surprises)
-        stats["median_surprise"] = statistics.median(surprises)
-
-    stats["after"]    = len(filtered)
-    stats["filtered"] = n_filtered
-
-    return filtered, stats
+def _dump(path: Path, rows: list) -> None:
+    path.write_text(json.dumps([asdict(r) if hasattr(r, "__dataclass_fields__") else r for r in rows],
+                               indent=1, default=str), encoding="utf-8")
 
 
-def _save(mistakes: list[MistakeEvent], username: str, output_dir: Path) -> Path:
+def save_bundle(bundle: IngestBundle, username: str, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{username}_mistakes.json"
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump([asdict(m) for m in mistakes], fh, indent=2, default=str)
+    _dump(path, bundle.mistakes)
+    _dump(output_dir / f"{username}_peer_mistakes.json", bundle.peer_mistakes)
+    _dump(output_dir / f"{username}_opportunities.json", bundle.opportunities)
+    _dump(output_dir / f"{username}_exposure.json", bundle.exposure)
     return path
 
 
@@ -178,6 +240,11 @@ def _save_game_meta(games: list[dict], username: str, output_dir: Path) -> None:
             "opponent": opponent,
             "url": g.get("url", ""),
             "time_control": g.get("time_control", ""),
+            "time_class": g.get("time_class", ""),
+            "result": g.get("result"),
+            "user_elo": g.get("white_elo" if user_color == "white" else "black_elo"),
+            "opp_elo": g.get("black_elo" if user_color == "white" else "white_elo"),
+            "played_at": _unix(g.get("played_at")),
         }
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / f"{username}_game_meta.json", "w", encoding="utf-8") as fh:
@@ -196,116 +263,68 @@ def run_ingestion(
     stockfish_path: Optional[Path] = None,
     exclude_opening: bool = False,
     progress_callback=None,  # callable(current, total, mistakes_so_far) | None
+    workers: Optional[int] = None,
+    games: Optional[list[dict]] = None,
 ) -> list[MistakeEvent]:
     """
-    Full Stage-1 pipeline for one user.
-
-    Returns a list of MistakeEvent objects and saves them to JSON.
-    Optionally excludes opening mistakes (moves 1-12) with exclude_opening=True.
+    Full Stage-1 pipeline for one user. Returns the user's MistakeEvents and
+    saves them (plus the peer / opportunity / exposure files) to JSON.
+    `games` lets callers pass already-fetched normalised games.
     """
     if output_dir is None:
         output_dir = OUTPUT_DIR
-
     sf_path = stockfish_path or STOCKFISH_PATH
-    if not sf_path.exists():
+    if not Path(sf_path).exists():
         raise FileNotFoundError(
             f"Stockfish binary not found at {sf_path}.\n"
             "Run: python scripts/setup_stockfish.py"
         )
+    t0 = time.time()
+    print(f"\n{'='*60}\n  Forked ingestion pipeline (Stage 1 v2)")
+    print(f"  User: {username}  |  Platform: {platform}  |  Games: {min_games}  |  "
+          f"Time classes: {','.join(GAME_TIME_CLASSES) or 'all'}\n{'='*60}\n")
 
-    print(f"\n{'='*60}")
-    print(f"  Forked ingestion pipeline")
-    print(f"  User: {username}  |  Platform: {platform}  |  Min games: {min_games}")
-    if exclude_opening:
-        print(f"  Opening exclusion: ON (moves 1-12 skipped)")
-    print(f"{'='*60}\n")
-
-    # ── 1. Fetch games ──────────────────────────────────────────────────────
     print("[1/4] Fetching games...")
-    games = _fetch_and_parse(username, platform, min_games)
+    if games is None:
+        games = _fetch_and_parse(username, platform, min_games)
     print(f"      -> {len(games)} games retrieved\n")
-
     if not games:
-        print("No games found. Check the username and platform.")
+        print("No games found. Check the username, platform and time class.")
         return []
-
     _save_game_meta(games, username, output_dir)
 
-    # ── 2. Annotate & extract mistakes ─────────────────────────────────────
-    print(f"[2/4] Annotating with Stockfish ({sf_path.name})...")
-    print(f"      Two-pass strategy: depth-12 screen -> depth-18 on mistakes only\n")
+    print("[2/4] Annotating (Stockfish pool, cached) + Maia2 personal weights...")
+    t1 = time.time()
+    bundle = process_games(games, workers=workers, progress_callback=progress_callback)
+    t_annot = time.time() - t1
 
-    # Stage 1 — pure transformer threat classifier (replaces the LightGBM +
-    # rule-based funnel). Loads the Chessformer checkpoint into RAM once.
-    _root = Path(__file__).parent.parent
-    _ckpt = _root / "models" / "stage1_transformer.pt"
-    _ref  = _root / "models" / "stage1_reference.pkl"
-    classifier = None
-    if _ckpt.exists() and _ref.exists():
-        try:
-            from ml.classifier.transformer.classifier import get_classifier
-            classifier = get_classifier(ckpt=_ckpt, ref=_ref)
-            print("      Stage-1 transformer classifier loaded (pure transformer).")
-        except Exception as exc:
-            print(f"      Transformer classifier failed to load ({exc}) — "
-                  f"falling back to rule-based only.")
-    if classifier is None:
-        print("      No transformer model found — rule-based classification only.")
+    print("[3/4] Classifying (allowed / missed framing + verifier)...")
+    classifier = default_classifier()
+    classify_bundle(bundle, classifier)
+    if exclude_opening:
+        bundle.mistakes = [m for m in bundle.mistakes if m.game_phase != "opening"]
 
-    with chess.engine.SimpleEngine.popen_uci(str(sf_path)) as engine:
-        engine.configure({"Threads": 1, "Hash": 128})
-        mistakes = _annotate_batch(
-            games, engine,
-            exclude_opening=exclude_opening,
-            progress_callback=progress_callback,
-            classifier=classifier,
-        )
+    path = save_bundle(bundle, username, output_dir)
+    stats = {
+        "username": username, "platform": platform, "games": len(games),
+        "games_used": len(bundle.exposure), "games_skipped": bundle.skipped,
+        "user_mistakes": len(bundle.mistakes), "peer_mistakes": len(bundle.peer_mistakes),
+        "incidents": sum(1 for m in bundle.mistakes if not m.cascade),
+        "opportunities": len(bundle.opportunities),
+        "classifier": getattr(getattr(classifier, "_predictor", None), "version", "rule"),
+        "annotate_seconds": round(t_annot, 1), "total_seconds": round(time.time() - t0, 1),
+        "time_classes": list(GAME_TIME_CLASSES),
+    }
+    (output_dir / f"{username}_ingest_stats.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")
+    print(f"\n[4/4] Saved to {path}  ({stats['total_seconds']:.0f}s)\n")
 
-    if classifier:
-        dist = classifier.get_method_distribution()
-        total_classified = sum(v for k, v in dist.items() if k != "skip")
-        if total_classified:
-            print("\n      Classification method breakdown:")
-            for method, cnt in dist.items():
-                if cnt:
-                    pct = cnt / max(1, sum(dist.values())) * 100
-                    print(f"        {method:<20} {cnt:>4}  ({pct:.1f}%)")
-
-    print(f"\n      -> {len(mistakes)} mistake events extracted")
-
-    # ── 3. Maia2 annotation + filter ────────────────────────────────────────
-    print(f"\n[3/4] Maia2 human-probability filter...")
-    mistakes, maia_stats = _run_maia2_pass(mistakes)
-
-    if maia_stats["maia2_available"]:
-        pct = maia_stats["filtered"] / max(1, maia_stats["before"]) * 100
-        print(f"      Filtered {maia_stats['filtered']} universally-hard events "
-              f"({pct:.1f}% of {maia_stats['before']})")
-        print(f"      Remaining: {maia_stats['after']} personal blindspot candidates")
-        if maia_stats["mean_surprise"] is not None:
-            print(f"      Mean maia2_surprise: {maia_stats['mean_surprise']:.2f}  "
-                  f"| Median: {maia_stats['median_surprise']:.2f}")
-    else:
-        print("      Maia2 not available — all events kept (install with: pip install maia2)")
-
-    # ── 4. Save & summarise ────────────────────────────────────────────────
-    path = _save(mistakes, username, output_dir)
-    print(f"\n[4/4] Saved to {path}\n")
-
-    if mistakes:
-        from collections import Counter
-        tc = Counter(m.threat_type  for m in mistakes)
-        pc = Counter(m.game_phase   for m in mistakes)
-        total = len(mistakes)
-
-        print("  Threat breakdown:")
-        for t, n in tc.most_common():
-            bar = "#" * min(25, int(n / total * 50))
-            print(f"    {t:<22}  {n:>4}  ({n/total*100:4.1f}%)  {bar}")
-
-        print("  Phase breakdown:")
-        for p, n in pc.most_common():
-            print(f"    {p:<20}  {n:>4}  ({n/total*100:4.1f}%)")
-
-    print()
-    return mistakes
+    ms = bundle.mistakes
+    if ms:
+        total = len(ms)
+        for title, counter in (("Direction", Counter(m.direction for m in ms)),
+                               ("Family", Counter(m.cluster_id for m in ms)),
+                               ("Phase", Counter(m.game_phase for m in ms))):
+            print(f"  {title}:")
+            for k, n in counter.most_common():
+                print(f"    {str(k):<22} {n:>4}  ({n/total*100:4.1f}%)")
+    return ms

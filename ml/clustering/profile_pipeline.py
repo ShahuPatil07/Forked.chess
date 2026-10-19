@@ -1,15 +1,18 @@
 """
 Stage-2 drop-in: a `run_clustering`-compatible entry point backed by the
-fixed-family profile instead of UMAP+HDBSCAN+Groq.
+fixed-family, peer-relative profile (ml/clustering/profile.py).
 
-Same signature and output contract as `ml.clustering.pipeline.run_clustering`
-(returns `list[BlindspotCluster]`, sets each `MistakeEvent.cluster_id`, writes
-`{user}_clusters.json`), so it swaps in one-for-one — but it needs no scaler,
-no reducer, and no LLM. The "projection" of a new mistake into cluster space is
-just `family_of(threat_type)`.
+Same signature and output contract as before (returns `list[BlindspotCluster]`,
+sets each `MistakeEvent.cluster_id`, writes `{user}_clusters.json`,
+`{user}_profile.json`, re-persists `{user}_mistakes.json`). It additionally reads
+the Stage-1 v2 side files when present — `{user}_peer_mistakes.json` (opponents'
+mistakes = the rating-matched baseline), `{user}_opportunities.json` (tactics
+found / missed) and `{user}_exposure.json` (moves per game) — and degrades
+gracefully to a per-user profile without them.
 
-Also exposes the Stage-3 helpers: how many puzzles to pull per family, and which
-Lichess themes to pull them from.
+A mistake's cluster is its top family (`family_probs`), which Stage 1 keeps
+consistent with `family_of(threat_type)`, so every consumer that matches on
+`family_of(threat_type)` (live sync, debrief, replay) agrees.
 """
 from __future__ import annotations
 
@@ -26,20 +29,42 @@ from ml.clustering.families import (
 )
 
 
+def _read(output_dir: Optional[Path], username: str, suffix: str):
+    if not output_dir:
+        return None
+    p = Path(output_dir) / f"{username}_{suffix}.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
 def run_clustering(
     mistakes:   list[MistakeEvent],
     username:   str,
     output_dir: Optional[Path] = None,
+    peer_mistakes: Optional[list] = None,
+    opportunities: Optional[list] = None,
+    exposure: Optional[list[dict]] = None,
     **_compat,                     # accepts/ignores n_components, min_cluster_size, groq_api_key
 ) -> list[BlindspotCluster]:
     """Build the user's blindspot-family profile. `mistakes` must already carry
-    `threat_type` from Stage 1 (the transformer, set during ingestion)."""
-    profile = build_profile(mistakes, username)
-    clusters = profile["clusters"]
+    Stage-1 labels (threat_type / family_probs)."""
+    peer_mistakes = peer_mistakes if peer_mistakes is not None else (_read(output_dir, username, "peer_mistakes") or [])
+    opportunities = opportunities if opportunities is not None else (_read(output_dir, username, "opportunities") or [])
+    exposure = exposure if exposure is not None else _read(output_dir, username, "exposure")
 
     # Project every mistake onto its family (the cluster_id the product reads).
     for m in mistakes:
-        m.cluster_id = family_of(m.threat_type)
+        fp = getattr(m, "family_probs", None) or {}
+        m.cluster_id = max(fp, key=fp.get) if fp else family_of(m.threat_type)
+        if family_of(m.threat_type) != m.cluster_id:
+            m.cluster_id = family_of(m.threat_type)
+
+    profile = build_profile(mistakes, username, peer_mistakes, opportunities, exposure)
+    clusters = profile["clusters"]
 
     if output_dir:
         output_dir = Path(output_dir)
@@ -53,7 +78,7 @@ def run_clustering(
         # consumer that filters mistakes by cluster_id (replay, counterfactual,
         # get_cluster, dashboard enrichment) resolves correctly.
         (output_dir / f"{username}_mistakes.json").write_text(
-            json.dumps([asdict(m) for m in mistakes], indent=2, default=str), encoding="utf-8")
+            json.dumps([asdict(m) for m in mistakes], indent=1, default=str), encoding="utf-8")
     return clusters
 
 
@@ -74,16 +99,13 @@ def allocate_puzzles(
 ) -> dict[str, dict]:
     """
     Allocate a puzzle budget across the user's blindspot families, proportional
-    to each family's blindspot score (frequency x recency x severity). The
-    `unclassified` family is excluded (no tactical puzzles train positional play).
+    to each family's blindspot score (excess + impact, points per 10 games).
+    The `unclassified` family is excluded (no tactical puzzles train positional play).
 
     Returns {family_key: {"name", "n_puzzles", "themes"}} ready for Stage 3 to
     query the Lichess puzzle DB by `themes`.
     """
     themes_by_family = family_lichess_themes()
-    # clusters are BlindspotCluster; recover the family key from its themes/label.
-    # We re-derive family key from the cluster's dominant threat to stay robust.
-    from ml.clustering.families import family_of as _fof
     ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
     if top_k:
         ranked = ranked[:top_k]
@@ -92,7 +114,7 @@ def allocate_puzzles(
 
     out: dict[str, dict] = {}
     for c in ranked:
-        fam = _fof(c.dominant_threat_type)
+        fam = str(c.cluster_id) if str(c.cluster_id) in themes_by_family else family_of(c.dominant_threat_type)
         if fam == UNCLASSIFIED or fam not in themes_by_family:
             continue
         n = max(1, round(total * c.score / total_score))

@@ -6,10 +6,14 @@ Forked is a full adaptive chess training platform. It began as a personalised
 blindspot trainer and now has seven surfaces plus an intelligence layer, all
 sharing one engine + data stack:
 
-1. **Blindspot Profile + Drills** — pull a user's last 80–200 games, annotate
-   with Stockfish, classify each mistake with a **chess transformer (83.1%)**,
-   group them into **5 fixed skill families**, and serve theme-matched
-   spaced-repetition puzzles targeting the top families.
+1. **Blindspot Profile + Drills** — pull a user's last 80–200 rated rapid games,
+   annotate with Stockfish (cached), find mistakes by win-probability loss, tag
+   each as **allowed vs missed**, classify it in the matching position with a
+   **multi-label chess transformer + Lichess-tagger verifier** (87% right family
+   on held-out real-game blunders it allowed, vs 29% before v2), group into
+   **5 fixed skill families** scored **against rating-matched peers** (the
+   user's own opponents), and serve theme-matched spaced-repetition puzzles
+   targeting the top families.
 2. **Forked Coach** (capstone) — a persistent agentic coach (Groq Llama-3.3-70B
    + 6 tools) that knows the user's games, blindspots, drills and history;
    streams answers, shows inline solvable puzzles, analyses pasted games,
@@ -106,9 +110,18 @@ backend/                 (9 routers, all mounted on main's FastAPI app)
   (debrief lives in main.py: POST /api/bot-game/{id}/debrief)
 
 ml/                core blindspot pipeline (ingestion → families → puzzles → srs)
-  config.py        paths, thresholds, feature flags, STOCKFISH_PATH, REQUEST_HEADERS
-  classifier/transformer/  Chessformer (board_encoding, model, predict, classifier) — Stage 1
-  clustering/      families.py (5-family map), profile.py, profile_pipeline.py (run_clustering)
+  config.py        paths, thresholds, GAME_TIME_CLASSES (rapid), STOCKFISH_PATH, REQUEST_HEADERS
+  pipeline.py      Stage-1 orchestration: fetch → engine pool → extract → Maia2 → classify → save
+  ingestion/       fetcher, annotator (+annotation_cache.py SQLite, engine_pool.py), winprob.py,
+                   mechanism.py (allowed/missed), mistake_extractor.py (both sides, opportunities,
+                   cascades), maia_annotator.py (personalness), classify_events.py (framing + verifier)
+  classifier/transformer/  Chessformer (board_encoding, model, predict, classifier) + v2 training
+                   (prepare_data, mine_negatives, train_mt) — Stage 1
+  classifier/label_map_v2.py  17 multi-label motif classes from the REAL Lichess theme names
+  classifier/verifier.py      port of lichess-puzzler cook.py motif detectors (evidence + silver labels)
+  clustering/      families.py (5-family map), profile.py (peer-relative v2 scoring),
+                   profile_pipeline.py (run_clustering), reclassify.py (relabel without Stockfish)
+  eval/            legacy.py + legacy_profile.py — the pre-v2 logic, kept only for comparisons
   matching.py      project a fresh event → family_of(threat_type)  (no scaler/reducer/centroid)
   puzzles/retriever.py  local theme-tagged puzzle index + query_by_themes (Stage 3)
   srs/             SM-2 scheduler + session builder (per-family puzzle allocation)
@@ -120,9 +133,12 @@ data/
   endgame_knowledge.json                curated endgame coach corpus (25 entries)
   endgame_positions.json                curated practice positions (66)
   puzzles/                              Lichess puzzle index (index.npz + meta.json w/ themes)
-  output/{user}_{mistakes,clusters,profile,settings,srs,alerts,sync,style,
-         counterfactual,dna_card.png,coach_profile,coach_memory,...}   per-user state
-models/  stage1_transformer.pt, stage1_reference.pkl   (Stage-1 transformer)
+  output/{user}_{mistakes,peer_mistakes,opportunities,exposure,ingest_stats,clusters,profile,
+         settings,srs,alerts,sync,style,counterfactual,dna_card.png,coach_profile,coach_memory,...}
+  annotation_cache.db                   per-game Stockfish lines (Stage-1 cache, auto-created)
+  bench/, gold/                         frozen benchmark games / hand-labelled gold set (eval only)
+models/  stage1_transformer_v2.pt + stage1_reference_v2.pkl (live), stage1_transformer.pt (v1 fallback)
+reports/stage12_eval/   Stage-1/2 evaluation (scripts/eval_stage12.py) — summary.md
 
 frontend/src/
   pages/           Dashboard, Coach, PuzzleSession, OpeningExplorer, Endgames, BotGame,
@@ -150,23 +166,39 @@ frontend/src/
 
 ## Core pipeline facts (blindspot loop)
 
-- **Stage 1** — fetch (Lichess/Chess.com public API, username only) → two-pass
-  Stockfish (depth-12 screen, depth-18 on mistakes) → mistake events at
-  `eval_drop ≥ 100cp` → **transformer classifier** (`ml/classifier/transformer/`,
-  pure Chessformer — the rule→depth→LightGBM funnel was dropped) → Maia2 filter
-  (drop universally-hard positions). Positional/OOD positions route to `other`.
-- **Stage 2** — `family_of(threat_type)` maps each mistake to 1 of **5 fixed
-  skill families** (loose_pieces, alignment, defender_disruption, king_safety,
-  positional) + an `unclassified` bucket. `run_clustering` scores each family
-  `frequency × recency × severity` (eval-drop capped at 1000cp), writes
-  `_clusters.json` + `_profile.json`, and **re-persists `_mistakes.json` with the
-  family `cluster_id`** (downstream consumers filter mistakes by it). No
-  UMAP/HDBSCAN/LLM, no scaler/reducer.
+- **Stage 1 (v2)** — fetch **rated standard rapid** games (Lichess/Chess.com,
+  username only) → two-pass Stockfish (depth 12, depth 18 on flagged moves and
+  possible tactics) on a process pool, **PVs kept and cached per game** →
+  mistakes = **≥10% win-probability loss** (Lichess curve; not cp) for BOTH sides
+  (opponents = rating-matched peer baseline) → each tagged **allowed / missed /
+  both / quiet** → classified in the **right framing**: an allowed mistake is
+  (position after the move, opponent's refutation) = exactly the Lichess puzzle
+  format the model was trained on; a missed one is (position before, best move)
+  → **v2 multi-label transformer + lichess-puzzler verifier** → soft
+  `family_probs`; cascades (one oversight over several moves) collapse to one
+  incident; Maia2 at real ratings gives a `personal_weight` (no hard filter).
+  Tactical opportunities are recorded found/missed for hit rates.
+- **Stage 2 (v2)** — 5 fixed skill families (loose_pieces, alignment,
+  defender_disruption, king_safety, positional) + `unclassified`. Per family:
+  incidents per 100 moves (recency by game, half-life 50) vs the **peer rate**
+  from the same games, Gamma–Poisson shrinkage, P(worse than peers) →
+  **status** (confirmed / emerging / typical / strength / insufficient_data;
+  also raised when you find available tactics of that family less often than
+  peers — Beta test on opportunities, `status_reasons` says which),
+  impact & excess in points per 10 games, `score = 0.75·excess + 0.25·impact`,
+  allowed/missed split, hit rate, context. Metrics ride on
+  `BlindspotCluster.profile`. `run_clustering` writes `_clusters.json` +
+  `_profile.json` and **re-persists `_mistakes.json` with the family
+  `cluster_id`** (= top of `family_probs` = `family_of(threat_type)`). No
+  UMAP/HDBSCAN/LLM.
 - **Stage 3** — local puzzle index tagged with Lichess themes; `allocate_puzzles`
   splits the budget across families by score, `query_by_themes` pulls matching
   puzzles in the user's rating band; SM-2 SRS, mastery resets on live blunders.
-- Classifier: 14 threat types, **83.1% accuracy** (was 63.5% with LightGBM).
-  Stage-1 detail in `instructions/stage1.md`; full backend architecture in **instructions/AGENT.md**.
+- Classifier: v2 = 17 multi-label motifs mapped to the 14 threat types (v1:
+  16-way softmax, 83.1% on its own puzzle split; v0 LightGBM 63.5%). Measured
+  Stage-1/2 results (legacy vs v2, incl. real-game end-to-end accuracy) are in
+  `reports/stage12_eval/summary.md`; regenerate with `python scripts/eval_stage12.py --all`.
+  Stage-1/2 detail in `instructions/stage1.md`; full backend architecture in **instructions/AGENT.md**.
 
 ---
 
@@ -279,6 +311,15 @@ small boards).
   `LICHESS_TOKEN` (Opening Explorer returns 401 without it on many networks).
   Optional `C1_ENDPOINT` (+ `C1_API_KEY`, `C1_MODEL`) points `explain_position`
   at a vLLM C1 server; omit it and Stockfish is used.
+- **Stage-1 engine work is cached** per game in `data/annotation_cache.db` (key
+  includes depths, so changing them invalidates rows). Re-label saved events with
+  `python -m ml.clustering.reclassify <user>` instead of re-ingesting. Engine pool
+  size: `FORKED_SF_WORKERS`; time classes: `FORKED_TIME_CLASSES` (default `rapid`).
+  Live sync and the bot-game debrief use the same v2 Stage-1 path — keep it that
+  way (matching compares families, so labels must come from one classifier).
+- **Stage-1/2 checks**: `.venv/Scripts/python -m pytest tests/test_stage12.py -q -p no:cacheprovider`;
+  before/after evaluation `python scripts/eval_stage12.py --all` (benchmark games
+  frozen in `data/bench/` via `scripts/run_stage12_bench.py`).
 - **Verify after edits**: `cd frontend && npx tsc --noEmit` (must be 0 errors)
   and `npx vite build` for runtime integrity. For backend, import-check
   `backend/main.py` and confirm routes register.

@@ -1,0 +1,118 @@
+{
+  "allowed": {
+    "direction_detected": 0.9311,
+    "direction_dist": {
+      "allowed": 1054,
+      "both": 243,
+      "quiet": 80,
+      "missed": 16
+    },
+    "legacy_v1_before_best": {
+      "n": 1393,
+      "family_hit1": 0.2943,
+      "motif_hit1": 0.1307,
+      "unclassified_rate": 0.1393
+    },
+    "v2stage1_v1model": {
+      "n": 1393,
+      "family_hit1": 0.7308,
+      "motif_hit1": 0.6597,
+      "unclassified_rate": 0.0696
+    },
+    "v2stage1_v1model_verifier": {
+      "n": 1393,
+      "family_hit1": 0.7387,
+      "motif_hit1": 0.6648,
+      "unclassified_rate": 0.0596
+    },
+    "v2stage1_v2model": {
+      "n": 1393,
+      "family_hit1": 0.8492,
+      "motif_hit1": 0.8105,
+      "unclassified_rate": 0.061
+    },
+    "v2stage1_v2model_verifier (production)": {
+      "n": 1393,
+      "family_hit1": 0.8665,
+      "motif_hit1": 0.8212,
+      "unclassified_rate": 0.0546
+    }
+  },
+  "missed": {
+    "direction_detected": 0.9361,
+    "direction_dist": {
+      "missed": 1063,
+      "both": 329,
+      "quiet": 77,
+      "allowed": 18
+    },
+    "legacy_v1_before_best": {
+      "n": 1487,
+      "family_hit1": 0.7445,
+      "motif_hit1": 0.6893,
+      "unclassified_rate": 0.0619
+    },
+    "v2stage1_v1model": {
+      "n": 1487,
+      "family_hit1": 0.7155,
+      "motif_hit1": 0.6577,
+      "unclassified_rate": 0.0726
+    },
+    "v2stage1_v1model_verifier": {
+      "n": 1487,
+      "family_hit1": 0.7229,
+      "motif_hit1": 0.6631,
+      "unclassified_rate": 0.0612
+    },
+    "v2stage1_v2model": {
+      "n": 1487,
+      "family_hit1": 0.881,
+      "motif_hit1": 0.8386,
+      "unclassified_rate": 0.0276
+    },
+    "v2stage1_v2model_verifier (production)": {
+      "n": 1487,
+      "family_hit1": 0.8964,
+      "motif_hit1": 0.85,
+      "unclassified_rate": 0.0215
+    }
+  },
+  "verifier_precision_engine_lines": {
+    "advancedPawn": {
+      "precision": 0.688,
+      "fired": 141
+    },
+    "backRankMate": {
+      "precision": 0.979,
+      "fired": 48
+    },
+    "capturingDefender": {
+      "precision": null,
+      "fired": 11
+    },
+    "discoveredAttack": {
+      "precision": 0.839,
+      "fired": 112
+    },
+    "fork": {
+      "precision": 0.906,
+      "fired": 245
+    },
+    "hangingPiece": {
+      "precision": 0.985,
+      "fired": 65
+    },
+    "mate": {
+      "precision": 1.0,
+      "fired": 433
+    },
+    "pin": {
+      "precision": 0.883,
+      "fired": 111
+    },
+    "skewer": {
+      "precision": 0.733,
+      "fired": 45
+    }
+  }
+}

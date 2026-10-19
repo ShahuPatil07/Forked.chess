@@ -1,0 +1,249 @@
+{
+  "users": {
+    "ShahuPatil27": {
+      "games": 150,
+      "legacy": {
+        "mistakes": 503,
+        "below_lichess_inaccuracy (<5% ES)": 0.046,
+        "below_lichess_mistake (<10% ES)": 0.25,
+        "labelled_opening": 0.441,
+        "unclassified": 0.203,
+        "families": {
+          "positional": 202,
+          "loose_pieces": 114,
+          "unclassified": 102,
+          "defender_disruption": 54,
+          "alignment": 26,
+          "king_safety": 5
+        }
+      },
+      "v2": {
+        "mistakes": 491,
+        "incidents": 437,
+        "cascades_merged": 54,
+        "labelled_opening": 0.11,
+        "unclassified": 0.446,
+        "direction": {
+          "quiet": 250,
+          "allowed": 154,
+          "missed": 68,
+          "both": 19
+        },
+        "families": {
+          "unclassified": 219,
+          "loose_pieces": 84,
+          "positional": 69,
+          "defender_disruption": 52,
+          "king_safety": 41,
+          "alignment": 26
+        },
+        "peer_mistakes": 460,
+        "opportunities": 433
+      },
+      "overlap_events": 377
+    },
+    "semilore17": {
+      "games": 100,
+      "legacy": {
+        "mistakes": 383,
+        "below_lichess_inaccuracy (<5% ES)": 0.047,
+        "below_lichess_mistake (<10% ES)": 0.227,
+        "labelled_opening": 0.41,
+        "unclassified": 0.196,
+        "families": {
+          "positional": 174,
+          "loose_pieces": 91,
+          "unclassified": 75,
+          "alignment": 21,
+          "defender_disruption": 21,
+          "king_safety": 1
+        }
+      },
+      "v2": {
+        "mistakes": 371,
+        "incidents": 341,
+        "cascades_merged": 30,
+        "labelled_opening": 0.119,
+        "unclassified": 0.485,
+        "direction": {
+          "quiet": 197,
+          "allowed": 103,
+          "missed": 56,
+          "both": 15
+        },
+        "families": {
+          "unclassified": 180,
+          "loose_pieces": 72,
+          "positional": 59,
+          "defender_disruption": 32,
+          "alignment": 15,
+          "king_safety": 13
+        },
+        "peer_mistakes": 365,
+        "opportunities": 332
+      },
+      "overlap_events": 296
+    },
+    "MinnowMate": {
+      "games": 100,
+      "legacy": {
+        "mistakes": 407,
+        "below_lichess_inaccuracy (<5% ES)": 0.059,
+        "below_lichess_mistake (<10% ES)": 0.28,
+        "labelled_opening": 0.472,
+        "unclassified": 0.165,
+        "families": {
+          "positional": 163,
+          "loose_pieces": 92,
+          "unclassified": 67,
+          "defender_disruption": 41,
+          "alignment": 34,
+          "king_safety": 10
+        }
+      },
+      "v2": {
+        "mistakes": 364,
+        "incidents": 324,
+        "cascades_merged": 40,
+        "labelled_opening": 0.049,
+        "unclassified": 0.453,
+        "direction": {
+          "quiet": 185,
+          "allowed": 99,
+          "missed": 67,
+          "both": 13
+        },
+        "families": {
+          "unclassified": 165,
+          "loose_pieces": 74,
+          "positional": 45,
+          "defender_disruption": 31,
+          "alignment": 27,
+          "king_safety": 22
+        },
+        "peer_mistakes": 358,
+        "opportunities": 326
+      },
+      "overlap_events": 293
+    },
+    "sambartiquel": {
+      "games": 100,
+      "legacy": {
+        "mistakes": 368,
+        "below_lichess_inaccuracy (<5% ES)": 0.03,
+        "below_lichess_mistake (<10% ES)": 0.245,
+        "labelled_opening": 0.579,
+        "unclassified": 0.255,
+        "families": {
+          "loose_pieces": 104,
+          "unclassified": 94,
+          "positional": 82,
+          "alignment": 41,
+          "defender_disruption": 37,
+          "king_safety": 10
+        }
+      },
+      "v2": {
+        "mistakes": 362,
+        "incidents": 331,
+        "cascades_merged": 31,
+        "labelled_opening": 0.199,
+        "unclassified": 0.45,
+        "direction": {
+          "quiet": 184,
+          "allowed": 97,
+          "missed": 58,
+          "both": 23
+        },
+        "families": {
+          "unclassified": 163,
+          "loose_pieces": 69,
+          "king_safety": 42,
+          "defender_disruption": 38,
+          "alignment": 26,
+          "positional": 24
+        },
+        "peer_mistakes": 367,
+        "opportunities": 374
+      },
+      "overlap_events": 278
+    },
+    "Pilkification": {
+      "games": 100,
+      "legacy": {
+        "mistakes": 394,
+        "below_lichess_inaccuracy (<5% ES)": 0.071,
+        "below_lichess_mistake (<10% ES)": 0.279,
+        "labelled_opening": 0.437,
+        "unclassified": 0.155,
+        "families": {
+          "positional": 168,
+          "loose_pieces": 106,
+          "unclassified": 61,
+          "defender_disruption": 33,
+          "alignment": 24,
+          "king_safety": 2
+        }
+      },
+      "v2": {
+        "mistakes": 355,
+        "incidents": 322,
+        "cascades_merged": 33,
+        "labelled_opening": 0.163,
+        "unclassified": 0.465,
+        "direction": {
+          "quiet": 198,
+          "allowed": 102,
+          "missed": 48,
+          "both": 7
+        },
+        "families": {
+          "unclassified": 165,
+          "loose_pieces": 76,
+          "positional": 46,
+          "alignment": 27,
+          "king_safety": 21,
+          "defender_disruption": 20
+        },
+        "peer_mistakes": 372,
+        "opportunities": 314
+      },
+      "overlap_events": 284
+    }
+  },
+  "e4": {
+    "legacy_labels+legacy_scoring": {
+      "spearman": 0.922,
+      "top1_agree": 0.933,
+      "n": 150
+    },
+    "v2_labels+legacy_scoring": {
+      "spearman": 0.683,
+      "top1_agree": 0.42,
+      "n": 150
+    },
+    "v2_labels+v2_scoring": {
+      "spearman": 0.815,
+      "top1_agree": 0.827,
+      "n": 150
+    }
+  },
+  "e5": {
+    "legacy_scoring": {
+      "spearman_future_cost": 0.592,
+      "top1_in_true_top2_future_cost": 0.8,
+      "spearman_future_excess_vs_peers": 0.104,
+      "top1_in_true_top2_future_excess_vs_peers": 0.45,
+      "ndcg2_future_cost": 0.887,
+      "n": 20
+    },
+    "v2_scoring": {
+      "spearman_future_cost": 0.738,
+      "top1_in_true_top2_future_cost": 0.95,
+      "spearman_future_excess_vs_peers": 0.082,
+      "top1_in_true_top2_future_excess_vs_peers": 0.4,
+      "ndcg2_future_cost": 0.962,
+      "n": 20
+    }
+  }
+}
