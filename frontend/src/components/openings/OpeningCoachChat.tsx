@@ -379,7 +379,7 @@ export function OpeningCoachChat({ selected, parentName }: OpeningCoachChatProps
         <button
           type="submit"
           disabled={!!disabledReason || streaming || !input.trim()}
-          className="w-9 h-9 rounded-md bg-accent hover:bg-accent-hover text-white
+          className="w-9 h-9 rounded-md bg-accent hover:bg-accent-hover text-accent-ink
                      flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed
                      transition-colors"
           title="Send"

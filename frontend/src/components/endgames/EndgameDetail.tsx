@@ -73,9 +73,9 @@ function DetailContent({ leaf, onPracticeRequest, onAskCoach }: Props & { leaf: 
           boardWidth={DETAIL_BOARD_PX}
           arePiecesDraggable={false}
           boardOrientation={sideToMove === 'White' ? 'white' : 'black'}
-          customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-          customLightSquareStyle={{ backgroundColor: '#343761' }}
-          customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.18)' }}
+          customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+          customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+          customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.18)' }}
         />
       </div>
 

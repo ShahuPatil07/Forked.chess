@@ -60,7 +60,7 @@ export function LevelQuestionnaire({ initial, onSave, onClose }: {
           </div>
         </div>
         <button disabled={!rating} onClick={() => onSave({ rating_bucket: rating, explanation_style: style, goal })}
-          className="w-full rounded-md bg-accent hover:bg-accent-hover text-white text-sm py-2 disabled:opacity-40">Start coaching</button>
+          className="w-full rounded-md bg-accent hover:bg-accent-hover text-accent-ink text-sm py-2 disabled:opacity-40">Start coaching</button>
       </motion.div>
     </div>
   )

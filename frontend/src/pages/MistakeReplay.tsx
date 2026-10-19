@@ -44,7 +44,7 @@ function EvalBar({ cp, mate, orient, h, loading }: {
     <div className="flex flex-col items-center flex-shrink-0" style={{ height: h }}>
       <div className={`w-5 rounded overflow-hidden flex relative ${loading ? 'opacity-60' : ''}`}
         style={{ height: h, flexDirection: flexDir }}>
-        <div className="bg-[#E8E8F0] flex items-end justify-center transition-[flex] duration-500" style={{ flex: whitePct }}>
+        <div className="bg-[#F0F0F0] flex items-end justify-center transition-[flex] duration-500" style={{ flex: whitePct }}>
           {whitePct > 50 && <span className="text-[8px] font-bold text-bg-0 mb-1">{label}</span>}
         </div>
         <div className="bg-bg-3 flex items-start justify-center transition-[flex] duration-500" style={{ flex: 100 - whitePct }}>
@@ -186,11 +186,11 @@ export default function MistakeReplay() {
         styles[m.to] = {
           background: chessRef.current.get(m.to)
             ? 'radial-gradient(circle, rgba(255,77,77,0.35) 85%, transparent 85%)'
-            : 'radial-gradient(circle, rgba(123,97,255,0.35) 40%, transparent 40%)',
+            : 'radial-gradient(circle, rgba(200,255,42,0.35) 40%, transparent 40%)',
           borderRadius: '50%',
         }
       })
-      styles[sq] = { backgroundColor: 'rgba(123,97,255,0.25)' }
+      styles[sq] = { backgroundColor: 'rgba(200,255,42,0.25)' }
       setSelectedSq(sq); setOptionSqs(styles)
     } else { setSelectedSq(null); setOptionSqs({}) }
   }
@@ -213,7 +213,7 @@ export default function MistakeReplay() {
     if (current.best_move && current.best_move.length >= 4)
       out.push([current.best_move.slice(0, 2) as Square, current.best_move.slice(2, 4) as Square, '#0DC97F'])
     if (current.move_played && current.move_played.length >= 4)
-      out.push([current.move_played.slice(0, 2) as Square, current.move_played.slice(2, 4) as Square, '#8A8AA4'])
+      out.push([current.move_played.slice(0, 2) as Square, current.move_played.slice(2, 4) as Square, '#A3A3A3'])
     return out
   }, [exploring, current])
 
@@ -282,9 +282,9 @@ export default function MistakeReplay() {
               customArrows={arrows}
               customSquareStyles={optionSqs}
               boardWidth={BOARD}
-              customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-              customLightSquareStyle={{ backgroundColor: '#343761' }}
-              customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.15)' }}
+              customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+              customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+              customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
             />
           </div>
           <div className="flex items-center gap-2 justify-center mt-2" style={{ width: BOARD + 28 }}>
@@ -336,7 +336,7 @@ export default function MistakeReplay() {
             </p>
             <div className="flex items-center gap-3 text-[11px] text-text-2 pt-1">
               <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#0DC97F] inline-block" /> best</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#8A8AA4] inline-block" /> you played</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#A3A3A3] inline-block" /> you played</span>
             </div>
           </div>
 

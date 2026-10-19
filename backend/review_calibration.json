@@ -1,0 +1,229 @@
+{
+  "version": "forked-review-v2",
+  "expected_points": {
+    "k0": 0.003349,
+    "k_per_400": -0.000918,
+    "k_flat": 0.003256,
+    "fit_rating_range": [
+      690,
+      2006
+    ],
+    "positions": 35095
+  },
+  "accuracy": {
+    "model": "power",
+    "A": 110.566457,
+    "k": 0.103758,
+    "B": -5.429477,
+    "f": 0.5,
+    "p": 0.447081,
+    "b": -0.003263,
+    "skip_book": false,
+    "skip_forced": true,
+    "fit": {
+      "train": {
+        "n": 624,
+        "mae": 3.54,
+        "bias": 0.26,
+        "within_3": 0.53,
+        "within_5": 0.752,
+        "corr": 0.913
+      },
+      "test": {
+        "n": 266,
+        "mae": 3.36,
+        "bias": 0.18,
+        "within_3": 0.549,
+        "within_5": 0.793,
+        "corr": 0.903
+      },
+      "target": "Chess.com stored accuracy (PubAPI)"
+    }
+  },
+  "rating_curve": [
+    {
+      "rating": 450,
+      "median_acc": 70.17,
+      "p25": 62.73,
+      "p75": 75.8,
+      "n": 37,
+      "typical_acc": 69.12
+    },
+    {
+      "rating": 550,
+      "median_acc": 73.54,
+      "p25": 65.8,
+      "p75": 78.9,
+      "n": 43,
+      "typical_acc": 69.12
+    },
+    {
+      "rating": 650,
+      "median_acc": 66.28,
+      "p25": 63.17,
+      "p75": 72.48,
+      "n": 21,
+      "typical_acc": 69.12
+    },
+    {
+      "rating": 750,
+      "median_acc": 69.12,
+      "p25": 62.23,
+      "p75": 76.27,
+      "n": 86,
+      "typical_acc": 69.12
+    },
+    {
+      "rating": 850,
+      "median_acc": 66.48,
+      "p25": 55.42,
+      "p75": 74.34,
+      "n": 91,
+      "typical_acc": 69.12
+    },
+    {
+      "rating": 950,
+      "median_acc": 70.53,
+      "p25": 63.04,
+      "p75": 78.38,
+      "n": 130,
+      "typical_acc": 70.53
+    },
+    {
+      "rating": 1050,
+      "median_acc": 74.28,
+      "p25": 66.81,
+      "p75": 80.69,
+      "n": 287,
+      "typical_acc": 74.28
+    },
+    {
+      "rating": 1150,
+      "median_acc": 75.13,
+      "p25": 67.64,
+      "p75": 82.68,
+      "n": 309,
+      "typical_acc": 75.0
+    },
+    {
+      "rating": 1250,
+      "median_acc": 74.88,
+      "p25": 66.89,
+      "p75": 80.65,
+      "n": 326,
+      "typical_acc": 75.0
+    },
+    {
+      "rating": 1350,
+      "median_acc": 75.21,
+      "p25": 68.05,
+      "p75": 83.01,
+      "n": 182,
+      "typical_acc": 75.21
+    },
+    {
+      "rating": 1450,
+      "median_acc": 76.05,
+      "p25": 69.12,
+      "p75": 81.26,
+      "n": 229,
+      "typical_acc": 75.78
+    },
+    {
+      "rating": 1550,
+      "median_acc": 75.5,
+      "p25": 69.27,
+      "p75": 82.64,
+      "n": 424,
+      "typical_acc": 75.78
+    },
+    {
+      "rating": 1650,
+      "median_acc": 77.66,
+      "p25": 70.0,
+      "p75": 84.05,
+      "n": 882,
+      "typical_acc": 77.23
+    },
+    {
+      "rating": 1750,
+      "median_acc": 76.8,
+      "p25": 70.23,
+      "p75": 83.27,
+      "n": 856,
+      "typical_acc": 77.23
+    },
+    {
+      "rating": 1850,
+      "median_acc": 77.71,
+      "p25": 71.19,
+      "p75": 83.81,
+      "n": 919,
+      "typical_acc": 77.71
+    },
+    {
+      "rating": 1950,
+      "median_acc": 79.52,
+      "p25": 73.13,
+      "p75": 85.94,
+      "n": 639,
+      "typical_acc": 79.52
+    },
+    {
+      "rating": 2050,
+      "median_acc": 81.84,
+      "p25": 75.55,
+      "p75": 87.1,
+      "n": 986,
+      "typical_acc": 81.73
+    },
+    {
+      "rating": 2150,
+      "median_acc": 81.63,
+      "p25": 76.48,
+      "p75": 87.45,
+      "n": 648,
+      "typical_acc": 81.73
+    },
+    {
+      "rating": 2250,
+      "median_acc": 82.08,
+      "p25": 76.44,
+      "p75": 87.29,
+      "n": 1206,
+      "typical_acc": 82.08
+    },
+    {
+      "rating": 2350,
+      "median_acc": 82.88,
+      "p25": 77.16,
+      "p75": 88.11,
+      "n": 1872,
+      "typical_acc": 82.88
+    },
+    {
+      "rating": 2450,
+      "median_acc": 83.34,
+      "p25": 78.26,
+      "p75": 88.69,
+      "n": 939,
+      "typical_acc": 83.34
+    },
+    {
+      "rating": 2550,
+      "median_acc": 87.53,
+      "p25": 82.36,
+      "p75": 90.9,
+      "n": 136,
+      "typical_acc": 87.53
+    },
+    {
+      "rating": 2850,
+      "median_acc": 89.44,
+      "p25": 86.11,
+      "p75": 93.09,
+      "n": 56,
+      "typical_acc": 89.44
+    }
+  ]
+}

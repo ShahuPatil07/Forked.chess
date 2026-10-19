@@ -1,123 +1,78 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Sword, Clock, Settings, ChevronRight, Microscope, Bot, BookOpen, Crown, Sparkles, ScanLine, MonitorUp, ScanSearch } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Bell, ChevronRight, Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useUserStore } from '../../store/userStore'
 import { liveApi } from '../../api/live'
+import { locate, sectionHref } from '../../nav'
 
-const NAV: { to: string; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
-  { to: '/share-screen', label: 'Share Screen', icon: MonitorUp },
-  { to: '/game-review', label: 'Game Review', icon: ScanSearch },
-  { to: '/dashboard', label: 'Dashboard',      icon: LayoutDashboard },
-  { to: '/coach',     label: 'Coach',          icon: Sparkles, badge: 'AI' },
-  { to: '/session',   label: 'Drill Session',  icon: Sword },
-  { to: '/openings',  label: 'Openings',       icon: BookOpen },
-  { to: '/endgames',  label: 'Endgames',       icon: Crown },
-  { to: '/analysis',  label: 'Analysis Board', icon: Microscope },
-  { to: '/otb-scan',  label: 'OTB Scan',       icon: ScanLine },
-  { to: '/history',   label: 'History',        icon: Clock },
-  { to: '/settings',  label: 'Settings',       icon: Settings },
-]
-
-// ── Forked wordmark — unique brand treatment used everywhere ──────────────────
+// ── Forked wordmark — white, with a neon full stop ───────────────────────────
 export function ForkedWordmark({ className = '' }: { className?: string }) {
   return (
-    <span
-      className={`font-black tracking-tight select-none ${className}`}
-      style={{
-        background: 'linear-gradient(135deg, #c4b5fd 0%, #7B61FF 45%, #a78bfa 100%)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        backgroundClip: 'text',
-        letterSpacing: '-0.03em',
-      }}
-    >
-      Forked
+    <span className={`font-display font-bold tracking-tight select-none text-text-0 ${className}`} style={{ letterSpacing: '-0.03em' }}>
+      Forked<span className="text-accent">.</span>
     </span>
+  )
+}
+
+/** Tree navigation: the hub is home, every page shows where it sits. */
+function Breadcrumbs() {
+  const { pathname } = useLocation()
+  if (pathname === '/home') return null
+  const { section, leaf } = locate(pathname)
+  if (!section && pathname !== '/settings') return null
+  const crumbs: { label: string; to?: string }[] = []
+  if (pathname === '/settings') crumbs.push({ label: 'Settings' })
+  if (section) crumbs.push({ label: section.title, to: leaf || section.children ? sectionHref(section) : undefined })
+  if (leaf) crumbs.push({ label: leaf.title })
+  return (
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm min-w-0">
+      {crumbs.map((c, i) => (
+        <span key={i} className="flex items-center gap-1.5 min-w-0">
+          <ChevronRight size={14} className="text-text-2 flex-shrink-0" />
+          {c.to && i < crumbs.length - 1
+            ? <Link to={c.to} className="text-text-1 hover:text-accent transition-colors truncate">{c.label}</Link>
+            : <span className="text-text-0 font-medium truncate">{c.label}</span>}
+        </span>
+      ))}
+    </nav>
   )
 }
 
 export default function AppShell() {
   const { username } = useUserStore()
-  const navigate     = useNavigate()
 
-  // Unseen blindspot-alert count → red dot on the Dashboard nav item
+  // Unseen blindspot alerts → neon dot on the bell (links to the dashboard)
   const { data: alertsData } = useQuery({
     queryKey: ['alerts', username],
     queryFn:  () => liveApi.getAlerts(username),
-    enabled:  !!username,
+    enabled:  !!username && username !== 'Guest',
     refetchInterval: 60_000,
   })
   const unseenAlerts = alertsData?.alerts?.length ?? 0
 
   return (
-    <div className="flex h-full relative" style={{ zIndex: 1 }}>
-      {/* Sidebar */}
-      <aside className="w-[220px] flex-shrink-0 flex flex-col border-r border-border bg-bg-0/85 backdrop-blur-md h-screen sticky top-0">
-        {/* Logo */}
-        <div className="px-5 py-4 border-b border-border">
-          <img src="/logo.png" alt="Forked" className="h-9 w-auto mb-1" />
-          <ForkedWordmark className="text-sm" />
-          <p className="text-xs text-text-2 mt-0.5 leading-tight">{username}</p>
+    <div className="min-h-full relative flex flex-col" style={{ zIndex: 1 }}>
+      <header className="sticky top-0 z-40 h-14 flex-shrink-0 border-b border-border bg-bg-0/80 backdrop-blur-xl">
+        <div className="h-full max-w-[1600px] mx-auto px-4 lg:px-6 flex items-center gap-3">
+          <Link to="/home" className="flex items-center gap-2 flex-shrink-0 group" aria-label="Forked home">
+            <img src="/logo.png" alt="" className="h-7 w-7 object-contain opacity-90 group-hover:opacity-100" />
+            <ForkedWordmark className="text-lg" />
+          </Link>
+          <div className="min-w-0 flex-1"><Breadcrumbs /></div>
+          {unseenAlerts > 0 && (
+            <Link to="/dashboard" className="relative p-2 rounded-lg text-text-1 hover:text-text-0 hover:bg-bg-2"
+              title={`${unseenAlerts} new blindspot alert${unseenAlerts > 1 ? 's' : ''}`} aria-label="Blindspot alerts">
+              <Bell size={17} />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent shadow-neon-sm" />
+            </Link>
+          )}
+          {username && <span className="hidden sm:inline text-xs text-text-2 font-mono truncate max-w-[160px]">{username}</span>}
+          <Link to="/settings" className="p-2 rounded-lg text-text-2 hover:text-accent hover:bg-bg-2 transition-colors" aria-label="Settings" title="Settings">
+            <Settings size={17} />
+          </Link>
         </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-2 py-3 space-y-0.5">
-          {NAV.map(({ to, label, icon: Icon, badge }) => (
-            <NavLink key={to} to={to}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-100 group
-                 ${isActive ? 'bg-accent/15 text-accent' : 'text-text-1 hover:text-text-0 hover:bg-bg-2'}`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <Icon size={16} className={isActive ? 'text-accent' : 'text-text-2 group-hover:text-text-1'} />
-                  {label}
-                  {badge && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold leading-none
-                                     bg-accent/20 text-accent border border-accent/30 flex-shrink-0">
-                      {badge}
-                    </span>
-                  )}
-                  {to === '/dashboard' && unseenAlerts > 0 && (
-                    <span className="ml-1.5 w-2 h-2 rounded-full bg-danger flex-shrink-0"
-                          title={`${unseenAlerts} new alert${unseenAlerts > 1 ? 's' : ''}`} />
-                  )}
-                  {isActive && <ChevronRight size={12} className="ml-auto text-accent/60" />}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
-
-        {/* Play vs Maia — glowing CTA */}
-        <div className="px-3 pb-3">
-          <motion.div
-            animate={{ boxShadow: ['0 0 8px rgba(123,97,255,0.3)', '0 0 18px rgba(123,97,255,0.55)', '0 0 8px rgba(123,97,255,0.3)'] }}
-            transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-            className="rounded-lg"
-          >
-            <button
-              onClick={() => navigate('/bot-game')}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold
-                         bg-accent/10 border border-accent/30 text-accent
-                         hover:bg-accent/20 hover:border-accent/50 transition-all duration-150"
-            >
-              <Bot size={16} className="text-accent flex-shrink-0" />
-              Play vs Maia
-            </button>
-          </motion.div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-border">
-          <p className="text-xs text-text-2"><ForkedWordmark className="text-xs" /> v0.1</p>
-        </div>
-      </aside>
-
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto min-h-screen min-w-0">
+      </header>
+      <main className="flex-1 min-w-0">
         <Outlet />
       </main>
     </div>

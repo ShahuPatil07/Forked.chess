@@ -148,7 +148,11 @@ frontend/src/
                    MoveReview, GameFinished), cv/ game/ hooks/ — public/models/ holds the
                    two ~8MB TFJS models. Hands off to AnalysisBoard via {moves}.
   public/models/   480M_pieces_float16 + 480L_xcorners_float16 (board/piece detectors)
-  components/layout/   AppShell (nav, Coach has an "AI" badge), SectionHeader, ChessBackground
+  nav.ts           THE navigation tree (sections → sub-blocks, blurbs, icons, routes); hub + breadcrumbs render from it
+  pages/Hub.tsx    /home (big section blocks) and /home/:section (sub-blocks) — the post-login landing
+  theme.ts         literal colour constants (neon, graphite board) for chessboard props / SVG / canvas
+  components/layout/   AppShell (top bar: wordmark → /home, breadcrumbs, alerts bell, settings), SectionHeader, ChessBackground
+  components/review/   ReviewGraph, RecentGames (Game Review)
   components/coach/    CoachWorkspaceBoard (board the agent sees + play mode), AnswerText (clickable
                    moves), LevelQuestionnaire, CoachBoard (inline puzzle / view board)
   components/openings/ OpeningTree, OpeningDetail, OpeningCoachChat, MiniBoardThumbnail
@@ -175,7 +179,9 @@ frontend/src/
   (position after the move, opponent's refutation) = exactly the Lichess puzzle
   format the model was trained on; a missed one is (position before, best move)
   → **v2 multi-label transformer + lichess-puzzler verifier** → soft
-  `family_probs`; cascades (one oversight over several moves) collapse to one
+  `family_probs` + a structured multi-type `description` (primary family,
+  every attached family incl. king safety when the punishing line checks the
+  king, motifs, tags); 5–10% losses are kept but counted as positional; cascades (one oversight over several moves) collapse to one
   incident; Maia2 at real ratings gives a `personal_weight` (no hard filter).
   Tactical opportunities are recorded found/missed for hit rates.
 - **Stage 2 (v2)** — 5 fixed skill families (loose_pieces, alignment,
@@ -283,8 +289,18 @@ three flows hand off to the Analysis Board as a full playable game (nav state
 `{moves}` → loaded into its move list). WS URLs are env-aware (`api/ws.ts`):
 `ws://localhost:8000` in dev, same-origin `wss://` in prod.
 
-**Shared frontend** — every page uses `SectionHeader` (icon + title +
-description; the brand wordmark lives only in the sidebar, not repeated per page).
+**Shared frontend** — **tree navigation, no sidebar**: after import the user lands
+on the hub (`/home`) of big blocks — Dashboard, Theory (Openings, Endgames),
+Practice (Drills, Play vs Maia), AI Coach (Chat, Screen Share), Analyze (Game
+Review, Analysis Board, Game History), OTB Scan; Settings is a small button.
+Add or move a feature in `src/nav.ts` only — the hub, section pages and the top
+bar's breadcrumbs all render from it. **Theme = black / white / one neon**
+(`#C8FF2A`): use Tailwind tokens (`bg-bg-*`, `text-text-*`, `accent`,
+`text-accent-ink` for text ON neon — never white on neon) and `src/theme.ts` for
+literal colours (graphite chessboards `BOARD_DARK`/`BOARD_LIGHT`); no purple,
+no hard-coded hex in components. Headings use the `font-display` (Sora) face.
+Every page uses `SectionHeader` (icon + title + description; the wordmark lives
+only in the top bar).
 `useGameReview` powers clickable / arrow-key move history. `MiniBoardThumbnail`
 is a pure-CSS board for dense tree rows (don't use `react-chessboard` for many
 small boards).

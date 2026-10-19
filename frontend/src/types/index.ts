@@ -37,8 +37,11 @@ export interface ClusterProfileV2 {
   allowed_kind: Record<string, number>
   hit_rate: { user: number | null; user_shrunk: number; peer: number | null; opportunities: number;
               p_lower_than_peers?: number | null } | null
-  context: { eval_bucket: Record<string, number>; time_trouble_share: number | null }
+  context: { eval_bucket: Record<string, number>; time_trouble_share: number | null;
+             involves_king_share?: number | null; inaccuracy_share?: number | null }
   soft_count: number
+  tags?: Record<string, number>
+  also_attached?: Record<string, number>
 }
 
 export interface ClusterSummary {

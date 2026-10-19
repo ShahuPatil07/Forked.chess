@@ -20,16 +20,16 @@ import type { ClusterSummary, AnalyticsData } from '../types'
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 
-const ACCENT    = '#7B61FF'
-const PURPLE400 = '#a78bfa'
-const PURPLE300 = '#c4b5fd'
+const ACCENT    = '#C8FF2A'
+const PURPLE400 = '#D7FF5C'
+const PURPLE300 = '#E9FF9E'
 const DANGER    = '#f87171'
 const SUCCESS   = '#4ade80'
 const AMBER      = '#fbbf24'
-const GRID      = '#242436'
-const TEXT2     = '#A0A0B8'
+const GRID      = '#1F1F1F'
+const TEXT2     = '#A3A3A3'
 
-const THREAT_PALETTE = [ACCENT, PURPLE400, PURPLE300, '#818cf8', '#6366f1', '#a5b4fc', '#ddd6fe']
+const THREAT_PALETTE = [ACCENT, PURPLE400, PURPLE300, '#8FD400', '#5E8C00', '#E9FF9E', '#F2FFD0']
 const PHASE_PALETTE: Record<string, string> = { opening: ACCENT, middlegame: PURPLE400, endgame: PURPLE300 }
 
 // ── Small shared pieces ────────────────────────────────────────────────────────
@@ -52,17 +52,17 @@ function MasteryRing({ mastery }: { mastery: number }) {
   const offset = circ * (1 - mastery)
   return (
     <svg width="34" height="34" viewBox="0 0 34 34" className="flex-shrink-0">
-      <circle cx="17" cy="17" r={r} fill="none" stroke="#242436" strokeWidth="3" />
+      <circle cx="17" cy="17" r={r} fill="none" stroke="#1F1F1F" strokeWidth="3" />
       <circle
         cx="17" cy="17" r={r}
-        fill="none" stroke="#7B61FF" strokeWidth="3"
+        fill="none" stroke="#C8FF2A" strokeWidth="3"
         strokeDasharray={circ}
         strokeDashoffset={offset}
         strokeLinecap="round"
         transform="rotate(-90 17 17)"
         style={{ transition: 'stroke-dashoffset 0.6s ease' }}
       />
-      <text x="17" y="20.5" textAnchor="middle" fontSize="8" fill="#A0A0B8" fontWeight="600">
+      <text x="17" y="20.5" textAnchor="middle" fontSize="8" fill="#A3A3A3" fontWeight="600">
         {Math.round(mastery * 100)}
       </text>
     </svg>
@@ -190,6 +190,11 @@ function BlindspotCard({ cluster, idx, gain }: { cluster: ClusterSummary; idx: n
           </Chip>
         )}
         {dir && <Chip tone="accent" title="Did you walk into the opponent's tactic, or miss your own?">{dir}</Chip>}
+        {cid !== 'king_safety' && (p?.context?.involves_king_share ?? 0) >= 0.3 && (
+          <Chip tone="amber" title="Share of these mistakes where the punishing line also attacks your king (also counted as king safety)">
+            {Math.round((p!.context.involves_king_share ?? 0) * 100)}% hit your king
+          </Chip>
+        )}
         {hit && hit.user != null && hit.opportunities >= 3 && (
           <Chip tone={hit.peer != null && hit.user_shrunk < hit.peer - 0.05 ? 'amber' : 'muted'}
             title={`Tactics of this kind you found when they were available (peers: ${hit.peer != null ? Math.round(hit.peer * 100) + '%' : 'n/a'})`}>

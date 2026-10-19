@@ -4,8 +4,8 @@ import { Chess, type Square } from 'chess.js'
 import type { Arrow } from 'react-chessboard/dist/chessboard/types'
 import { Lightbulb, Check, X, RotateCcw } from 'lucide-react'
 
-const DARK = '#1A1D36'
-const LIGHT = '#343761'
+const DARK = '#5C5C5C'
+const LIGHT = '#A9A9A9'
 const GREEN = '#0DC97F'
 const RED = '#FF4D4D'
 
@@ -55,7 +55,7 @@ export function CoachBoard({
     }
     if (showHint && expected) {
       // Hint shows only the origin square direction, not the full move.
-      return [arrow(expected.slice(0, 2) + expected.slice(0, 2), '#7B61FF')].filter(Boolean) as Arrow[]
+      return [arrow(expected.slice(0, 2) + expected.slice(0, 2), '#C8FF2A')].filter(Boolean) as Arrow[]
     }
     return []
   }, [mode, bestUci, playedUci, showHint, expected])
@@ -98,7 +98,7 @@ export function CoachBoard({
     setPosition(fen); setIdx(1); setStatus('solving'); setShowHint(false)
   }
 
-  const ringColor = status === 'solved' ? GREEN : status === 'wrong' ? RED : 'rgba(123,97,255,0.18)'
+  const ringColor = status === 'solved' ? GREEN : status === 'wrong' ? RED : 'rgba(200,255,42,0.18)'
 
   return (
     <div className="inline-block">

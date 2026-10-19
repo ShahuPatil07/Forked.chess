@@ -7,9 +7,9 @@ import { Chess } from 'chess.js'
 
 function VoiceOrb({ speaking = false, listening = false }: { speaking?: boolean; listening?: boolean }) {
   return <div className="relative flex items-center justify-center w-36 h-36 mx-auto" aria-hidden="true">
-    <div className={`absolute inset-0 rounded-full border border-violet-400/20 ${speaking ? 'animate-ping' : ''}`} />
-    <div className={`absolute inset-3 rounded-full bg-accent/10 border border-violet-300/20 ${listening ? 'animate-pulse' : ''}`} />
-    <div className="w-24 h-24 rounded-full flex items-center justify-center bg-gradient-to-br from-violet-300 via-accent to-indigo-800 shadow-[0_0_60px_rgba(123,97,255,0.3)]">
+    <div className={`absolute inset-0 rounded-full border border-accent/20 ${speaking ? 'animate-ping' : ''}`} />
+    <div className={`absolute inset-3 rounded-full bg-accent/10 border border-accent/20 ${listening ? 'animate-pulse' : ''}`} />
+    <div className="w-24 h-24 rounded-full flex items-center justify-center bg-gradient-to-br from-lime-200 via-accent to-neutral-900 shadow-[0_0_60px_rgba(200,255,42,0.3)]">
       <Sparkles size={34} className="text-white" />
     </div>
   </div>
@@ -42,7 +42,7 @@ export default function ShareScreen() {
         <div><h1 className="text-xl font-semibold tracking-tight">Share Screen</h1>
           <p className="text-text-2 text-sm mt-0.5">Your board. Your voice. Your chess coach.</p></div>
       </div>
-      <span className="text-[10px] uppercase tracking-[.16em] px-3 py-1.5 rounded-full border border-accent/30 text-violet-300">{call.stream ? 'Live session' : 'Preview · Forked boards'}</span>
+      <span className="text-[10px] uppercase tracking-[.16em] px-3 py-1.5 rounded-full border border-accent/30 text-accent">{call.stream ? 'Live session' : 'Preview · Forked boards'}</span>
     </div>
 
     {call.error && <div role="alert" className="mb-5 rounded-xl bg-amber-400/10 border border-amber-400/25 p-4 text-sm text-amber-100 flex items-center justify-between gap-4">
@@ -52,7 +52,7 @@ export default function ShareScreen() {
     {!boardOpened ? <>
       <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_1fr] gap-6 items-stretch">
         <section className="rounded-2xl border border-border bg-bg-1/90 p-7 lg:p-9">
-          <div className="text-xs uppercase tracking-[.2em] text-violet-300 mb-5 flex items-center gap-2"><Headphones size={14} /> A seat beside your coach</div>
+          <div className="text-xs uppercase tracking-[.2em] text-accent mb-5 flex items-center gap-2"><Headphones size={14} /> A seat beside your coach</div>
           <h2 className="text-3xl lg:text-4xl font-semibold leading-tight tracking-tight max-w-lg">Play a move.<br />Talk it through.</h2>
           <p className="text-text-1 leading-relaxed text-sm mt-5 max-w-lg">Share your Forked Analysis Board and have a spoken conversation about the position. Understand your move, the opponent’s reply, and what you could try instead.</p>
           <ol className="space-y-5 mt-8">
@@ -61,7 +61,7 @@ export default function ShareScreen() {
               ['Share this workspace', 'Start sharing and choose this tab, named “Forked • Board for live coach” under browser tabs.'],
               ['Pause, then speak', 'Hold a position for 2–3 seconds. Allow the microphone, play a move, and ask your question.'],
             ].map(([title, detail], i) => <li key={title} className="flex gap-3">
-              <span className="rounded-full w-6 h-6 flex-shrink-0 flex items-center justify-center border border-accent/30 bg-accent/10 text-xs text-violet-300">{i + 1}</span>
+              <span className="rounded-full w-6 h-6 flex-shrink-0 flex items-center justify-center border border-accent/30 bg-accent/10 text-xs text-accent">{i + 1}</span>
               <div><h3 className="text-sm font-medium">{title}</h3><p className="text-xs text-text-2 leading-relaxed mt-1">{detail}</p></div>
             </li>)}
           </ol>
@@ -85,7 +85,7 @@ export default function ShareScreen() {
         </section>
 
         <section className="rounded-2xl border border-border overflow-hidden bg-gradient-to-b from-[#19152c] to-bg-1 flex flex-col" aria-label="Static session preview">
-          <div className="px-5 py-4 border-b border-white/5 flex justify-between text-xs text-text-2"><span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-violet-400" /> A look inside your session</span><span>Demo</span></div>
+          <div className="px-5 py-4 border-b border-white/5 flex justify-between text-xs text-text-2"><span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> A look inside your session</span><span>Demo</span></div>
           <div className="flex-1 grid grid-cols-[1.1fr_1fr] items-center gap-4 p-6">
             <div className="max-w-[280px] w-full mx-auto pointer-events-none" aria-hidden="true">
               <Chessboard position="8/3q3k/8/3N4/8/8/8/6K1 w - - 0 1" arePiecesDraggable={false}
@@ -95,21 +95,21 @@ export default function ShareScreen() {
             <div className="text-center"><VoiceOrb /><p className="text-sm font-medium mt-4">Forked Coach</p><p className="text-xs text-text-2 mt-1">English voice · no chat feed</p></div>
           </div>
           <div className="mx-6 mb-6 p-4 rounded-xl bg-black/20 border border-white/5">
-            <p className="text-[10px] uppercase tracking-widest text-violet-300 mb-3">Try asking aloud</p>
+            <p className="text-[10px] uppercase tracking-widest text-accent mb-3">Try asking aloud</p>
             <p className="text-sm text-text-1 leading-loose">“Was that a good move?”<br />“Why is the alternative better?”<br />“What should I play now?”</p>
           </div>
           <div className="border-t border-white/5 p-4 flex items-center justify-center gap-4" aria-hidden="true">
-            <div className="p-3 rounded-full bg-white/5"><Mic size={16} /></div><div className="p-3 rounded-full bg-accent/20 text-violet-300"><MonitorUp size={16} /></div><div className="p-3 rounded-full bg-red-500/15 text-red-300"><PhoneOff size={16} /></div>
+            <div className="p-3 rounded-full bg-white/5"><Mic size={16} /></div><div className="p-3 rounded-full bg-accent/20 text-accent"><MonitorUp size={16} /></div><div className="p-3 rounded-full bg-red-500/15 text-red-300"><PhoneOff size={16} /></div>
           </div>
         </section>
       </div>
       <div className="grid md:grid-cols-3 gap-5 mt-6 text-xs text-text-2 leading-relaxed">
         <div className="card p-5"><h3 className="text-text-0 font-medium mb-2 flex gap-2 items-center"><Volume2 size={15} /> Check your sound</h3>
           <p>Headphones help keep your voice clear. Listening pauses while the coach speaks; use Interrupt to take your turn.</p>
-          <button onClick={call.testSpeaker} disabled={!call.supported} className="mt-3 text-violet-300 flex gap-1.5 items-center disabled:opacity-40"><Play size={12} /> Test English voice</button></div>
+          <button onClick={call.testSpeaker} disabled={!call.supported} className="mt-3 text-accent flex gap-1.5 items-center disabled:opacity-40"><Play size={12} /> Test English voice</button></div>
         <div className="card p-5"><h3 className="text-text-0 font-medium mb-2">Free to start</h3>
           <p>The same evidence-based Coach explains your moves aloud using the configured Groq free tier. If its quota is unavailable, a local explanation takes over.</p>
-          <label className="flex items-center gap-2 mt-3 text-text-1"><input type="checkbox" className="accent-violet-500" checked={call.useLlm} onChange={e => call.setUseLlm(e.target.checked)} /> Coach explanations (Groq free tier)</label></div>
+          <label className="flex items-center gap-2 mt-3 text-text-1"><input type="checkbox" className="accent-lime-300" checked={call.useLlm} onChange={e => call.setUseLlm(e.target.checked)} /> Coach explanations (Groq free tier)</label></div>
         <div className="card p-5"><h3 className="text-text-0 font-medium mb-2">A connected board, a private preview</h3>
           <p>Play and talk in this tab. The board supplies the exact position and last move. Screen video stays in your browser. Speech recognition may send audio to your browser’s speech service. Calls aren’t recorded by Forked.</p></div>
       </div>
@@ -125,9 +125,9 @@ export default function ShareScreen() {
         <div className="rounded-2xl border border-accent/20 bg-gradient-to-b from-accent/10 to-bg-1 p-6 flex flex-col items-center justify-center min-h-[300px] text-center">
           <VoiceOrb speaking={call.speaking} listening={call.listening} />
           <h2 className="text-lg font-semibold mt-6">Forked Coach</h2>
-          <p className="text-sm text-violet-300 mt-2" role="status">{call.stream ? state : 'Start sharing to begin'}</p>
+          <p className="text-sm text-accent mt-2" role="status">{call.stream ? state : 'Start sharing to begin'}</p>
           <div className="h-8 flex items-center justify-center gap-1 mt-4" aria-hidden="true">
-            {[12, 22, 32, 18, 26, 14, 22].map((h, i) => <span key={i} className={`w-1 rounded-full bg-violet-400/60 ${call.speaking || call.listening ? 'animate-pulse' : ''}`} style={{ height: call.speaking || call.listening ? h : 4, animationDelay: `${i * 110}ms` }} />)}
+            {[12, 22, 32, 18, 26, 14, 22].map((h, i) => <span key={i} className={`w-1 rounded-full bg-accent/60 ${call.speaking || call.listening ? 'animate-pulse' : ''}`} style={{ height: call.speaking || call.listening ? h : 4, animationDelay: `${i * 110}ms` }} />)}
           </div>
           <span className="text-[11px] text-text-2 mt-5">{call.ready ? 'Exact board position connected' : 'Waiting for a stable position'}</span>
         </div>

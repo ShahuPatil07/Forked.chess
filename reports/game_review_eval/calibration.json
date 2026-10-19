@@ -1,0 +1,594 @@
+{
+  "expected_points": {
+    "positions": 35095,
+    "rating_range": [
+      690,
+      2006
+    ],
+    "k_flat": 0.003256,
+    "nll_flat": 0.58755,
+    "k0": 0.003349,
+    "k_per_400": -0.000918,
+    "nll_rating_aware": 0.5868,
+    "nll_lichess": 0.58875
+  },
+  "accuracy": {
+    "variants": {
+      "current_production (Lichess formula)": {
+        "params": {
+          "A": 103.1668,
+          "k": 0.04354,
+          "B": -3.1669,
+          "b": 0.0
+        },
+        "model": "lichess",
+        "train": {
+          "n": 624,
+          "mae": 7.24,
+          "bias": 3.47,
+          "within_3": 0.285,
+          "within_5": 0.429,
+          "corr": 0.712
+        },
+        "test": {
+          "n": 266,
+          "mae": 6.65,
+          "bias": 3.56,
+          "within_3": 0.289,
+          "within_5": 0.455,
+          "corr": 0.746
+        }
+      },
+      "fitted_lichess": {
+        "params": {
+          "A": 85.459761,
+          "k": 0.148968,
+          "B": 24.417853,
+          "b": -0.007066,
+          "skip_book": false,
+          "skip_forced": false
+        },
+        "model": "lichess",
+        "train": {
+          "n": 624,
+          "mae": 4.44,
+          "bias": -0.15,
+          "within_3": 0.455,
+          "within_5": 0.67,
+          "corr": 0.847
+        },
+        "test": {
+          "n": 266,
+          "mae": 4.24,
+          "bias": -0.1,
+          "within_3": 0.447,
+          "within_5": 0.688,
+          "corr": 0.829
+        }
+      },
+      "fitted_lichess_noforced": {
+        "params": {
+          "A": 85.892465,
+          "k": 0.152667,
+          "B": 24.958003,
+          "b": -0.040598,
+          "skip_book": false,
+          "skip_forced": true
+        },
+        "model": "lichess",
+        "train": {
+          "n": 624,
+          "mae": 4.35,
+          "bias": -0.22,
+          "within_3": 0.452,
+          "within_5": 0.675,
+          "corr": 0.853
+        },
+        "test": {
+          "n": 266,
+          "mae": 4.2,
+          "bias": -0.14,
+          "within_3": 0.44,
+          "within_5": 0.699,
+          "corr": 0.831
+        }
+      },
+      "fitted_lichess_nobook": {
+        "params": {
+          "A": 78.394473,
+          "k": 0.118877,
+          "B": 23.808274,
+          "b": 0.072584,
+          "skip_book": true,
+          "skip_forced": false
+        },
+        "model": "lichess",
+        "train": {
+          "n": 624,
+          "mae": 4.73,
+          "bias": -0.36,
+          "within_3": 0.429,
+          "within_5": 0.643,
+          "corr": 0.821
+        },
+        "test": {
+          "n": 266,
+          "mae": 4.93,
+          "bias": -0.61,
+          "within_3": 0.451,
+          "within_5": 0.677,
+          "corr": 0.628
+        }
+      },
+      "fitted_lichess_nobook_noforced": {
+        "params": {
+          "A": 78.145412,
+          "k": 0.121624,
+          "B": 24.449619,
+          "b": -0.004035,
+          "skip_book": true,
+          "skip_forced": true
+        },
+        "model": "lichess",
+        "train": {
+          "n": 624,
+          "mae": 4.64,
+          "bias": -0.51,
+          "within_3": 0.439,
+          "within_5": 0.655,
+          "corr": 0.828
+        },
+        "test": {
+          "n": 266,
+          "mae": 4.89,
+          "bias": -0.74,
+          "within_3": 0.459,
+          "within_5": 0.677,
+          "corr": 0.631
+        }
+      },
+      "fitted_power": {
+        "params": {
+          "A": 103.344749,
+          "k": 0.113347,
+          "B": 2.89366,
+          "f": 3.799488,
+          "p": 0.212515,
+          "b": -0.000259,
+          "skip_book": false,
+          "skip_forced": false
+        },
+        "model": "power",
+        "train": {
+          "n": 624,
+          "mae": 3.64,
+          "bias": 0.34,
+          "within_3": 0.527,
+          "within_5": 0.732,
+          "corr": 0.907
+        },
+        "test": {
+          "n": 266,
+          "mae": 3.36,
+          "bias": 0.2,
+          "within_3": 0.53,
+          "within_5": 0.793,
+          "corr": 0.903
+        }
+      },
+      "fitted_power_noforced": {
+        "params": {
+          "A": 110.566457,
+          "k": 0.103758,
+          "B": -5.429477,
+          "f": 0.5,
+          "p": 0.447081,
+          "b": -0.003263,
+          "skip_book": false,
+          "skip_forced": true
+        },
+        "model": "power",
+        "train": {
+          "n": 624,
+          "mae": 3.54,
+          "bias": 0.26,
+          "within_3": 0.53,
+          "within_5": 0.752,
+          "corr": 0.913
+        },
+        "test": {
+          "n": 266,
+          "mae": 3.36,
+          "bias": 0.18,
+          "within_3": 0.549,
+          "within_5": 0.793,
+          "corr": 0.903
+        }
+      },
+      "fitted_power_nobook": {
+        "params": {
+          "A": 100.594734,
+          "k": 0.082483,
+          "B": -1.301612,
+          "f": 5.42068,
+          "p": 0.238144,
+          "b": 0.000867,
+          "skip_book": true,
+          "skip_forced": false
+        },
+        "model": "power",
+        "train": {
+          "n": 624,
+          "mae": 4.02,
+          "bias": 0.02,
+          "within_3": 0.454,
+          "within_5": 0.697,
+          "corr": 0.882
+        },
+        "test": {
+          "n": 266,
+          "mae": 4.33,
+          "bias": -0.31,
+          "within_3": 0.477,
+          "within_5": 0.763,
+          "corr": 0.675
+        }
+      },
+      "fitted_power_nobook_noforced": {
+        "params": {
+          "A": 101.249144,
+          "k": 0.083663,
+          "B": -1.902142,
+          "f": 5.184147,
+          "p": 0.309355,
+          "b": 0.000242,
+          "skip_book": true,
+          "skip_forced": true
+        },
+        "model": "power",
+        "train": {
+          "n": 624,
+          "mae": 3.95,
+          "bias": -0.04,
+          "within_3": 0.452,
+          "within_5": 0.704,
+          "corr": 0.888
+        },
+        "test": {
+          "n": 266,
+          "mae": 4.32,
+          "bias": -0.34,
+          "within_3": 0.485,
+          "within_5": 0.763,
+          "corr": 0.671
+        }
+      }
+    },
+    "chosen": "fitted_power_noforced",
+    "train_games": 312,
+    "test_games": 133,
+    "test_by_rating_band": {
+      "fitted_power_noforced": {
+        "0-399": {
+          "n": 10,
+          "mae": 6.31,
+          "bias": -1.36,
+          "within_3": 0.3,
+          "within_5": 0.6,
+          "corr": 0.85
+        },
+        "1200-1599": {
+          "n": 54,
+          "mae": 3.18,
+          "bias": 0.07,
+          "within_3": 0.519,
+          "within_5": 0.87,
+          "corr": 0.911
+        },
+        "1600-1999": {
+          "n": 77,
+          "mae": 3.08,
+          "bias": 0.73,
+          "within_3": 0.584,
+          "within_5": 0.779,
+          "corr": 0.91
+        },
+        "2000-2399": {
+          "n": 37,
+          "mae": 2.81,
+          "bias": -1.92,
+          "within_3": 0.622,
+          "within_5": 0.865,
+          "corr": 0.934
+        },
+        "2400-2799": {
+          "n": 14,
+          "mae": 2.61,
+          "bias": -0.12,
+          "within_3": 0.786,
+          "within_5": 0.929,
+          "corr": 0.855
+        },
+        "2800-3199": {
+          "n": 8,
+          "mae": 3.95,
+          "bias": 0.11,
+          "within_3": 0.5,
+          "within_5": 0.5,
+          "corr": 0.555
+        },
+        "400-799": {
+          "n": 31,
+          "mae": 3.78,
+          "bias": 1.73,
+          "within_3": 0.452,
+          "within_5": 0.71,
+          "corr": 0.904
+        },
+        "800-1199": {
+          "n": 35,
+          "mae": 3.82,
+          "bias": 0.56,
+          "within_3": 0.514,
+          "within_5": 0.771,
+          "corr": 0.827
+        }
+      },
+      "current_production (Lichess formula)": {
+        "0-399": {
+          "n": 10,
+          "mae": 5.44,
+          "bias": 2.36,
+          "within_3": 0.4,
+          "within_5": 0.5,
+          "corr": 0.902
+        },
+        "1200-1599": {
+          "n": 54,
+          "mae": 7.34,
+          "bias": 4.34,
+          "within_3": 0.222,
+          "within_5": 0.389,
+          "corr": 0.707
+        },
+        "1600-1999": {
+          "n": 77,
+          "mae": 7.15,
+          "bias": 5.11,
+          "within_3": 0.221,
+          "within_5": 0.39,
+          "corr": 0.719
+        },
+        "2000-2399": {
+          "n": 37,
+          "mae": 4.53,
+          "bias": 1.75,
+          "within_3": 0.378,
+          "within_5": 0.703,
+          "corr": 0.778
+        },
+        "2400-2799": {
+          "n": 14,
+          "mae": 3.53,
+          "bias": 3.53,
+          "within_3": 0.714,
+          "within_5": 0.714,
+          "corr": 0.784
+        },
+        "2800-3199": {
+          "n": 8,
+          "mae": 4.26,
+          "bias": 3.72,
+          "within_3": 0.5,
+          "within_5": 0.625,
+          "corr": 0.654
+        },
+        "400-799": {
+          "n": 31,
+          "mae": 8.87,
+          "bias": 3.54,
+          "within_3": 0.194,
+          "within_5": 0.323,
+          "corr": 0.661
+        },
+        "800-1199": {
+          "n": 35,
+          "mae": 6.89,
+          "bias": 1.21,
+          "within_3": 0.286,
+          "within_5": 0.4,
+          "corr": 0.708
+        }
+      }
+    }
+  },
+  "rating_curve": {
+    "pairs": 11354,
+    "table": [
+      {
+        "rating": 450,
+        "median_acc": 70.17,
+        "p25": 62.73,
+        "p75": 75.8,
+        "n": 37,
+        "typical_acc": 69.12
+      },
+      {
+        "rating": 550,
+        "median_acc": 73.54,
+        "p25": 65.8,
+        "p75": 78.9,
+        "n": 43,
+        "typical_acc": 69.12
+      },
+      {
+        "rating": 650,
+        "median_acc": 66.28,
+        "p25": 63.17,
+        "p75": 72.48,
+        "n": 21,
+        "typical_acc": 69.12
+      },
+      {
+        "rating": 750,
+        "median_acc": 69.12,
+        "p25": 62.23,
+        "p75": 76.27,
+        "n": 86,
+        "typical_acc": 69.12
+      },
+      {
+        "rating": 850,
+        "median_acc": 66.48,
+        "p25": 55.42,
+        "p75": 74.34,
+        "n": 91,
+        "typical_acc": 69.12
+      },
+      {
+        "rating": 950,
+        "median_acc": 70.53,
+        "p25": 63.04,
+        "p75": 78.38,
+        "n": 130,
+        "typical_acc": 70.53
+      },
+      {
+        "rating": 1050,
+        "median_acc": 74.28,
+        "p25": 66.81,
+        "p75": 80.69,
+        "n": 287,
+        "typical_acc": 74.28
+      },
+      {
+        "rating": 1150,
+        "median_acc": 75.13,
+        "p25": 67.64,
+        "p75": 82.68,
+        "n": 309,
+        "typical_acc": 75.0
+      },
+      {
+        "rating": 1250,
+        "median_acc": 74.88,
+        "p25": 66.89,
+        "p75": 80.65,
+        "n": 326,
+        "typical_acc": 75.0
+      },
+      {
+        "rating": 1350,
+        "median_acc": 75.21,
+        "p25": 68.05,
+        "p75": 83.01,
+        "n": 182,
+        "typical_acc": 75.21
+      },
+      {
+        "rating": 1450,
+        "median_acc": 76.05,
+        "p25": 69.12,
+        "p75": 81.26,
+        "n": 229,
+        "typical_acc": 75.78
+      },
+      {
+        "rating": 1550,
+        "median_acc": 75.5,
+        "p25": 69.27,
+        "p75": 82.64,
+        "n": 424,
+        "typical_acc": 75.78
+      },
+      {
+        "rating": 1650,
+        "median_acc": 77.66,
+        "p25": 70.0,
+        "p75": 84.05,
+        "n": 882,
+        "typical_acc": 77.23
+      },
+      {
+        "rating": 1750,
+        "median_acc": 76.8,
+        "p25": 70.23,
+        "p75": 83.27,
+        "n": 856,
+        "typical_acc": 77.23
+      },
+      {
+        "rating": 1850,
+        "median_acc": 77.71,
+        "p25": 71.19,
+        "p75": 83.81,
+        "n": 919,
+        "typical_acc": 77.71
+      },
+      {
+        "rating": 1950,
+        "median_acc": 79.52,
+        "p25": 73.13,
+        "p75": 85.94,
+        "n": 639,
+        "typical_acc": 79.52
+      },
+      {
+        "rating": 2050,
+        "median_acc": 81.84,
+        "p25": 75.55,
+        "p75": 87.1,
+        "n": 986,
+        "typical_acc": 81.73
+      },
+      {
+        "rating": 2150,
+        "median_acc": 81.63,
+        "p25": 76.48,
+        "p75": 87.45,
+        "n": 648,
+        "typical_acc": 81.73
+      },
+      {
+        "rating": 2250,
+        "median_acc": 82.08,
+        "p25": 76.44,
+        "p75": 87.29,
+        "n": 1206,
+        "typical_acc": 82.08
+      },
+      {
+        "rating": 2350,
+        "median_acc": 82.88,
+        "p25": 77.16,
+        "p75": 88.11,
+        "n": 1872,
+        "typical_acc": 82.88
+      },
+      {
+        "rating": 2450,
+        "median_acc": 83.34,
+        "p25": 78.26,
+        "p75": 88.69,
+        "n": 939,
+        "typical_acc": 83.34
+      },
+      {
+        "rating": 2550,
+        "median_acc": 87.53,
+        "p25": 82.36,
+        "p75": 90.9,
+        "n": 136,
+        "typical_acc": 87.53
+      },
+      {
+        "rating": 2850,
+        "median_acc": 89.44,
+        "p25": 86.11,
+        "p75": 93.09,
+        "n": 56,
+        "typical_acc": 89.44
+      }
+    ]
+  }
+}

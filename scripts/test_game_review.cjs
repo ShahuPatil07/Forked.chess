@@ -84,7 +84,8 @@ let browser;
   await page.getByText('Your chess coach, with an engine behind every answer.').waitFor();
   const chatWidth = await page.locator('textarea').last().evaluate(el => el.getBoundingClientRect().width);
   assert(chatWidth > 500, `Expected a roomy chat beside the board; received ${chatWidth}`);
-  assert.equal(await page.locator('#coach-workspace, [id^="coach-workspace"]').count() > 0, true);
+  // react-chessboard exposes its `id` prop as data-boardid, not a DOM id.
+  assert.equal(await page.locator('[data-boardid="coach-workspace"]').count() > 0, true);
   await page.screenshot({ path: 'logs/coach-wide.png', fullPage: true });
   await page.goto('http://localhost:5173/endgames');
   await page.getByRole('heading', { name: 'Endgames', exact: true }).waitFor();

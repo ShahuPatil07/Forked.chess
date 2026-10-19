@@ -43,7 +43,35 @@ def test_special_classes_are_conservative():
     assert classify(0, best=True, expected=.6, second_expected=.4)[0] == 'great'
     assert classify(0, best=True, sacrifice=True, expected=.6, second_expected=.4)[0] == 'brilliant'
     assert classify(0, best=True, sacrifice=True, expected=.95, second_expected=.93)[0] != 'brilliant'
-    assert classify(.2, best=False, missed_chance=True)[0] == 'miss'
+    # v2: a big loss is a Blunder only with a concrete punishment (material or mate)
+    assert classify(.2, best=False, missed_chance=True, concrete=False)[0] == 'miss'
+    assert classify(.2, best=False, missed_chance=True, concrete=True)[0] == 'blunder'
+    assert classify(.25, best=False, concrete=False)[0] == 'mistake'
+    # Great excludes obvious moves such as recaptures
+    assert classify(0, best=True, expected=.6, second_expected=.4, obvious=True)[0] == 'best'
+    # an endgame sacrifice must be the only good option
+    assert classify(0, best=True, sacrifice=True, expected=.6, second_expected=.55, endgame=True)[0] != 'brilliant'
+
+
+def test_sacrifice_offers_and_obvious_moves():
+    from backend.game_review import is_obvious
+    # Ng5 hangs the knight to Qxg5 (an offer); Nc3 offers nothing; Nxe5 just wins a pawn
+    b = chess.Board('r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3')
+    assert offered_sacrifice(b, b.parse_san('Ng5')) is True
+    assert offered_sacrifice(b, b.parse_san('Nc3')) is False
+    b2 = chess.Board('rnbqkbnr/ppp2ppp/8/3pp3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3')
+    assert offered_sacrifice(b2, b2.parse_san('Nxe5')) is False
+    # a move that mates on the spot is not a sacrifice
+    b3 = chess.Board('6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1')
+    assert offered_sacrifice(b3, b3.parse_san('Ra8#')) is False
+    # an offer counts on any square: Qh5 abandons the d4 knight (and steps into Nf6)
+    b4 = chess.Board('r1bqkb1r/pppp1ppp/2n2n2/8/3NP3/8/PPP2PPP/RNBQKB1R w KQkq - 2 5')
+    assert offered_sacrifice(b4, b4.parse_san('Qh5')) is True
+    # recapturing on the square the opponent just captured on is "obvious" (not Great)
+    after_exd5 = chess.Board('rnbqkbnr/ppp1pppp/8/3P4/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2')
+    assert is_obvious(after_exd5, after_exd5.parse_san('Qxd5'), chess.Move.from_uci('e4d5')) is True
+    quiet = chess.Board('rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3')
+    assert is_obvious(quiet, quiet.parse_san('Nc3'), chess.Move.from_uci('d8d5')) is False
 
 
 def test_opening_edges_and_transposed_position_lookup():
@@ -82,7 +110,11 @@ def test_ratings_need_evidence_and_ignore_book_padding():
     row = {'color':'white','accuracy':90.,'classification':'good','forced':False,'expected_loss':.02,
            'best_score':{'expected':.6},'played_score':{'white_cp':0,'white_mate':None}}
     assert summarize([row] * 7)['white']['rating'] is None
-    assert summarize([row] * 8)['white']['rating']['calibrated'] is False
+    rating = summarize([row] * 8)['white']['rating']
+    # calibrated when backend/review_calibration.json is present, a labelled heuristic otherwise
+    assert rating['low'] <= rating['estimate'] <= rating['high']
+    anchored = summarize([row] * 8, {'white': 1500})['white']['rating']
+    assert anchored['calibrated'] is False or anchored['relative_to'] == 1500
     book = deepcopy(row); book['classification'] = 'book'
     assert summarize([book] * 30)['white']['rating'] is None
     assert summarize([row])['black']['accuracy'] is None

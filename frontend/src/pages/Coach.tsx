@@ -159,14 +159,14 @@ function CoachWorkspace() {
     <>
       {showLevel && <LevelQuestionnaire initial={level} onSave={saveLevel} onClose={level ? () => setShowLevel(false) : undefined} />}
       <div className="grid gap-4 lg:grid-cols-[minmax(300px,500px)_minmax(0,1fr)]" style={{ minHeight: 460 }}>
-        <div className="lg:overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 145px)' }}>
+        <div className="lg:overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 201px)' }}>
           <CoachWorkspaceBoard board={board} busy={streaming} />
           <p className="text-[11px] text-text-2 mt-2 px-1">
             The coach sees this board. Move pieces, paste a FEN/PGN, or click moves in an answer to explore them here.
           </p>
         </div>
 
-        <div className="card p-0 flex flex-col min-w-0" style={{ height: 'calc(100dvh - 145px)', minHeight: 460 }}>
+        <div className="card p-0 flex flex-col min-w-0" style={{ height: 'calc(100dvh - 201px)', minHeight: 460 }}>
           <div className="flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-b border-border">
             <button onClick={() => setShowLevel(true)} title="Change how the coach explains"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-text-1 hover:text-text-0 hover:bg-bg-2 border border-border">
@@ -290,7 +290,7 @@ function CoachWorkspace() {
               </button>
             ) : (
               <button type="submit" disabled={!input.trim()}
-                className="w-9 h-9 rounded-md bg-accent hover:bg-accent-hover text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0">
+                className="w-9 h-9 rounded-md bg-accent hover:bg-accent-hover text-accent-ink flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0">
                 <Send size={14} />
               </button>
             )}

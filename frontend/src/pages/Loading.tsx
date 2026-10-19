@@ -18,7 +18,7 @@ function ProgressBar({ pct }: { pct: number }) {
   return (
     <div className="w-full h-1.5 bg-bg-3 rounded-full overflow-hidden">
       <motion.div
-        className="h-full bg-gradient-to-r from-accent to-purple-400 rounded-full"
+        className="h-full bg-gradient-to-r from-accent to-lime-200 rounded-full"
         initial={{ width: '0%' }}
         animate={{ width: `${pct}%` }}
         transition={{ duration: 0.6, ease: 'easeOut' }}
@@ -49,7 +49,7 @@ export default function Loading() {
       setProgress(evt)
       if (evt.type === 'done') {
         setUser({ activeJobId: null })
-        setTimeout(() => navigate('/dashboard'), 1200)
+        setTimeout(() => navigate('/home'), 1200)
       }
       if (evt.type === 'error') {
         // stay on page, show error
@@ -73,7 +73,7 @@ export default function Loading() {
       <div
         className="fixed inset-0 pointer-events-none opacity-[0.03]"
         style={{
-          backgroundImage: 'linear-gradient(#7B61FF 1px, transparent 1px), linear-gradient(90deg, #7B61FF 1px, transparent 1px)',
+          backgroundImage: 'linear-gradient(#C8FF2A 1px, transparent 1px), linear-gradient(90deg, #C8FF2A 1px, transparent 1px)',
           backgroundSize: '40px 40px',
         }}
       />
@@ -88,7 +88,7 @@ export default function Loading() {
           <img
             src="/logo.png"
             alt="Forked"
-            className="h-16 w-auto mx-auto mb-4 drop-shadow-[0_0_16px_rgba(123,97,255,0.3)]"
+            className="h-16 w-auto mx-auto mb-4 drop-shadow-[0_0_16px_rgba(200,255,42,0.3)]"
           />
           <h1 className="text-xl font-semibold text-text-0">
             {isDone ? 'Your profile is ready!' : 'Learning how you play...'}

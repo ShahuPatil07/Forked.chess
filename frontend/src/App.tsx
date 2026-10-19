@@ -17,6 +17,7 @@ import DNAPage from './pages/DNAPage'
 import Coach from './pages/Coach'
 import ShareScreen from './pages/ShareScreen'
 import GameReview from './pages/GameReview'
+import Hub from './pages/Hub'
 import AppShell from './components/layout/AppShell'
 import { ChessBackground } from './components/layout/ChessBackground'
 
@@ -43,6 +44,9 @@ export default function App() {
         <Route path="/replay/:clusterId" element={<RequireUser><MistakeReplay /></RequireUser>} />
 
         <Route element={<RequireUser><AppShell /></RequireUser>}>
+          {/* Tree navigation: the hub of big blocks, then each section's sub-blocks */}
+          <Route path="/home" element={<Hub />} />
+          <Route path="/home/:section" element={<Hub />} />
           <Route path="/share-screen" element={<ShareScreen />} />
           <Route path="/game-review" element={<GameReview />} />
           <Route path="/dashboard" element={<Dashboard />} />

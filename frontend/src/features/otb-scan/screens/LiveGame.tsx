@@ -74,7 +74,7 @@ export function LiveGame({
   }
 
   const squareStyles = selected
-    ? { [selected]: { background: 'rgba(123,97,255,0.45)' } }
+    ? { [selected]: { background: 'rgba(200,255,42,0.45)' } }
     : undefined
 
   return (

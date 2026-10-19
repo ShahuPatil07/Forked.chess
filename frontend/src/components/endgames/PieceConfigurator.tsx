@@ -110,7 +110,7 @@ function SideColumn({
             >
               {glyphs[k]}
               {n > 0 && (
-                <span className="absolute -top-1 -right-1 bg-accent text-white text-[9px] font-bold
+                <span className="absolute -top-1 -right-1 bg-accent text-accent-ink text-[9px] font-bold
                                  rounded-full w-4 h-4 flex items-center justify-center">
                   {n}
                 </span>

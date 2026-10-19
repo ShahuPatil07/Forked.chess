@@ -12,8 +12,8 @@ const PIECES: Record<string, string> = {
   p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚',
 }
 
-const DARK_SQ  = '#1A1D36'
-const LIGHT_SQ = '#343761'
+const DARK_SQ  = '#5C5C5C'
+const LIGHT_SQ = '#A9A9A9'
 
 function parseFenBoard(fen: string): (string | null)[] {
   // 64-cell array, idx 0 = a8, idx 63 = h1 (visual row order)
@@ -59,7 +59,7 @@ function MiniBoardThumbnailInner({
         display:             'grid',
         gridTemplateColumns: `repeat(8, ${cellPx}px)`,
         gridTemplateRows:    `repeat(8, ${cellPx}px)`,
-        boxShadow:           '0 0 0 1px rgba(123,97,255,0.18)',
+        boxShadow:           '0 0 0 1px rgba(200,255,42,0.18)',
       }}
     >
       {cells.map((piece, i) => {
@@ -72,7 +72,7 @@ function MiniBoardThumbnailInner({
           <div key={i}
             style={{
               backgroundColor: isDark ? DARK_SQ : LIGHT_SQ,
-              color:           isWhite ? '#EEEEF2' : '#0B0B0F',
+              color:           isWhite ? '#F5F5F5' : '#050505',
               fontSize:        fontPx,
               lineHeight:      `${cellPx}px`,
               textAlign:       'center',

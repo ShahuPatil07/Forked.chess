@@ -117,6 +117,24 @@ def test_family_distribution():
         {"fork": 0.05}, p_none=0.9)[k]) == "unclassified"
 
 
+# ── structured multi-type description ───────────────────────────────────────
+
+def test_fork_with_check_is_loose_pieces_and_king_safety():
+    from ml.ingestion.classify_events import describe
+    # The opponent's refutation Nc7+ forks king and rook: primary stays
+    # loose_pieces (Lichess convention), king safety is attached as well.
+    m = MistakeEvent(game_id="g", user_id="u", fen=chess.STARTING_FEN, move_played_uci="e2e4",
+                     move_played_san="e4", best_move_uci="d2d4", eval_before_cp=0, eval_after_cp=-400,
+                     eval_drop_cp=400, threat_type="fork", game_phase="middlegame", time_remaining_ms=None,
+                     move_number=20, direction="allowed", cluster_id="loose_pieces", swing_allowed_cp=500,
+                     fen_after="r3k3/8/8/1N6/8/8/8/4K3 w - - 0 1", reply_line=["b5c7", "e8d7", "c7a8"],
+                     family_probs={"loose_pieces": 0.8, "unclassified": 0.2}, judgement="blunder")
+    d = describe(m, {"probs": {"fork": 0.9}, "verified": ["fork"]}, None)
+    fams = [f["family"] for f in d["families"]]
+    assert d["primary_family"] == "loose_pieces" and fams[0] == "loose_pieces" and "king_safety" in fams
+    assert {"involves_king", "check", "wins_material"} <= set(d["tags"])
+
+
 # ── cascades & phase ────────────────────────────────────────────────────────
 
 def _ev(ply, refut, opp_played, fam="loose_pieces", direction="allowed", game="g1"):

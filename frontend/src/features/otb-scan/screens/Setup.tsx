@@ -88,17 +88,17 @@ function AngleDiagram() {
   return (
     <svg viewBox="0 0 300 130" className="w-full h-auto">
       {/* board */}
-      <polygon points="40,110 200,110 240,80 80,80" fill="#3a3a52" stroke="#5A5A72" />
-      <polygon points="80,80 240,80 230,72 90,72" fill="#242436" />
+      <polygon points="40,110 200,110 240,80 80,80" fill="#3A3A3A" stroke="#6B6B6B" />
+      <polygon points="80,80 240,80 230,72 90,72" fill="#1F1F1F" />
       {/* phone */}
       <g transform="rotate(-38 250 40)">
-        <rect x="232" y="10" width="36" height="62" rx="5" fill="#111118" stroke="#7B61FF" strokeWidth="2" />
-        <circle cx="250" cy="64" r="2" fill="#5A5A72" />
-        <rect x="237" y="16" width="26" height="40" rx="2" fill="#1A1A25" />
+        <rect x="232" y="10" width="36" height="62" rx="5" fill="#0C0C0C" stroke="#C8FF2A" strokeWidth="2" />
+        <circle cx="250" cy="64" r="2" fill="#6B6B6B" />
+        <rect x="237" y="16" width="26" height="40" rx="2" fill="#151515" />
       </g>
       {/* angle arc */}
-      <path d="M 200 110 A 60 60 0 0 1 235 70" fill="none" stroke="#7B61FF" strokeDasharray="3 3" />
-      <text x="208" y="92" fill="#8A8AA4" fontSize="11">30–45°</text>
+      <path d="M 200 110 A 60 60 0 0 1 235 70" fill="none" stroke="#C8FF2A" strokeDasharray="3 3" />
+      <text x="208" y="92" fill="#A3A3A3" fontSize="11">30–45°</text>
     </svg>
   )
 }

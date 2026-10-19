@@ -73,7 +73,7 @@ function EvalBar({ evalCp, evalMate, loading, boardH, orient }: {
           style={{ flex: blackPct }}>
           {showLabelTop && <span className="text-[9px] font-bold text-text-0 mt-1 leading-none">{label}</span>}
         </div>
-        <div className="w-full bg-[#E8E8F0] flex items-end justify-center transition-[flex] duration-500 ease-out"
+        <div className="w-full bg-[#F0F0F0] flex items-end justify-center transition-[flex] duration-500 ease-out"
           style={{ flex: whitePct }}>
           {showLabelBottom && <span className="text-[9px] font-bold text-bg-0 mb-1 leading-none">{label}</span>}
         </div>
@@ -171,11 +171,11 @@ function getMoveOptions(chess: Chess, square: Square): Record<string, object> {
     styles[m.to] = {
       background: chess.get(m.to)
         ? 'radial-gradient(circle, rgba(255,77,77,0.35) 85%, transparent 85%)'
-        : 'radial-gradient(circle, rgba(123,97,255,0.35) 40%, transparent 40%)',
+        : 'radial-gradient(circle, rgba(200,255,42,0.35) 40%, transparent 40%)',
       borderRadius: '50%',
     }
   })
-  styles[square] = { backgroundColor: 'rgba(123,97,255,0.25)' }
+  styles[square] = { backgroundColor: 'rgba(200,255,42,0.25)' }
   return styles
 }
 
@@ -317,7 +317,7 @@ export default function AnalysisBoard({ embedded = false, liveSession, startingF
       ? [[mistakeUci.slice(0, 2) as Square, mistakeUci.slice(2, 4) as Square, '#FF4D4D'] as Arrow]
       : []),
     ...(bestMoveUci && bestMoveUci.length >= 4
-      ? [[bestMoveUci.slice(0, 2) as Square, bestMoveUci.slice(2, 4) as Square, '#7B61FF'] as Arrow]
+      ? [[bestMoveUci.slice(0, 2) as Square, bestMoveUci.slice(2, 4) as Square, '#C8FF2A'] as Arrow]
       : []),
   ]
 
@@ -362,8 +362,8 @@ export default function AnalysisBoard({ embedded = false, liveSession, startingF
     setSelectedSq(null)
     setOptionSqs({})
     setLastMoveSqs({
-      [from]: { backgroundColor: 'rgba(123,97,255,0.22)' },
-      [to]:   { backgroundColor: 'rgba(123,97,255,0.32)' },
+      [from]: { backgroundColor: 'rgba(200,255,42,0.22)' },
+      [to]:   { backgroundColor: 'rgba(200,255,42,0.32)' },
     })
     setChess(chess)
     return true
@@ -390,7 +390,7 @@ export default function AnalysisBoard({ embedded = false, liveSession, startingF
   if (embedded) return <div ref={embeddedWrap} className="w-full max-w-[560px] mx-auto" data-testid="call-analysis-board">
     <Chessboard id="call-board" position={fen} boardOrientation={orient} onPieceDrop={handlePieceDrop}
       onSquareClick={handleSquareClick} boardWidth={embeddedWidth} customSquareStyles={squareStyles}
-      customDarkSquareStyle={{ backgroundColor: '#454161' }} customLightSquareStyle={{ backgroundColor: '#b8b2ce' }} />
+      customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }} customLightSquareStyle={{ backgroundColor: '#A9A9A9' }} />
     <div className="flex justify-between items-center gap-2 mt-3">
       <span className="text-xs text-text-2">{chess.turn() === 'w' ? 'White' : 'Black'} to move</span>
       <div className="flex gap-1"><button className="btn-ghost text-xs" onClick={handleUndo} disabled={moveIdx < 0}>Undo</button>
@@ -444,9 +444,9 @@ export default function AnalysisBoard({ embedded = false, liveSession, startingF
             boardWidth={BOARD_SIZE}
             customSquareStyles={squareStyles}
             customArrows={arrows}
-            customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-            customLightSquareStyle={{ backgroundColor: '#343761' }}
-            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.15)' }}
+            customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+            customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
           />
         </div>
 

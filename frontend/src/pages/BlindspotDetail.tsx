@@ -38,9 +38,9 @@ function MiniBoard({ event, idx, onClick }: { event: RepresentativeEvent; idx: n
         arePiecesDraggable={false}
         boardWidth={160}
         customSquareStyles={squareStyles}
-        customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-        customLightSquareStyle={{ backgroundColor: '#343761' }}
-        customBoardStyle={{ borderRadius: '4px', boxShadow: '0 0 0 1px rgba(123,97,255,0.12)' }}
+        customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+        customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+        customBoardStyle={{ borderRadius: '4px', boxShadow: '0 0 0 1px rgba(200,255,42,0.12)' }}
       />
       <div className="absolute inset-0 flex items-center justify-center bg-bg-0/0 group-hover:bg-bg-0/40 transition-colors rounded">
         <ExternalLink size={16} className="text-accent opacity-0 group-hover:opacity-100 transition-opacity" />

@@ -57,11 +57,11 @@ function getMoveOptions(chess: Chess, square: Square): Record<string, object> {
     styles[m.to] = {
       background: chess.get(m.to)
         ? 'radial-gradient(circle, rgba(255,77,77,0.35) 85%, transparent 85%)'
-        : 'radial-gradient(circle, rgba(123,97,255,0.30) 40%, transparent 40%)',
+        : 'radial-gradient(circle, rgba(200,255,42,0.30) 40%, transparent 40%)',
       borderRadius: '50%',
     }
   })
-  styles[square] = { backgroundColor: 'rgba(123,97,255,0.22)' }
+  styles[square] = { backgroundColor: 'rgba(200,255,42,0.22)' }
   return styles
 }
 
@@ -123,7 +123,7 @@ function EvalBar({ evalCp, evalMate, loading, h }: {
           style={{ flex: blackPct }}>
           {whitePct <= 30 && <span className="text-[9px] font-bold text-text-0 mt-1">{label}</span>}
         </div>
-        <div className="w-full bg-[#E8E8F0] flex items-end justify-center transition-[flex] duration-500"
+        <div className="w-full bg-[#F0F0F0] flex items-end justify-center transition-[flex] duration-500"
           style={{ flex: whitePct }}>
           {whitePct > 30 && <span className="text-[9px] font-bold text-bg-0 mb-1">{label}</span>}
         </div>
@@ -423,8 +423,8 @@ function AnalyzeView({ gameFens, gameSans, gameUci, userColor, onBack, gameId, u
   useEffect(() => {
     if (!lastMoveUci) { setLastMoveSqs({}); return }
     setLastMoveSqs({
-      [lastMoveUci.slice(0, 2)]: { backgroundColor: 'rgba(123,97,255,0.22)' },
-      [lastMoveUci.slice(2, 4)]: { backgroundColor: 'rgba(123,97,255,0.32)' },
+      [lastMoveUci.slice(0, 2)]: { backgroundColor: 'rgba(200,255,42,0.22)' },
+      [lastMoveUci.slice(2, 4)]: { backgroundColor: 'rgba(200,255,42,0.32)' },
     })
   }, [lastMoveUci])
 
@@ -449,7 +449,7 @@ function AnalyzeView({ gameFens, gameSans, gameUci, userColor, onBack, gameId, u
   const bestArrow: Arrow[] = useMemo(() => {
     const bm = analysis?.best_move
     if (!bm || bm.length < 4) return []
-    return [[bm.slice(0, 2) as Square, bm.slice(2, 4) as Square, '#7B61FF']]
+    return [[bm.slice(0, 2) as Square, bm.slice(2, 4) as Square, '#C8FF2A']]
   }, [analysis?.best_move])
 
   // ── Square styles ─────────────────────────────────────────────────────────
@@ -589,9 +589,9 @@ function AnalyzeView({ gameFens, gameSans, gameUci, userColor, onBack, gameId, u
             boardWidth={ANALYZE_BOARD}
             customSquareStyles={squareStyles}
             customArrows={bestArrow}
-            customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-            customLightSquareStyle={{ backgroundColor: '#343761' }}
-            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.15)' }}
+            customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+            customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
           />
           {/* Nav arrows */}
           <div className="flex gap-2 mt-2 justify-center">
@@ -814,8 +814,8 @@ export default function BotGame() {
     setFen(newFen)
     setHistFens(prev => [...prev, newFen])
     setLastMoveSqs({
-      [uci.slice(0, 2)]: { backgroundColor: 'rgba(123,97,255,0.22)' },
-      [uci.slice(2, 4)]: { backgroundColor: 'rgba(123,97,255,0.32)' },
+      [uci.slice(0, 2)]: { backgroundColor: 'rgba(200,255,42,0.22)' },
+      [uci.slice(2, 4)]: { backgroundColor: 'rgba(200,255,42,0.32)' },
     })
     try {
       const chess = new Chess(newFen)
@@ -1086,7 +1086,7 @@ export default function BotGame() {
 
           <motion.div
             animate={gameStatus === 'active' && myTurn && histViewIdx === null
-              ? { boxShadow: '0 0 0 2px rgba(123,97,255,0.4)' }
+              ? { boxShadow: '0 0 0 2px rgba(200,255,42,0.4)' }
               : { boxShadow: '0 0 0 0px transparent' }}
             transition={{ duration: 0.3 }} style={{ borderRadius: 8 }}>
             <Chessboard
@@ -1097,9 +1097,9 @@ export default function BotGame() {
               arePiecesDraggable={myTurn && histViewIdx === null}
               boardWidth={BOARD_SIZE}
               customSquareStyles={liveSquareStyles}
-              customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-              customLightSquareStyle={{ backgroundColor: '#343761' }}
-              customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.15)' }}
+              customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+              customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+              customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
             />
           </motion.div>
 

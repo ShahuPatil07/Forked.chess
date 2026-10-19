@@ -28,7 +28,7 @@ export function CornerOverlay({ tracker, videoRef }: Props) {
 
         // Interior grid intersections (faint) during calibration.
         const xcorners = tracker.displayXCorners(w, h)
-        ctx.fillStyle = 'rgba(123,97,255,0.5)'
+        ctx.fillStyle = 'rgba(200,255,42,0.5)'
         for (const [x, y] of xcorners) {
           ctx.beginPath()
           ctx.arc(x, y, 2.5, 0, Math.PI * 2)
@@ -38,7 +38,7 @@ export function CornerOverlay({ tracker, videoRef }: Props) {
         // Board corners (bright) + connecting quad.
         const corners = tracker.displayCorners(w, h)
         if (corners) {
-          ctx.strokeStyle = '#7B61FF'
+          ctx.strokeStyle = '#C8FF2A'
           ctx.lineWidth = 2
           ctx.beginPath()
           corners.forEach(([x, y], i) => {
@@ -49,7 +49,7 @@ export function CornerOverlay({ tracker, videoRef }: Props) {
           ctx.stroke()
 
           corners.forEach(([x, y], i) => {
-            ctx.fillStyle = '#7B61FF'
+            ctx.fillStyle = '#C8FF2A'
             ctx.beginPath()
             ctx.arc(x, y, 7, 0, Math.PI * 2)
             ctx.fill()
@@ -57,7 +57,7 @@ export function CornerOverlay({ tracker, videoRef }: Props) {
             ctx.beginPath()
             ctx.arc(x, y, 3, 0, Math.PI * 2)
             ctx.fill()
-            ctx.fillStyle = '#EEEEF2'
+            ctx.fillStyle = '#F5F5F5'
             ctx.font = '11px Inter, sans-serif'
             ctx.fillText(CORNER_LABELS[i], x + 9, y - 6)
           })

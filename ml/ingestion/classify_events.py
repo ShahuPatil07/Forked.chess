@@ -116,6 +116,96 @@ def _reason(m) -> str:
     return "positional"
 
 
+ATTACH_FAMILY_P = 0.2      # a family with at least this much mass is attached to the mistake
+
+
+def _line_facts(fen: str, line: list[str], plies: int = 6) -> dict:
+    """What the punishing / winning line does: checks given, captures, mate."""
+    out = {"checks": 0, "captures": 0, "mate": False, "promotes": False}
+    try:
+        b = chess.Board(fen)
+    except Exception:
+        return out
+    for i, uci in enumerate(line[:plies]):
+        try:
+            mv = chess.Move.from_uci(uci)
+        except ValueError:
+            break
+        if mv not in b.legal_moves:
+            break
+        if i % 2 == 0:
+            out["checks"] += b.gives_check(mv)
+            out["captures"] += b.is_capture(mv)
+            out["promotes"] |= bool(mv.promotion)
+        b.push(mv)
+        if b.is_checkmate():
+            out["mate"] = True
+            break
+    return out
+
+
+def describe(m, ra: dict | None, rm: dict | None) -> dict:
+    """Structured, multi-type description of one mistake.
+
+    A real mistake is often several things at once (a fork that only works
+    because of a pin, or because the king is exposed), so besides the primary
+    family it lists every family with evidence, the motifs, and plain tags.
+    King safety is attached as a secondary family whenever the punishing line
+    attacks the king, while the primary family keeps the Lichess convention
+    (drills are pulled by Lichess themes)."""
+    allowed = m.direction in ("allowed", "both")
+    fen, line = (m.fen_after, m.reply_line) if allowed else (m.fen, m.best_line)
+    facts = _line_facts(fen, line)
+
+    fams: dict[str, str] = {}
+    for f, p in sorted((m.family_probs or {}).items(), key=lambda kv: -kv[1]):
+        if p >= ATTACH_FAMILY_P and f != UNCLASSIFIED:
+            fams[f] = "model"
+    motifs = []
+    for res, framing in ((ra, "allowed"), (rm, "missed")):
+        if not res:
+            continue
+        for c, p in sorted(res["probs"].items(), key=lambda kv: -kv[1]):
+            verified = c in res["verified"]
+            if p >= 0.3 or verified:
+                motifs.append({"motif": c, "p": round(p, 3), "verified": verified, "side": framing})
+            threat = v2.CLASS_TO_THREAT.get(c)
+            if verified and threat and threat != "other":
+                fams.setdefault(family_of(threat), "verified")
+    involves_king = facts["checks"] > 0 or facts["mate"] or bool(m.mate_allowed or m.mate_missed)
+    if involves_king:
+        fams.setdefault("king_safety", "king_attacked")
+
+    tags = []
+    if involves_king:
+        tags.append("involves_king")
+    if facts["checks"]:
+        tags.append("check")
+    if facts["mate"] or m.mate_allowed or m.mate_missed:
+        tags.append("mate_threat")
+    if facts["promotes"]:
+        tags.append("promotion")
+    if max(m.swing_allowed_cp if allowed else m.swing_missed_cp, 0) >= 200:
+        tags.append("wins_material")
+    elif m.direction != "quiet" and facts["captures"] == 0:
+        tags.append("quiet_tactic")
+    if m.allowed_kind == "ignored_threat":
+        tags.append("ignored_threat")
+    if m.time_trouble:
+        tags.append("time_trouble")
+    tags += [m.game_phase, m.eval_bucket, m.judgement or "mistake"]
+
+    primary = m.cluster_id
+    return {
+        "primary_family": primary,
+        "families": [{"family": f, "evidence": e} for f, e in fams.items()] or [{"family": primary, "evidence": "default"}],
+        "motifs": motifs[:6],
+        "direction": m.direction,
+        "allowed_kind": m.allowed_kind,
+        "tags": tags,
+    }
+
+
 def classify_events(mistakes: list, opportunities: list, classifier,
                     use_verifier: bool = True, batch: int = 512) -> None:
     pred = _predictor(classifier)
@@ -185,6 +275,15 @@ def classify_events(mistakes: list, opportunities: list, classifier,
                              if p >= 0.05}
             m.verified_motifs = primary["verified"]
         m.unclassified_reason = _reason(m) if m.cluster_id == UNCLASSIFIED else None
+        m.description = describe(m, ra, rm)
+        if m.judgement == "inaccuracy":
+            # 5-10% losses count on the positional side only; what the model
+            # saw stays in the description.
+            m.cluster_id = "positional"
+            m.threat_type = "endgame_technique" if m.game_phase == "endgame" else "piece_activity"
+            m.family_probs = {"positional": 1.0}
+            m.unclassified_reason = None
+            m.description["primary_family"] = "positional"
 
     for o in opportunities:
         res = results.get(id(o), {}).get("opportunity")

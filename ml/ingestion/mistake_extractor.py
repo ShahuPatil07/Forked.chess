@@ -2,8 +2,10 @@
 Extract mistake events (and tactical opportunities) from annotated games.
 
 A MistakeEvent is a move where:
- - the mover lost >= 10% expected score (Lichess "mistake" in win-probability
-   terms — a +900 -> +600 slip is NOT a mistake, 0 -> -150 is), and
+ - the mover lost >= 5% expected score (Lichess inaccuracy in win-probability
+   terms — a +900 -> +600 slip is NOT a mistake, 0 -> -150 is); 5-10% losses
+   (`judgement="inaccuracy"`) are counted under the positional family only,
+   10%+ mistakes feed whichever families the classifier finds, and
  - the mover was not already lost (expected score >= 0.15, ~ -480cp).
 
 Both sides are extracted: the user's mistakes are the blindspot corpus, the
@@ -101,6 +103,9 @@ class MistakeEvent:
     deep:              bool = False
     prev_fen:          str = ""             # position before the opponent's last move
     prev_move_uci:     str = ""             # the opponent's last move (verifier: recaptures)
+    # Structured, multi-type description (classify_events.describe): primary
+    # family + every family with evidence, motifs (verified or not), tags.
+    description:       dict = field(default_factory=dict)
 
 
 @dataclass
@@ -249,7 +254,9 @@ def extract_game_events(
                 ))
 
         # ── mistakes ─────────────────────────────────────────────────────────
-        if ann.es_loss < MISTAKE_ES or ann.es_before < LOST_ES:
+        # Mistakes (>=10%) feed every family; inaccuracies (5-10%) are kept
+        # too, but counted under the positional family (classify_events).
+        if ann.es_loss < INACCURACY_ES or ann.es_before < LOST_ES:
             continue
         threat_line = None
         mech = tag_mechanism(
@@ -281,7 +288,7 @@ def extract_game_events(
             time_remaining_ms=clock,
             move_number=ann.move_number,
             played_at_unix=played_at_unix,
-            eval_drop_category="blunder" if ann.es_loss >= 0.15 else "mistake",
+            eval_drop_category=judgement(ann.es_loss) or "inaccuracy",
             side=side,
             event_id=uuid.uuid5(uuid.NAMESPACE_URL, f"{gid}:{ann.ply}").hex[:16],
             ply=ann.ply,

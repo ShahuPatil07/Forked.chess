@@ -218,8 +218,8 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
         } catch { /* ignore */ }
         setFen(msg.fen)
         setLastMoveSqs({
-          [from]: { backgroundColor: 'rgba(123,97,255,0.22)' },
-          [to]:   { backgroundColor: 'rgba(123,97,255,0.32)' },
+          [from]: { backgroundColor: 'rgba(200,255,42,0.22)' },
+          [to]:   { backgroundColor: 'rgba(200,255,42,0.32)' },
         })
         setSelectedSq(null); setOptionSqs({})
         if (msg.by === 'bot') setIsThinking(false)
@@ -305,11 +305,11 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
         styles[m.to] = {
           background: chessRef.current.get(m.to)
             ? 'radial-gradient(circle, rgba(255,77,77,0.35) 85%, transparent 85%)'
-            : 'radial-gradient(circle, rgba(123,97,255,0.30) 40%, transparent 40%)',
+            : 'radial-gradient(circle, rgba(200,255,42,0.30) 40%, transparent 40%)',
           borderRadius: '50%',
         }
       })
-      styles[sq] = { backgroundColor: 'rgba(123,97,255,0.22)' }
+      styles[sq] = { backgroundColor: 'rgba(200,255,42,0.22)' }
       setOptionSqs(styles)
     } else {
       setSelectedSq(null); setOptionSqs({})
@@ -394,9 +394,9 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
             arePiecesDraggable={isMyTurn()}
             boardWidth={BOARD_SIZE}
             customSquareStyles={squareStyles}
-            customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-            customLightSquareStyle={{ backgroundColor: '#343761' }}
-            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.15)' }}
+            customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+            customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
           />
 
           <div className="flex items-center gap-2 px-1">

@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { Chessboard } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
-import { ArrowRight, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, FileUp, FlipVertical2, Loader2, ScanSearch, Sparkles, X } from 'lucide-react'
-import { reviewGame, type MoveClass, type ReviewMove, type ReviewSummary } from '../api/gameReview'
+import { ArrowRight, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, FileUp, FlipVertical2, Loader2, RotateCcw, ScanSearch, Sparkles, X } from 'lucide-react'
+import { checkMove, reviewGame, type CheckMoveResult, type MoveClass, type OfficialAccuracy, type ReviewMove, type ReviewSummary } from '../api/gameReview'
+import { ReviewGraph } from '../components/review/ReviewGraph'
+import { RecentGames } from '../components/review/RecentGames'
+import { useUserStore } from '../store/userStore'
 import { coachApi, type AgentLine, type CoachChatMessage } from '../api/coach'
 import { AnswerText } from '../components/coach/AnswerText'
 
@@ -30,6 +33,42 @@ function Badge({ kind }: { kind: MoveClass }) {
   return <span className="inline-flex items-center gap-2 text-xs font-semibold" style={{ color: spec.color }}><span className="w-6 h-6 rounded-full flex items-center justify-center font-bold" style={{ background: spec.color + '20' }}>{spec.symbol}</span>{spec.label}</span>
 }
 
+function SquareIcon({ kind, square, size, flipped }: { kind: MoveClass; square: string; size: number; flipped: boolean }) {
+  const spec = CLASSIFICATION[kind]
+  const sq = size / 8
+  const file = square.charCodeAt(0) - 97, rank = Number(square[1]) - 1
+  const col = flipped ? 7 - file : file, row = flipped ? rank : 7 - rank
+  const d = Math.max(18, sq * 0.42)
+  return <span aria-hidden="true" data-testid="square-icon" className="absolute z-10 rounded-full flex items-center justify-center font-bold shadow-md pointer-events-none"
+    style={{ left: Math.min(size - d, (col + 1) * sq - d * 0.7), top: Math.max(0, row * sq - d * 0.3), width: d, height: d, background: spec.color, color: '#050505', fontSize: d * 0.5 }}>{spec.symbol}</span>
+}
+
+const PHASE_LABEL = { opening: 'Opening', middlegame: 'Middlegame', endgame: 'Endgame' } as const
+function PhaseAccuracy({ summary }: { summary: ReviewSummary }) {
+  const phases = (['opening', 'middlegame', 'endgame'] as const).filter(p => summary.white.phases?.[p] || summary.black.phases?.[p])
+  if (!phases.length) return null
+  const cell = (acc: number | null | undefined) => acc == null ? <span className="text-text-2">—</span>
+    : <span className={acc >= 85 ? 'text-emerald-300' : acc >= 65 ? 'text-text-0' : 'text-amber-200'}>{acc}</span>
+  return <div className="card p-4" data-testid="phase-accuracy"><div className="grid grid-cols-[1fr_56px_56px] text-xs text-text-2 mb-2"><span>Accuracy by phase</span><span>White</span><span>Black</span></div>
+    {phases.map(p => <div key={p} className="grid grid-cols-[1fr_56px_56px] text-sm py-0.5"><span>{PHASE_LABEL[p]}</span>{cell(summary.white.phases?.[p]?.accuracy)}{cell(summary.black.phases?.[p]?.accuracy)}</div>)}</div>
+}
+
+function article(word: string) { return /^[aeiou]/i.test(word) ? 'an' : 'a' }
+
+function RetryPanel({ retry, color, onAgain, onSolution }: {
+  retry: { checking: boolean; result?: CheckMoveResult }; color: 'white' | 'black'; onAgain: () => void; onSolution: () => void
+}) {
+  const r = retry.result
+  return <div className="mt-3 rounded-lg border border-border bg-bg-2 p-3 text-sm" data-testid="retry-panel">
+    {retry.checking ? <span className="inline-flex items-center gap-2 text-text-2"><Loader2 size={13} className="animate-spin" />Checking your move…</span>
+      : r ? (r.correct
+        ? <p className="text-emerald-300">Correct. {r.san} is {CLASSIFICATION[r.classification].label.toLowerCase()}.</p>
+        : <div className="space-y-2"><p><span style={{ color: CLASSIFICATION[r.classification].color }}>{r.san} is {article(r.classification)} {CLASSIFICATION[r.classification].label.toLowerCase()}.</span> Try again.</p>
+          <div className="flex gap-2"><button className="btn-ghost border border-border text-xs" onClick={onAgain}>Try again</button><button className="btn-ghost border border-border text-xs" onClick={onSolution}>Show solution</button></div></div>)
+        : <p className="text-text-1">Find a better move for {color === 'white' ? 'White' : 'Black'}: drag a piece on the board.</p>}
+  </div>
+}
+
 interface ReviewChatMsg { role: 'user' | 'assistant'; content: string; lines: AgentLine[]; notes?: string; fen?: string; status?: string }
 const BAD: string[] = ['blunder', 'mistake', 'inaccuracy', 'miss']
 
@@ -45,12 +84,15 @@ export default function GameReview() {
   const [chat, setChat] = useState<ReviewChatMsg[]>([]), [explaining, setExplaining] = useState(false)
   const [followUp, setFollowUp] = useState('')
   const [engine, setEngine] = useState('Stockfish')
+  const [official, setOfficial] = useState<OfficialAccuracy | null>(null)
+  const [retry, setRetry] = useState<{ checking: boolean; result?: CheckMoveResult; fen?: string } | null>(null)
+  const { username, platform } = useUserStore()
   const abort = useRef<AbortController | null>(null), explainAbort = useRef<AbortController | null>(null)
   const boardWrap = useRef<HTMLDivElement>(null), [width, setWidth] = useState(480)
   const selectedButton = useRef<HTMLButtonElement>(null)
   const row = moves[selected - 1]
   const line = branch === 'best' ? row?.best_line : branch === 'played' ? row?.line : branch === 'custom' ? customLine ?? undefined : undefined
-  const fen = line?.fens[branchPly] ?? row?.fen ?? initialFen
+  const fen = retry ? (retry.fen ?? row?.before_fen ?? initialFen) : line?.fens[branchPly] ?? row?.fen ?? initialFen
   const score = row?.played_score ?? moves[0]?.best_score
   const evalLabel = score ? score.white_mate !== null ? `${score.white_mate < 0 ? '-' : '+'}M${Math.abs(score.white_mate)}` : `${(score.white_cp! / 100).toFixed(2)}` : '—'
   const whiteShare = score ? score.white_mate !== null ? score.white_mate > 0 ? 100 : 0 : 100 / (1 + Math.exp(-.00368208 * (score.white_cp ?? 0))) : 50
@@ -62,7 +104,7 @@ export default function GameReview() {
   }, [])
   useEffect(() => { selectedButton.current?.scrollIntoView({ block: 'nearest' }) }, [selected])
   useEffect(() => {
-    setBranch(null); setBranchPly(0); setChat([]); setFollowUp(''); explainAbort.current?.abort(); setExplaining(false)
+    setBranch(null); setBranchPly(0); setChat([]); setFollowUp(''); explainAbort.current?.abort(); setExplaining(false); setRetry(null)
   }, [selected])
   useEffect(() => () => { abort.current?.abort(); explainAbort.current?.abort() }, [])
   useEffect(() => {
@@ -76,16 +118,20 @@ export default function GameReview() {
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key)
   }, [moves.length])
 
-  async function start() {
-    if (busy || !pgn.trim()) return
+  async function start(text: string = pgn) {
+    if (busy || !text.trim()) return
     const ctrl = new AbortController(); abort.current = ctrl
     explainAbort.current?.abort(); setChat([]); setExplaining(false)
-    setBusy(true); setError(''); setHeaders({}); setInitialFen(new Chess().fen()); setMoves([]); setSummary(null); setSelected(0); setTotal(0); setBranch(null)
+    setBusy(true); setError(''); setHeaders({}); setInitialFen(new Chess().fen()); setMoves([]); setSummary(null); setSelected(0); setTotal(0); setBranch(null); setOfficial(null); setRetry(null)
     try {
-      await reviewGame(pgn, quality, event => {
-        if (event.type === 'start') { setTotal(event.total); setHeaders(event.headers); setInitialFen(event.initial_fen); setShowImport(false) }
+      await reviewGame(text, quality, event => {
+        if (event.type === 'start') {
+          setTotal(event.total); setHeaders(event.headers); setInitialFen(event.initial_fen); setShowImport(false)
+          // Face the board from the signed-in player's side, as Chess.com does.
+          if (username) setFlipped((event.headers.Black ?? '').toLowerCase() === username.toLowerCase())
+        }
         if (event.type === 'move') setMoves(old => [...old, event.move])
-        if (event.type === 'done') { setSummary(event.summary); setEngine(event.engine) }
+        if (event.type === 'done') { setSummary(event.summary); setEngine(event.engine); setOfficial(event.official_accuracy ?? null) }
       }, ctrl.signal)
     } catch (err) { setError(ctrl.signal.aborted ? 'Review cancelled. Partial moves remain available.' : err instanceof Error ? err.message : 'Review failed.') }
     finally { setBusy(false); abort.current = null }
@@ -121,6 +167,28 @@ export default function GameReview() {
     } catch { if (!ctrl.signal.aborted) patch(m => ({ ...m, content: m.content || 'Coach unavailable. The local review explanation is still shown above.' })) }
     finally { if (!ctrl.signal.aborted) { setExplaining(false); patch(m => ({ ...m, status: undefined })) } }
   }
+  /** Retry: replay the mistake on the board; candidates from the review answer
+   *  instantly, anything else is checked by the engine on the same scale. */
+  function onRetryDrop(from: string, to: string, piece: string): boolean {
+    if (!row || !retry || retry.checking) return false
+    const game = new Chess(row.before_fen)
+    const promo = piece[1]?.toLowerCase() === 'p' && (to[1] === '8' || to[1] === '1') ? 'q' : undefined
+    let mv
+    try { mv = game.move({ from, to, promotion: promo }) } catch { return false }
+    if (!mv) return false
+    const uci = from + to + (promo ?? '')
+    const known = row.candidates?.find(c => c.uci === uci)
+    const bestExp = row.best_score.expected
+    if (known && bestExp - known.expected < .02) {
+      setRetry({ checking: false, fen: game.fen(), result: { san: mv.san, expected: known.expected, loss: bestExp - known.expected, classification: known.uci === row.best_uci ? 'best' : 'excellent', correct: true } })
+      return true
+    }
+    setRetry({ checking: true, fen: game.fen() })
+    checkMove(row.before_fen, uci, bestExp)
+      .then(result => setRetry({ checking: false, fen: game.fen(), result }))
+      .catch(() => setRetry({ checking: false, fen: row.before_fen }))
+    return true
+  }
   function showAgentLine(l: AgentLine, ply: number) { setCustomLine({ san: l.san, fens: l.fens, label: l.label }); setBranch('custom'); setBranchPly(ply) }
   function download() {
     const blob = new Blob([JSON.stringify({ headers, initial_fen: initialFen, moves, summary, engine, algorithm: 'forked-review-v1', complete: !!summary }, null, 2)], { type: 'application/json' })
@@ -135,29 +203,48 @@ export default function GameReview() {
       <div className="flex gap-2">{!!moves.length && <button className="btn-ghost flex items-center gap-2" onClick={download}><Download size={15} />Export review</button>}<button className="btn-ghost border border-border" disabled={busy} onClick={() => setShowImport(v => !v)}>Import PGN</button></div></div>
     {showImport && <section className="card p-5 mb-5">
       <div className="flex flex-wrap justify-between gap-3 mb-3"><h2 className="font-medium">Bring a game to the board</h2><div className="flex gap-3 text-xs"><button className="text-accent" disabled={busy} onClick={() => setPgn(SAMPLE)}>Try the Opera game</button><label className="text-text-1 cursor-pointer flex items-center gap-2"><FileUp size={14} />Upload .pgn<input type="file" accept=".pgn,.txt" className="sr-only" aria-label="Upload PGN" disabled={busy} onChange={e => { void upload(e.target.files?.[0]); e.target.value = '' }} /></label></div></div>
+      <div className="mb-4"><RecentGames defaultUser={username} defaultPlatform={platform} disabled={busy} onPick={text => { setPgn(text); void start(text) }} /></div>
+      <p className="text-xs text-text-2 mb-2">Or paste a PGN</p>
       <textarea aria-label="PGN" className="input font-mono text-xs resize-y min-h-[130px]" placeholder={'[White "You"]\n[Black "Opponent"]\n\n1. e4 e5 2. Nf3 Nc6 ...'} value={pgn} disabled={busy} onChange={e => setPgn(e.target.value)} />
-      <div className="flex flex-wrap items-center justify-between gap-3 mt-3"><p className="text-xs text-text-2">Local Stockfish. No account import. No daily review limit.</p><div className="flex gap-3"><select aria-label="Review quality" className="input !w-auto" value={quality} disabled={busy} onChange={e => setQuality(e.target.value)}><option value="quick">Quick</option><option value="standard">Standard</option><option value="deep">Deep</option></select><button onClick={start} disabled={busy || !pgn.trim()} className="btn-primary flex gap-2 items-center"><ScanSearch size={16} />Game review</button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mt-3"><p className="text-xs text-text-2">Local Stockfish. No account import. No daily review limit.</p><div className="flex gap-3"><select aria-label="Review quality" className="input !w-auto" value={quality} disabled={busy} onChange={e => setQuality(e.target.value)}><option value="quick">Quick</option><option value="standard">Standard</option><option value="deep">Deep</option></select><button onClick={() => void start()} disabled={busy || !pgn.trim()} className="btn-primary flex gap-2 items-center"><ScanSearch size={16} />Game review</button></div></div>
     </section>}
     {error && <p role="alert" className="text-sm text-amber-200 mb-4">{error}</p>}
     {busy && <div className="card p-4 mb-5"><div className="flex justify-between items-center text-sm mb-3"><span className="flex gap-2 items-center"><Loader2 size={14} className="animate-spin" />Reviewing move {moves.length} of {total || '…'}</span><button className="btn-ghost" onClick={() => abort.current?.abort()}><X size={14} />Cancel</button></div><div className="h-1 bg-bg-3 rounded"><div className="h-1 bg-accent rounded transition-all" style={{ width: `${total ? moves.length / total * 100 : 0}%` }} /></div></div>}
     <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(360px,470px)] gap-6">
       <section className="min-w-0">
         <div className="flex justify-between text-sm mb-3"><span>{headers[flipped ? 'White' : 'Black'] || (flipped ? 'White' : 'Black')}</span><span className="text-text-2">{headers.Result || 'Study'}</span></div>
-        <div ref={boardWrap} className="flex gap-2 items-stretch">
-          <div className={`w-4 bg-bg-3 rounded overflow-hidden flex flex-shrink-0 ${flipped ? 'flex-col' : 'flex-col-reverse'}`}><div className="bg-[#d5d2de] transition-all" style={{ height: `${whiteShare}%` }} /></div>
-          <Chessboard id="review-board" boardWidth={width} position={fen} boardOrientation={flipped ? 'black' : 'white'} arePiecesDraggable={false}
-            customDarkSquareStyle={{ backgroundColor: '#454161' }} customLightSquareStyle={{ backgroundColor: '#b8b2ce' }}
+        <div ref={boardWrap} className="flex gap-2 items-stretch min-w-0 overflow-x-clip">
+          <div className={`w-4 bg-bg-3 rounded overflow-hidden flex flex-shrink-0 ${flipped ? 'flex-col' : 'flex-col-reverse'}`}><div className="bg-[#F0F0F0] transition-all" style={{ height: `${whiteShare}%` }} /></div>
+          <div className="relative max-w-full flex-shrink" style={{ width, height: width }}>
+          <Chessboard id="review-board" boardWidth={width} position={fen} boardOrientation={flipped ? 'black' : 'white'} arePiecesDraggable={!!retry && !retry.checking && !retry.result?.correct}
+            onPieceDrop={(from, to, piece) => onRetryDrop(from, to, piece)}
+            customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }} customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
             customSquareStyles={row && !branch ? { [row.uci.slice(0, 2)]: { backgroundColor: '#b9a96188' }, [row.uci.slice(2, 4)]: { backgroundColor: '#b9a961bb' } } : {}}
             customArrows={branch === 'best' && branchPly === 0 && row ? [[row.best_uci.slice(0, 2) as Square, row.best_uci.slice(2, 4) as Square, '#9ecb76']] : []} />
+          {row && !branch && !retry && <SquareIcon kind={row.classification} square={row.uci.slice(2, 4)} size={width} flipped={flipped} />}
+          </div>
         </div>
         <div className="flex justify-between text-sm mt-3"><span>{headers[flipped ? 'Black' : 'White'] || (flipped ? 'Black' : 'White')}</span><span className="font-mono text-text-2">{evalLabel} · White perspective{branch ? ' (game position)' : ''}</span></div>
         <div className="flex justify-center gap-2 mt-4 items-center"><button aria-label="First position" className="btn-ghost" onClick={() => setSelected(0)} disabled={!selected}><ChevronsLeft size={20} /></button><button aria-label="Previous move" className="btn-ghost" onClick={() => setSelected(n => Math.max(0, n - 1))} disabled={!selected}><ChevronLeft size={20} /></button><span className="text-xs text-text-2 w-20 text-center">{selected} / {moves.length}</span><button aria-label="Next move" className="btn-ghost" onClick={() => setSelected(n => Math.min(moves.length, n + 1))} disabled={selected === moves.length}><ChevronRight size={20} /></button><button aria-label="Last position" className="btn-ghost" onClick={() => setSelected(moves.length)} disabled={selected === moves.length}><ChevronsRight size={20} /></button><button aria-label="Flip board" className="btn-ghost" onClick={() => setFlipped(v => !v)}><FlipVertical2 size={16} /></button></div>
-        {!!moves.length && <div className="card mt-4 p-3"><svg viewBox="0 0 600 100" className="w-full h-24" aria-label="Game advantage graph" role="img"><line x1="0" y1="50" x2="600" y2="50" stroke="#666" strokeDasharray="4" /><polyline fill="none" stroke="#a78bfa" strokeWidth="2" points={moves.map((m, i) => `${i * 600 / Math.max(1, moves.length - 1)},${100 - (m.played_score.white_mate !== null ? m.played_score.white_mate > 0 ? 100 : 0 : 100 / (1 + Math.exp(-.00368208 * (m.played_score.white_cp ?? 0))))}`).join(' ')} /><line x1={Math.max(0, selected - 1) * 600 / Math.max(1, moves.length - 1)} x2={Math.max(0, selected - 1) * 600 / Math.max(1, moves.length - 1)} y1="0" y2="100" stroke="#eee" opacity=".5" /></svg><input aria-label="Navigate game" type="range" min={0} max={moves.length} value={selected} onChange={e => setSelected(Number(e.target.value))} className="w-full accent-violet-500" /></div>}
+        {!!moves.length && <div className="card mt-4 p-3"><ReviewGraph moves={moves} selected={selected} onSelect={setSelected} /><input aria-label="Navigate game" type="range" min={0} max={moves.length} value={selected} onChange={e => setSelected(Number(e.target.value))} className="w-full accent-lime-300 mt-2" /></div>}
         <button className="btn-ghost mt-3 text-xs" onClick={() => navigate(`/analysis?fen=${encodeURIComponent(fen)}`)}>Explore this position <ArrowRight size={12} className="inline ml-1" /></button>
       </section>
       <section className="min-w-0 space-y-4">
-        <div className="grid grid-cols-2 gap-3">{(['white', 'black'] as const).map(side => <div key={side} className="card p-4"><p className="text-xs text-text-2 uppercase tracking-wider">{side} accuracy</p><p className="text-3xl font-semibold mt-2">{summary?.[side].accuracy ?? '—'}<span className="text-sm text-text-2">%</span></p><p className="text-xs text-text-2 mt-2">Estimated game strength</p>{summary?.[side].rating ? <><p className="font-medium mt-1">≈{summary[side].rating!.estimate} <span className="text-xs text-text-2">({summary[side].rating!.low}–{summary[side].rating!.high})</span></p><p className="text-[10px] text-amber-200 mt-1">Experimental estimate · not calibrated Elo</p></> : <p className="text-xs text-text-2 mt-1">{summary ? 'Too few non-book decisions to estimate' : 'Available after review'}</p>}</div>)}</div>
-        {row ? <div className="card p-4 border-accent/20"><div className="flex justify-between items-center"><span className="text-lg font-semibold">{row.move_number}{row.color === 'white' ? '.' : '…'} {row.san}</span><Badge kind={row.classification} /></div><p className="text-sm leading-relaxed text-text-1 mt-3">{row.explanation}</p>{row.opening && <p className="text-xs text-text-2 mt-2">{row.opening.eco} · {row.opening.name}</p>}<div className="flex flex-wrap gap-2 mt-4"><button className="btn-ghost border border-border text-xs" onClick={() => { setBranch('best'); setBranchPly(0) }}>Show best line</button><button className="btn-ghost border border-border text-xs" onClick={() => { setBranch('played'); setBranchPly(0) }}>Show played line</button><button className="btn-ghost text-accent text-xs flex gap-1 items-center" disabled={explaining || busy} onClick={() => void explain()}>{explaining ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}{BAD.includes(row.classification) ? 'Why was this wrong?' : 'Explain the idea'}</button></div>
+        <div className="grid grid-cols-2 gap-3">{(['white', 'black'] as const).map(side => {
+          const sum = summary?.[side], rating = sum?.rating
+          return <div key={side} className="card p-4" data-testid={`summary-${side}`}>
+            <p className="text-xs text-text-2 uppercase tracking-wider truncate">{headers[side === 'white' ? 'White' : 'Black'] || side}</p>
+            <p className="text-3xl font-semibold mt-2">{sum?.accuracy ?? '—'}<span className="text-sm text-text-2">{sum?.accuracy != null ? '%' : ''}</span></p>
+            <p className="text-[11px] text-text-2">Accuracy{official?.[side] != null ? <> · Chess.com <span className="text-text-1 font-medium">{official[side]}</span></> : null}</p>
+            <p className="text-xs text-text-2 mt-3">Game rating</p>
+            {rating ? <><p className="text-lg font-semibold">{rating.estimate}</p><p className="text-[11px] text-text-2">likely {rating.low}–{rating.high}</p>
+              {!rating.calibrated && <p className="text-[10px] text-amber-200 mt-1">Experimental estimate</p>}</>
+              : <p className="text-xs text-text-2 mt-1">{summary ? 'Too few non-book decisions' : 'Available after review'}</p>}
+          </div>
+        })}</div>
+        {summary && <PhaseAccuracy summary={summary} />}
+        {row ? <div className="card p-4 border-accent/20"><div className="flex justify-between items-center"><span className="text-lg font-semibold">{row.move_number}{row.color === 'white' ? '.' : '…'} {row.san}</span><Badge kind={row.classification} /></div><p className="text-sm leading-relaxed text-text-1 mt-3">{row.explanation}</p>{row.opening && <p className="text-xs text-text-2 mt-2">{row.opening.eco} · {row.opening.name}</p>}<div className="flex flex-wrap gap-2 mt-4"><button className="btn-ghost border border-border text-xs" onClick={() => { setBranch('best'); setBranchPly(0) }}>Show best line</button><button className="btn-ghost border border-border text-xs" onClick={() => { setBranch('played'); setBranchPly(0) }}>Show played line</button>{BAD.includes(row.classification) && !busy && <button className="btn-ghost border border-border text-xs flex gap-1 items-center" onClick={() => { setBranch(null); setRetry(r => r ? null : { checking: false }) }}><RotateCcw size={12} />{retry ? 'Stop retry' : 'Retry'}</button>}<button className="btn-ghost text-accent text-xs flex gap-1 items-center" disabled={explaining || busy} onClick={() => void explain()}>{explaining ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}{BAD.includes(row.classification) ? 'Why was this wrong?' : 'Explain the idea'}</button></div>
+          {retry && <RetryPanel retry={retry} color={row.color} onAgain={() => setRetry({ checking: false })} onSolution={() => { setRetry(null); setBranch('best'); setBranchPly(0) }} />}
           {line && <div className="flex flex-wrap gap-1 mt-3"><button className="btn-ghost text-xs" onClick={() => setBranchPly(0)}>Start</button>{line.san.map((san, i) => <button key={i} className={`px-2 py-1 rounded text-xs ${branchPly === i + 1 ? 'bg-accent/25 text-accent' : 'bg-bg-2'}`} onClick={() => setBranchPly(i + 1)}>{san}</button>)}<button className="btn-ghost text-xs" onClick={() => setBranch(null)}>Return to game</button></div>}
           {chat.length > 0 && <div className="mt-4 pt-3 border-t border-border space-y-3 text-sm" data-testid="review-coach">
             {chat.map((m, i) => m.role === 'user'
@@ -179,6 +266,8 @@ export default function GameReview() {
         {summary && <div className="card p-4 space-y-2"><div className="grid grid-cols-[1fr_40px_40px] text-xs text-text-2"><span>Move breakdown</span><span>White</span><span>Black</span></div>{(Object.keys(CLASSIFICATION) as MoveClass[]).map(kind => <div key={kind} className="grid grid-cols-[1fr_40px_40px] items-center text-sm"><Badge kind={kind} /><span>{summary.white.counts[kind] ?? 0}</span><span>{summary.black.counts[kind] ?? 0}</span></div>)}</div>}
       </section>
     </div>
-    <details className="mt-6 card p-4 text-xs text-text-2 leading-relaxed"><summary className="cursor-pointer text-text-1">How this review is calculated</summary><p className="mt-3">{engine} analyzes the game locally. Standard classification bands follow Chess.com’s published expected-points thresholds, using Stockfish’s own outcome model. Brilliant, Great and Miss are Forked heuristics. Accuracy uses Lichess-inspired win-loss and aggregation formulas. Game strength is an uncalibrated estimate from at least eight non-book, non-forced decisions. These are independent metrics, not Chess.com CAPS2 or official ratings; depth and position difficulty affect results. Player ratings and user profiles do not influence the calculation.</p><p className="mt-2">Book moves use the CC0 Lichess opening reference. All classifications are search findings, not exhaustive proofs. No hosted API is required for review; optional “Explain the idea” uses the same configured Coach narrator and local fallback.</p></details>
+    <details className="mt-6 card p-4 text-xs text-text-2 leading-relaxed"><summary className="cursor-pointer text-text-1">How this review is calculated</summary>
+      <p className="mt-3">{engine} analyses the game locally. Move labels use Chess.com’s published expected-points bands (0.02 / 0.05 / 0.10 / 0.20), on a human expected-points curve fitted to real game results rather than the engine’s own model. Following Chess.com’s described rules, a Blunder needs a concrete punishment (material or mate); a large loss without one is a Mistake, and letting a winning chance slip after the opponent’s error is a Miss. Great is the only good move (not an obvious recapture); Brilliant is a sound, near-best piece or exchange sacrifice that was actually needed.</p>
+      <p className="mt-2">Accuracy uses win-percentage loss per move with constants fitted to Chess.com’s stored accuracies (Published-Data API); for Chess.com games their official figure is shown alongside. Game rating is the rating at which that accuracy is typical on Chess.com, from thousands of rated games; it does not use the players’ own ratings. These are close approximations, not Chess.com’s CAPS2 code. Book moves use the CC0 Lichess opening reference.</p></details>
   </div>
 }

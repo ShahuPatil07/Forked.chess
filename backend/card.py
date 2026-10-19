@@ -35,15 +35,15 @@ router = APIRouter(prefix="/api/profile")
 OUTPUT_DIR = DATA_DIR / "output"
 
 W, H = 1200, 630
-BG        = (15, 15, 20)
-PANEL     = (22, 22, 32)
-ACCENT    = (124, 106, 247)
-ACCENT_2  = (167, 139, 250)
-TEXT_0    = (238, 238, 242)
-TEXT_1    = (150, 150, 176)
-TEXT_2    = (96, 96, 122)
+BG        = (5, 5, 5)
+PANEL     = (16, 16, 16)
+ACCENT    = (200, 255, 42)     # neon
+ACCENT_2  = (215, 255, 92)
+TEXT_0    = (245, 245, 245)
+TEXT_1    = (163, 163, 163)
+TEXT_2    = (107, 107, 107)
 SUCCESS   = (13, 201, 127)
-BAR_BG    = (38, 38, 56)
+BAR_BG    = (31, 31, 31)
 
 
 def _read_json(path: Path, default):
@@ -119,7 +119,7 @@ def _avatar(username: str, size: int):
             asc, desc = f.getmetrics(); th = asc + desc
         except Exception:
             th = int(size * 0.55)
-        d.text(((size - tw) / 2, (size - th) / 2), ch, font=f, fill=(255, 255, 255))
+        d.text(((size - tw) / 2, (size - th) / 2), ch, font=f, fill=BG)   # dark ink on the neon disc
         return img
 
     # circular mask

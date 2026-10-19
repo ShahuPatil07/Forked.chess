@@ -22,7 +22,7 @@ function PhaseBar({ breakdown }: { breakdown: Record<string, number> }) {
   const phases = [
     { key: 'opening',     color: 'bg-accent/50' },
     { key: 'middlegame',  color: 'bg-accent' },
-    { key: 'endgame',     color: 'bg-purple-400' },
+    { key: 'endgame',     color: 'bg-accent' },
   ]
   return (
     <div className="flex h-1.5 w-20 rounded-full overflow-hidden gap-0.5">

@@ -78,7 +78,17 @@ def _write_json(path: Path, data) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, default=str)
-    tmp.replace(path)
+    # Windows refuses to replace a file another thread/process has open for a
+    # moment (WinError 5 on the sync state) — retry briefly instead of a 500.
+    for attempt in range(6):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            time.sleep(0.05 * (attempt + 1))
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, default=str)
+    tmp.unlink(missing_ok=True)
 
 
 def _now_iso() -> str:
@@ -316,6 +326,14 @@ _scheduler_started = False
 
 
 def _platform_for(username: str) -> str:
+    # The stored game links are the truth; settings can be stale (a Chess.com
+    # user with platform "lichess" made every scheduled sync fail with
+    # "Lichess user not found").
+    meta = _read_json(_game_meta_path(username), {})
+    chesscom = sum(1 for r in meta.values() if "chess.com" in (r.get("url") or "").lower())
+    lichess = sum(1 for r in meta.values() if "lichess" in (r.get("url") or "").lower())
+    if chesscom or lichess:
+        return "chesscom" if chesscom >= lichess else "lichess"
     return _read_json(_settings_path(username), {}).get("platform", "lichess")
 
 

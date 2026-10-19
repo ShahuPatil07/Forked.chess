@@ -132,7 +132,7 @@ function Header({ loggedIn, onStart, onNav }: {
       ${scrolled ? 'border-b border-border bg-bg-0/80 backdrop-blur-xl' : 'border-b border-transparent'}`}>
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3 sm:px-8">
         <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2.5">
-          <img src="/logo.png" alt="" className="h-8 w-auto drop-shadow-[0_0_14px_rgba(123,97,255,0.5)]" />
+          <img src="/logo.png" alt="" className="h-8 w-auto drop-shadow-[0_0_14px_rgba(200,255,42,0.5)]" />
           <ForkedWordmark className="text-xl" />
         </button>
 
@@ -206,7 +206,7 @@ function DashboardPreview() {
   ]
   return (
     <div className="relative mx-auto w-full max-w-[560px]">
-      <div className="pointer-events-none absolute -inset-8 rounded-[2rem] bg-[radial-gradient(circle_at_55%_40%,rgba(123,97,255,0.24),transparent_70%)]" />
+      <div className="pointer-events-none absolute -inset-8 rounded-[2rem] bg-[radial-gradient(circle_at_55%_40%,rgba(200,255,42,0.24),transparent_70%)]" />
       <div className="relative overflow-hidden rounded-xl border border-border bg-bg-1/95 shadow-2xl shadow-black/50 backdrop-blur-md">
         {/* browser chrome */}
         <div className="flex items-center gap-1.5 border-b border-border bg-bg-0/70 px-3 py-2">
@@ -242,7 +242,7 @@ function DashboardPreview() {
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-2">
             <AlertTriangle size={13} className="flex-shrink-0 text-danger" />
             <p className="min-w-0 flex-1 truncate text-[10px] text-text-1">Repeated <span className="font-semibold text-text-0">loose-piece</span> on move 22 vs pedrominarelli</p>
-            <span className="flex items-center gap-0.5 rounded bg-accent px-1.5 py-0.5 text-[9px] font-semibold text-white"><Zap size={9} /> Drill</span>
+            <span className="flex items-center gap-0.5 rounded bg-accent px-1.5 py-0.5 text-[9px] font-semibold text-accent-ink"><Zap size={9} /> Drill</span>
           </div>
 
           {/* blindspot cards */}
@@ -260,8 +260,8 @@ function DashboardPreview() {
                   </div>
                 </div>
                 <svg viewBox="0 0 32 32" className="h-8 w-8 flex-shrink-0 -rotate-90">
-                  <circle cx="16" cy="16" r={R} fill="none" stroke="#242436" strokeWidth="3" />
-                  <circle cx="16" cy="16" r={R} fill="none" stroke="#7B61FF" strokeWidth="3" strokeLinecap="round"
+                  <circle cx="16" cy="16" r={R} fill="none" stroke="#1F1F1F" strokeWidth="3" />
+                  <circle cx="16" cy="16" r={R} fill="none" stroke="#C8FF2A" strokeWidth="3" strokeLinecap="round"
                     strokeDasharray={C} strokeDashoffset={C * (1 - b.mastery / 100)} />
                 </svg>
               </div>
@@ -356,7 +356,7 @@ function IntakePanel(props: {
               <button key={p} type="button" onClick={() => setPlatform(p)}
                 className={`rounded-md border py-2 text-sm font-medium transition-all duration-150
                   ${platform === p
-                    ? 'border-accent/50 bg-accent/15 text-accent shadow-[0_0_18px_rgba(123,97,255,0.12)]'
+                    ? 'border-accent/50 bg-accent/15 text-accent shadow-[0_0_18px_rgba(200,255,42,0.12)]'
                     : 'border-border bg-bg-2 text-text-1 hover:border-border-hover hover:text-text-0'}`}>
                 {p === 'lichess' ? 'Lichess' : 'Chess.com'}
               </button>
@@ -477,15 +477,15 @@ export default function Onboarding() {
   const formProps = {
     platform, setPlatform, username, setUsername, minGames, setMinGames,
     loading, error, profileExists, onSubmit: handleSubmit,
-    onViewDashboard: () => navigate('/dashboard'), onReanalyse: handleReanalyse,
+    onViewDashboard: () => navigate('/home'), onReanalyse: handleReanalyse,
   }
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-bg-0 text-text-0">
       {/* Background texture */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.05]"
-        style={{ backgroundImage: 'linear-gradient(#7B61FF 1px, transparent 1px), linear-gradient(90deg, #7B61FF 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[900px] bg-[radial-gradient(circle_at_20%_10%,rgba(123,97,255,0.20),transparent_40%),radial-gradient(circle_at_85%_15%,rgba(13,201,127,0.12),transparent_36%)]" />
+        style={{ backgroundImage: 'linear-gradient(#C8FF2A 1px, transparent 1px), linear-gradient(90deg, #C8FF2A 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[900px] bg-[radial-gradient(circle_at_20%_10%,rgba(200,255,42,0.20),transparent_40%),radial-gradient(circle_at_85%_15%,rgba(13,201,127,0.12),transparent_36%)]" />
 
       {/* Faint background knight watermark — the intro recedes into this */}
       <motion.img
@@ -612,8 +612,8 @@ export default function Onboarding() {
             transition={{ duration: 0.45 }}
             className="group relative mb-4 overflow-hidden rounded-2xl border border-accent/40
                        bg-gradient-to-br from-accent/15 via-bg-1/80 to-bg-1/80 p-6 backdrop-blur-md
-                       transition-all duration-200 hover:border-accent/60 hover:shadow-[0_12px_44px_rgba(123,97,255,0.22)] sm:p-8">
-            <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(123,97,255,0.30),transparent_70%)]" />
+                       transition-all duration-200 hover:border-accent/60 hover:shadow-[0_12px_44px_rgba(200,255,42,0.22)] sm:p-8">
+            <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(200,255,42,0.30),transparent_70%)]" />
             <div className="relative grid items-center gap-6 lg:grid-cols-2">
               <div>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-accent">
@@ -658,7 +658,7 @@ export default function Onboarding() {
               <motion.div key={title} initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }}
                 transition={{ duration: 0.4, delay: (i % 3) * 0.06 }}
                 className="group rounded-xl border border-border bg-bg-1/70 p-5 backdrop-blur-md transition-all duration-200
-                           hover:-translate-y-1 hover:border-accent/40 hover:shadow-[0_8px_30px_rgba(123,97,255,0.12)]">
+                           hover:-translate-y-1 hover:border-accent/40 hover:shadow-[0_8px_30px_rgba(200,255,42,0.12)]">
                 <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-accent/20 bg-accent/10 text-accent">
                   <Icon size={18} />
                 </div>
@@ -719,7 +719,7 @@ export default function Onboarding() {
               <motion.div key={s.value} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                 transition={{ duration: 0.4, delay: i * 0.08 }}
                 className="rounded-xl border border-border bg-bg-1/70 p-6 text-center backdrop-blur-md">
-                <p className="bg-gradient-to-br from-accent to-purple-300 bg-clip-text text-5xl font-black text-transparent">{s.value}</p>
+                <p className="bg-gradient-to-br from-accent to-lime-200 bg-clip-text text-5xl font-black text-transparent">{s.value}</p>
                 <p className="mx-auto mt-3 max-w-[220px] text-xs leading-5 text-text-2">{s.label}</p>
               </motion.div>
             ))}

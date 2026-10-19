@@ -56,7 +56,7 @@ export function ForkedIntro({ onDone }: { onDone: () => void }) {
           className="pointer-events-none absolute h-[460px] w-[460px] rounded-full"
           style={{
             background:
-              'radial-gradient(circle, rgba(255,140,40,0.55) 0%, rgba(255,70,25,0.30) 38%, rgba(123,97,255,0.22) 64%, transparent 76%)',
+              'radial-gradient(circle, rgba(255,140,40,0.55) 0%, rgba(255,70,25,0.30) 38%, rgba(200,255,42,0.22) 64%, transparent 76%)',
           }}
           animate={{ scale: [0.55, 1, 1.12, 1.04, 0.85], opacity: [0, 0.9, 1, 0.95, 0] }}
           transition={{ duration: DURATION, times: [0, 0.35, 0.6, 0.85, 1], ease: 'easeInOut' }}
@@ -93,8 +93,8 @@ export function ForkedIntro({ onDone }: { onDone: () => void }) {
             <linearGradient id="introFork" x1="80" y1="280" x2="300" y2="60" gradientUnits="userSpaceOnUse">
               <stop stopColor="#FFD27A" />
               <stop offset="0.45" stopColor="#FF8A3D" />
-              <stop offset="0.8" stopColor="#7B61FF" />
-              <stop offset="1" stopColor="#C4B5FD" />
+              <stop offset="0.8" stopColor="#C8FF2A" />
+              <stop offset="1" stopColor="#E9FF9E" />
             </linearGradient>
             <filter id="introBlur" x="-60%" y="-60%" width="220%" height="220%">
               <feGaussianBlur stdDeviation="5" result="b" />

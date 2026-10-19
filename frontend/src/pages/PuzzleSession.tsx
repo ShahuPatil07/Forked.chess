@@ -34,8 +34,8 @@ function getBoardOrientation(item: SessionItem): 'white' | 'black' {
 function makeHighlight(uci: string): Record<string, object> {
   if (!uci || uci.length < 4) return {}
   return {
-    [uci.slice(0, 2)]: { backgroundColor: 'rgba(123,97,255,0.25)' },
-    [uci.slice(2, 4)]: { backgroundColor: 'rgba(123,97,255,0.35)' },
+    [uci.slice(0, 2)]: { backgroundColor: 'rgba(200,255,42,0.25)' },
+    [uci.slice(2, 4)]: { backgroundColor: 'rgba(200,255,42,0.35)' },
   }
 }
 
@@ -53,11 +53,11 @@ function getPuzzleMoveOptions(chess: Chess, square: Square): Record<string, obje
     styles[m.to] = {
       background: chess.get(m.to)
         ? 'radial-gradient(circle, rgba(255,77,77,0.35) 85%, transparent 85%)'
-        : 'radial-gradient(circle, rgba(123,97,255,0.30) 40%, transparent 40%)',
+        : 'radial-gradient(circle, rgba(200,255,42,0.30) 40%, transparent 40%)',
       borderRadius: '50%',
     }
   })
-  styles[square] = { backgroundColor: 'rgba(123,97,255,0.22)' }
+  styles[square] = { backgroundColor: 'rgba(200,255,42,0.22)' }
   return styles
 }
 
@@ -192,13 +192,13 @@ function PuzzleBoard({ item, onResult }: {
       if (i >= moves.length) { setSolutionArrow([]); return }
       const uci    = moves[i]
       const isUser = (i - fromIdx) % 2 === 0   // 0, 2, 4 = user's correct moves
-      const color  = isUser ? '#0DC97F' : '#7B61FF'
+      const color  = isUser ? '#0DC97F' : '#C8FF2A'
 
       applyUci(chessRef.current, uci)
       setFen(chessRef.current.fen())
       setHighlight({
-        [uci.slice(0, 2)]: { backgroundColor: isUser ? 'rgba(13,201,127,0.22)' : 'rgba(123,97,255,0.18)' },
-        [uci.slice(2, 4)]: { backgroundColor: isUser ? 'rgba(13,201,127,0.38)' : 'rgba(123,97,255,0.30)' },
+        [uci.slice(0, 2)]: { backgroundColor: isUser ? 'rgba(13,201,127,0.22)' : 'rgba(200,255,42,0.18)' },
+        [uci.slice(2, 4)]: { backgroundColor: isUser ? 'rgba(13,201,127,0.38)' : 'rgba(200,255,42,0.30)' },
       })
       setSolutionArrow([[uci.slice(0, 2) as Square, uci.slice(2, 4) as Square, color]])
       setSelectedSq(null); setOptionSqs({})
@@ -345,9 +345,9 @@ function PuzzleBoard({ item, onResult }: {
           customArrows={solutionArrow}
           arePiecesDraggable={phase === 'waiting'}
           boardWidth={500}
-          customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-          customLightSquareStyle={{ backgroundColor: '#343761' }}
-          customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.15)' }}
+          customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+          customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+          customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
         />
       </motion.div>
 

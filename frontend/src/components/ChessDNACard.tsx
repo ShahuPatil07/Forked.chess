@@ -36,7 +36,7 @@ function AxisBar({ axis, score, delay }: { axis: number; score: number | null; d
             animate={{ width: `${score}%` }}
             transition={{ delay, duration: 0.5, ease: 'easeOut' }}
             className="h-full rounded-full"
-            style={{ background: 'linear-gradient(90deg, #7c6af7, #a78bfa)' }}
+            style={{ background: 'linear-gradient(90deg, #C8FF2A, #D7FF5C)' }}
           />
         )}
       </div>
@@ -71,7 +71,7 @@ export function ChessDNACard({ style }: { style: StyleProfile }) {
       <motion.h2
         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
         className="text-2xl font-black tracking-tight"
-        style={{ background: 'linear-gradient(135deg, #c4b5fd, #7c6af7)',
+        style={{ background: 'linear-gradient(135deg, #E9FF9E, #C8FF2A)',
                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
                  backgroundClip: 'text' }}
       >

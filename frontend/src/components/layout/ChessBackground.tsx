@@ -85,16 +85,16 @@ export function ChessBackground() {
       } as React.CSSProperties}
     >
       {/* 1 — base */}
-      <div className="absolute inset-0" style={{ background: '#08080D' }} />
+      <div className="absolute inset-0" style={{ background: '#050505' }} />
 
       {/* 2 — slowly drifting gradient-mesh blobs */}
       <div
         className="absolute -inset-32"
         style={{
           background:
-            'radial-gradient(45% 45% at 22% 28%, rgba(123,97,255,0.18), transparent 60%), ' +
-            'radial-gradient(40% 40% at 82% 72%, rgba(167,139,250,0.14), transparent 60%), ' +
-            'radial-gradient(35% 35% at 60% 18%, rgba(80,120,255,0.08), transparent 60%)',
+            'radial-gradient(45% 45% at 22% 28%, rgba(200,255,42,0.09), transparent 60%), ' +
+            'radial-gradient(40% 40% at 82% 72%, rgba(215,255,92,0.06), transparent 60%), ' +
+            'radial-gradient(35% 35% at 60% 18%, rgba(255,255,255,0.025), transparent 60%)',
           animation: 'bgDrift 32s ease-in-out infinite alternate',
           willChange: 'transform',
           filter: 'blur(8px)',
@@ -106,8 +106,8 @@ export function ChessBackground() {
         className="absolute -inset-8"
         style={{
           backgroundImage:
-            'linear-gradient(rgba(150,140,200,0.05) 1px, transparent 1px), ' +
-            'linear-gradient(90deg, rgba(150,140,200,0.05) 1px, transparent 1px)',
+            'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), ' +
+            'linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
           backgroundSize: '56px 56px',
           transform:
             'translate3d(calc((var(--mx) - 0.5) * -14px), calc((var(--my) - 0.5) * -14px), 0)',
@@ -124,8 +124,8 @@ export function ChessBackground() {
         style={{
           background:
             'radial-gradient(600px circle at calc(var(--mx) * 100%) calc(var(--my) * 100%), ' +
-            'rgba(123,97,255,0.14) 0%, ' +
-            'rgba(123,97,255,0.05) 28%, ' +
+            'rgba(200,255,42,0.14) 0%, ' +
+            'rgba(200,255,42,0.05) 28%, ' +
             'transparent 55%)',
         }}
       />
@@ -135,7 +135,7 @@ export function ChessBackground() {
         className="absolute top-0 inset-x-0 h-px"
         style={{
           background:
-            'linear-gradient(90deg, transparent, rgba(123,97,255,0.55), transparent)',
+            'linear-gradient(90deg, transparent, rgba(200,255,42,0.55), transparent)',
           transform: 'translateX(calc(var(--sc) * -0.2px))',
           opacity: 0.6,
         }}
@@ -146,7 +146,7 @@ export function ChessBackground() {
         className="absolute inset-0"
         style={{
           background:
-            'radial-gradient(ellipse at center, transparent 50%, rgba(4,4,9,0.6) 100%)',
+            'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.65) 100%)',
         }}
       />
 

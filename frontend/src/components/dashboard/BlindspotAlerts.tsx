@@ -162,9 +162,9 @@ export function BlindspotAlerts() {
                 arePiecesDraggable={false}
                 customArrows={moveArrows(openAlert.played_move, openAlert.best_move)}
                 boardWidth={360}
-                customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-                customLightSquareStyle={{ backgroundColor: '#343761' }}
-                customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.18)' }}
+                customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+                customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+                customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.18)' }}
               />
 
               <div className="flex items-center justify-between text-xs">

@@ -52,10 +52,25 @@ Engine work runs on a pool of single-thread Stockfish processes
 re-runs and reclassification never re-analyse.
 
 ### What counts as a mistake
-Expected-score loss ≥ 10% (Lichess "mistake"; Lichess inaccuracy = 5%,
-blunder = 15%) using Lichess's win-probability curve, and the mover not already
-lost (expected score ≥ 0.15). This drops "+9 → +6" non-events and makes mate
-scores behave (no 30,000cp drops). See `ml/ingestion/winprob.py`.
+Expected-score loss ≥ 5% using Lichess's win-probability curve, and the mover
+not already lost (expected score ≥ 0.15). Losses of 10%+ (Lichess "mistake";
+15%+ "blunder") feed whichever families the classifier finds; **5–10% losses
+(`judgement="inaccuracy"`) are counted under the positional family only** —
+the gold set showed the user regards them as real, mostly slow, mistakes —
+while their full description is kept. This drops "+9 → +6" non-events and
+makes mate scores behave (no 30,000cp drops). See `ml/ingestion/winprob.py`.
+
+### Structured description (several types per mistake)
+A real mistake is often several things at once (a fork that only works because
+of a pin, or because the king is exposed). Each event carries `description`:
+`primary_family` (= `cluster_id`, Lichess convention, used for drills and
+counts), `families` (every family with evidence: model mass ≥ 0.2, a
+board-verified motif, or `king_attacked` when the punishing line checks the
+king), `motifs` (with `verified` and which side), and `tags` (`involves_king`,
+`check`, `mate_threat`, `wins_material`, `quiet_tactic`, `promotion`,
+`ignored_threat`, `time_trouble`, phase, eval bucket, judgement). Stage 2
+reports `involves_king_share`, `tags` and `also_attached` per family; the
+dashboard shows "N% hit your king".
 
 ### Mechanism — the most important fix
 The classifier is trained on Lichess puzzles = (position after a blunder, the

@@ -1,1 +1,21 @@
-{}
+{
+  "ShahuPatil27": {
+    "labelled": 150,
+    "legacy_family_accuracy_all_flagged": 0.23,
+    "legacy_family_n_all_flagged": 74,
+    "v2_family_accuracy_all_flagged": 0.308,
+    "v2_family_n_all_flagged": 78,
+    "legacy_family_accuracy_flagged_by_both": 0.225,
+    "legacy_family_n_flagged_by_both": 71,
+    "v2_family_accuracy_flagged_by_both": 0.324,
+    "v2_family_n_flagged_by_both": 71,
+    "v2_human_family_among_attached": 0.59,
+    "v2_mean_families_attached": 1.85,
+    "v2_flags_legacy_only_items_now": 0.8,
+    "v2_direction_accuracy": 0.686,
+    "v2_direction_n": 137,
+    "not_a_mistake_share[legacy-flagged]": 0.075,
+    "not_a_mistake_share[both-flagged]": 0.029,
+    "not_a_mistake_share[v2-flagged]": 0.0
+  }
+}

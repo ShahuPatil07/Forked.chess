@@ -7,42 +7,51 @@
 
   html, body, #root {
     height: 100%;
-    background-color: #0B0B0F;
-    color: #EEEEF2;
+    background-color: #050505;
+    color: #F5F5F5;
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
+  h1, h2, h3 { font-family: 'Sora', 'Inter', system-ui, sans-serif; letter-spacing: -0.02em; }
+
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #242436; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #363650; }
+  ::-webkit-scrollbar-thumb { background: #1F1F1F; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #2E2E2E; }
 
-  ::selection { background: rgba(123, 97, 255, 0.3); }
+  ::selection { background: rgba(200, 255, 42, 0.28); color: #FFFFFF; }
+
+  :focus-visible { outline: 2px solid #C8FF2A; outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
 }
 
 @layer components {
   .card {
-    @apply bg-bg-1 border border-border rounded-lg;
+    @apply bg-bg-1 border border-border rounded-xl;
   }
 
   .btn-primary {
-    @apply bg-accent hover:bg-accent-hover text-white font-medium px-4 py-2 rounded-md
-           transition-all duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed;
+    @apply bg-accent hover:bg-accent-hover text-accent-ink font-semibold px-4 py-2 rounded-lg
+           transition-all duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
+           shadow-neon-sm;
   }
 
   .btn-ghost {
-    @apply text-text-1 hover:text-text-0 hover:bg-bg-2 px-3 py-1.5 rounded-md
+    @apply text-text-1 hover:text-text-0 hover:bg-bg-2 px-3 py-1.5 rounded-lg
            transition-all duration-150 text-sm font-medium;
   }
 
   .btn-danger {
-    @apply bg-danger/10 hover:bg-danger/20 text-danger font-medium px-4 py-2 rounded-md
+    @apply bg-danger/10 hover:bg-danger/20 text-danger font-medium px-4 py-2 rounded-lg
            transition-all duration-150 border border-danger/20;
   }
 
   .input {
-    @apply bg-bg-2 border border-border focus:border-accent rounded-md px-3 py-2
+    @apply bg-bg-2 border border-border focus:border-accent rounded-lg px-3 py-2
            text-text-0 placeholder:text-text-2 outline-none transition-colors duration-150
            text-sm w-full;
   }
@@ -52,6 +61,36 @@
   }
 
   .urgency-bar {
-    @apply h-1 rounded-full bg-gradient-to-r from-accent to-purple-400;
+    @apply h-1 rounded-full bg-gradient-to-r from-accent to-lime-200;
   }
+
+  /* ── Hub primitives ─────────────────────────────────────────────────────── */
+  .grid-backdrop {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+
+  .neon-text {
+    @apply text-accent;
+    text-shadow: 0 0 18px rgba(200, 255, 42, 0.45);
+  }
+
+  .hub-tile {
+    @apply relative block w-full text-left rounded-2xl border border-border bg-bg-1/80 backdrop-blur
+           transition-all duration-200 overflow-hidden;
+  }
+  .hub-tile:hover, .hub-tile:focus-visible {
+    @apply border-accent/50 shadow-neon;
+  }
+  .hub-tile::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: radial-gradient(500px circle at var(--mx, 50%) var(--my, 0%), rgba(200,255,42,0.08), transparent 45%);
+    opacity: 0; transition: opacity .2s;
+    pointer-events: none;
+  }
+  .hub-tile:hover::after { opacity: 1; }
 }

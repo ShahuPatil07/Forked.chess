@@ -391,7 +391,7 @@ export default function OpeningExplorer() {
         </div>
 
         {/* Coach + detail rail */}
-        <div className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
+        <div className="space-y-4 xl:sticky xl:top-[72px] xl:max-h-[calc(100vh-5.5rem)] xl:overflow-y-auto xl:pr-1">
           <OpeningDetail
             selected={selected}
             eloBucket={eloBucket}

@@ -115,16 +115,16 @@ function DetailContent({
             boardWidth={DETAIL_BOARD_PX}
             arePiecesDraggable={false}
             boardOrientation="white"
-            customDarkSquareStyle={{ backgroundColor: '#1A1D36' }}
-            customLightSquareStyle={{ backgroundColor: '#343761' }}
-            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(123,97,255,0.18)' }}
+            customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
+            customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.18)' }}
           />
           {/* Hover overlay */}
           <div className="absolute inset-0 rounded-md opacity-0 group-hover:opacity-100
                           flex items-center justify-center pointer-events-none
                           bg-black/40 backdrop-blur-[1px] transition-opacity">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent
-                            text-white text-xs font-medium shadow-lg">
+                            text-accent-ink text-xs font-medium shadow-lg">
               <Microscope size={12} />
               Open in Analysis
             </div>
@@ -193,7 +193,7 @@ function DetailContent({
           <div className="bg-bg-3 transition-all"
                style={{ width: `${move.d}%` }}
                title={`Draws ${move.d.toFixed(1)}%`} />
-          <div className="bg-[#111118] transition-all"
+          <div className="bg-[#0C0C0C] transition-all"
                style={{ width: `${move.l}%` }}
                title={`Black wins ${move.l.toFixed(1)}%`} />
         </div>

@@ -5,12 +5,13 @@
   <p><strong>"A coach who knows exactly how you lose."</strong></p>
   <p>
     A complete adaptive chess training platform. Forked watches your real game
-    history and detects your personal recurring blindspots with a chess
-    transformer + a deterministic skill-family profile — then surrounds that core
-    loop with a evidence-based AI coach, an interactive opening explorer, an
-    endgame trainer, a human-like bot to practise against, and an intelligence
-    layer that tracks repeats live, replays your mistakes, estimates the rating
-    they cost you, and renders a shareable Chess DNA card.
+    history and finds your personal recurring blindspots — each mistake tagged as
+    a tactic you <em>allowed</em> or <em>missed</em>, classified by a multi-label
+    chess transformer, and scored against players at your own level — then
+    surrounds that loop with a Chess.com-calibrated game review, an evidence-based
+    AI coach, an opening explorer, an endgame trainer, a human-like bot, and an
+    intelligence layer that tracks repeats live, replays your mistakes, estimates
+    the rating they cost you, and renders a shareable Chess DNA card.
   </p>
 </div>
 
@@ -18,27 +19,41 @@
 
 ## What Forked is
 
-**New: Game Review and a connected voice coach.** Review an uploaded/pasted PGN
-at `/game-review`, or play and discuss moves in one `/share-screen` workspace.
-Coach answers are concise, compare alternatives and follow concrete continuations.
-The redesigned home page lets you enter these tools immediately, without importing
-an account. The main Coach, voice and review currently use **no personal profile
-or cross-session memory**; existing personalized dashboard/training features remain.
+**New in this release**
+
+- **A new interface.** Black / white / one neon accent, and tree navigation in
+  place of the sidebar: after importing your games you land on a hub of big
+  blocks — **Dashboard**, **Theory** (Openings, Endgames), **Practice** (Drills,
+  Play vs Maia), **AI Coach** (Chat, Screen Share), **Analyze** (Game Review,
+  Analysis Board, Game History) and **OTB Scan** — each opening its sub-blocks,
+  with breadcrumbs in a slim top bar.
+- **Game Review calibrated to Chess.com.** Accuracy fitted to Chess.com's own
+  stored accuracies is within **3.4 points on average** (was 6.7), with
+  Chess.com's rules for Blunder / Miss / Great / Brilliant, a deeper book, a
+  calibrated game rating, Retry, recent-games import and the official Chess.com
+  accuracy shown alongside.
+- **Stage 1/2 v2 blindspot pipeline.** On held-out real-game blunders the right
+  skill family is found **87%** of the time (was 29%); profiles are peer-relative
+  with a confidence status, and every mistake carries a structured multi-type
+  description.
+
+The Coach, voice and review work immediately without importing an account.
 
 | Area | What it does |
 |---|---|
-| **Game Review** | Local Stockfish review with move classifications, navigable boards/branches, an evaluation graph, separate accuracy for each side and experimental game-strength estimates. No daily limit or hosted API needed. |
+| **Game Review** | Local Stockfish review calibrated toward Chess.com: move labels with its contextual rules, accuracy fitted to its stored values, a calibrated game rating, accuracy by phase, Retry, recent-games import, board icons and an advantage graph. No daily limit or hosted API needed. |
 | **Forked Coach** | Bounded tool orchestration plus MultiPV investigation, alternative-move searches and checked evidence. Wide chat, concise explanations, inline puzzles, PGN/FEN analysis and opening/endgame knowledge. |
 | **Share Screen** | Tutorial, exact Forked-board connection, playable board and English voice in one tab. Uses the same narrator as Coach, with a local fallback. |
-| **Blindspot Profile / Drills** | Existing transformer-based mistake classification, recurring skill-family profiles and spaced-repetition training from Lichess puzzles. |
+| **Blindspot Profile / Drills** | Allowed-vs-missed mistake detection, a multi-label transformer + Lichess-tagger verifier, peer-relative skill-family profiles with confidence status, and spaced-repetition training from Lichess puzzles. |
 | **Openings / Endgames** | Opening explorer, engine evaluations, curated theory, tablebase-backed endgame positions and practice. Separate section chats have been removed; ask the main Coach instead. |
 | **Play vs Maia** | Human-like opponent, game report, blindspot debrief and analysis board. |
 | **OTB Scan** | Live camera, uploaded video or scoresheet-to-PGN tools feeding the analysis board. |
 
 Game Review is an **independent implementation**, not Chess.com's proprietary
-CAPS2. Published move-classification bands inform it; special labels and ratings
-are disclosed heuristics. Short or uninformative games may not support a rating
-estimate. See [review methodology and tests](backend/GAME_REVIEW.md),
+CAPS2: it follows Chess.com's published bands and described rules, and its
+accuracy and game-rating constants are fitted to Chess.com's stored accuracies
+(Published-Data API). Move labels cannot be checked against Chess.com directly.
+See [review methodology, calibration and tests](backend/GAME_REVIEW.md),
 [Coach architecture and AIM handoff](backend/coach/README.md), and
 [voice setup/testing](backend/coach/SHARE_SCREEN.md).
 
@@ -76,18 +91,20 @@ Your Lichess / Chess.com username
         |
         v
  [Stage 1 — Ingestion & Classification]
-  Fetch last 80–200 games via public API (no login)
-  Annotate every position: Stockfish depth-12 screen → depth-18 on mistakes
-  Extract mistake events where eval_drop >= 100cp (blunders)
-  Chessformer transformer classifies the motif directly (no rule funnel)
-  Maia2 filter: discard universally-hard positions (not personal blindspots)
+  Fetch your last 80–200 rated rapid games via public API (no login)
+  Stockfish depth-12 screen → depth-18 on flagged moves, lines kept, cached per game
+  Mistakes = win-probability loss (Lichess curve), for you AND your opponents
+  Tag each: did you ALLOW a tactic, MISS one, both, or neither (quiet)?
+  Classify in the matching position — allowed: (after your move, their refutation)
+  = the Lichess puzzle format — with a multi-label transformer + verifier
+  Collapse cascades; Maia2 at your real rating weights how avoidable it was
         |
         v
  [Stage 2 — Blindspot family profile]
-  Map each mistake's threat type → 1 of 5 skill families (deterministic)
-  loose_pieces · alignment · defender_disruption · king_safety · positional
-  Score each family: frequency × recency × severity (eval-drop capped at 1000cp)
-  No UMAP / HDBSCAN / LLM at request time — stable, instant, label-free keys
+  5 skill families: loose_pieces · alignment · defender_disruption · king_safety · positional
+  Rate per 100 moves vs your opponents in the same games (the peer baseline)
+  Shrinkage + P(worse than peers) → confirmed / emerging / typical / strength
+  Plus: tactics found vs available, allowed/missed split, points lost per 10 games
         |
         v
  [Stage 3 — Puzzle Retrieval & SRS]
@@ -100,24 +117,48 @@ Your Lichess / Chess.com username
 ### Chess transformer classifier (Stage 1)
 
 A **Chessformer** (64 square-tokens, side-to-move oriented, Shaw relative
-attention, 6 layers, SupCon + CE training) classifies each mistake's motif
-**directly from the network** — the old rule → depth → LightGBM funnel was
-dropped. Confidence is temperature-calibrated softmax; positions whose SupCon
-embedding looks unlike any learned tactic are routed to `other` (positional).
-14 threat categories, **83.1% accuracy** (up from 63.5% with LightGBM). Loads
-from `models/stage1_transformer.pt` + `stage1_reference.pkl`.
+attention, 6 layers) fine-tuned into a **17-way multi-label** model whose labels
+come from the real Lichess theme names (the previous label map keyed classes on
+names that don't exist in the puzzle DB), with a learned **no-tactic** class
+mined from real games. A **port of Lichess's own puzzle tagger** proves motifs on
+the board and adds them as evidence. Each mistake is shown to the model in the
+position that matches how puzzles are built. Results (`reports/stage12_eval/`):
+
+| | Before | v2 |
+|---|---|---|
+| Held-out puzzles, motif right | 82.2% | **88.0%** |
+| Real-game blunders that **allowed** a tactic, family right | 29.4% | **86.7%** |
+| Real-game positions where a tactic was **missed**, family right | 74.5% | **89.6%** |
+| Profile predicts where the next games' points go (Spearman) | 0.78 | **0.84** |
+
+Hand-labelled check on 150 of the author's own mistakes: the human's family is
+among the families attached to a mistake 59% of the time (a fork *with check* is
+both loose pieces and king safety — so each mistake carries several types).
 
 ### Blindspot families (Stage 2)
 
-Instead of learned clustering, mistakes collapse into a **fixed 5-family
-taxonomy** by shared skill — clustering on board geometry produced motif-agnostic
-clusters (ARI ≈ 0), whereas grouping by the skill that failed is both coherent
-and trainable. Each family is identified by a stable `cluster_id` string; the
-whole intelligence layer keys on it. See **instructions/AGENT.md** for the full backend map.
+Mistakes collapse into a **fixed 5-family taxonomy** by shared skill — clustering
+on board geometry produced motif-agnostic clusters (ARI ≈ 0), whereas grouping by
+the skill that failed is coherent and trainable. Each family gets a rate per 100
+moves **compared with your own opponents** (rating-matched, same games), a
+confidence status, the allowed/missed split, your hit rate on available tactics,
+and the expected points it costs. Losses of 5–10% count as positional. The family
+`cluster_id` string stays the key for the whole intelligence layer. Details in
+**instructions/stage1.md**; full backend map in **instructions/AGENT.md**.
 
 ---
 
 ## The learning surfaces
+
+### The hub (`/home`) — tree navigation
+After you import your games you land on a hub of big blocks rather than a
+sidebar: **Dashboard**, **Theory → Openings · Endgames**, **Practice → Drills ·
+Play vs Maia**, **AI Coach → Chat · Screen Share**, **Analyze → Game Review ·
+Analysis Board · Game History**, and **OTB Scan**. Each block opens a page of
+sub-blocks with a one-line description; a slim top bar carries the wordmark
+(back to the hub), breadcrumbs, blindspot alerts and Settings. The whole tree is
+defined once in `frontend/src/nav.ts`. The look is black / white / one neon
+(`#C8FF2A`), with graphite chessboards.
 
 ### Forked Coach (`/coach`)
 - Wide workspace with Coach, Position, Puzzle, Import and Theory modes; optional browser audio.
@@ -128,10 +169,11 @@ whole intelligence layer keys on it. See **instructions/AGENT.md** for the full 
 - No questionnaire gating, stored-profile prompting, personal mistake retrieval or cross-session memory in the active Coach. Those storage modules remain for future work.
 
 ### Game Review (`/game-review`)
-- Upload/paste one PGN, choose Quick/Standard/Deep and stream local move-by-move analysis.
-- Book, Best, Excellent, Good, Inaccuracy, Mistake, Blunder, Miss, Great and Brilliant labels.
-- Move list, keyboard navigation, flip, evaluation graph, candidate-line playback, export and **Explain the idea**.
-- Independent White/Black accuracy and explicitly experimental game-strength estimates when enough informative decisions exist.
+- Pick one of your **recent Chess.com / Lichess games** in one click, or upload/paste a PGN; Quick/Standard/Deep, streamed move by move.
+- Book, Best, Excellent, Good, Inaccuracy, Mistake, Blunder, Miss, Great and Brilliant — Chess.com's bands on a human expected-points curve, plus its described rules: Blunder needs a concrete punishment (material or mate), Miss when a chance was let slip, Great excludes obvious recaptures, Brilliant is a sound near-best sacrifice that was needed. Book = named lines or moves strong Lichess players play often.
+- **Accuracy calibrated to Chess.com's stored accuracies** — 3.4 points mean error on held-out games (was 6.7), no bias — and, for Chess.com games, the **official figure shown alongside**. Accuracy by phase.
+- **Game rating** from 11K Chess.com rating/accuracy pairs, anchored on the PGN rating when present, with an 80% range.
+- Label icon on the destination square, advantage graph with key-moment dots, **Retry** a mistake on the board, best/played lines, export and **Explain the idea**; the board faces the signed-in player.
 - Dedicated Stockfish process, cancellation, no paid review API and no daily limit.
 
 ### Share Screen (`/share-screen`)
@@ -190,9 +232,9 @@ manual SSE parsing for streaming coach responses.
 API, Syzygy tablebase API (`tablebase.lichess.ovh`), curated JSON corpora for
 the coaches.
 
-> **No PostgreSQL / pgvector.** Position embeddings are 16-dim UMAP vectors;
-> numpy L2 over 100K puzzles runs in <50 ms in memory. All caches (eval, ideas,
-> Syzygy, suggestions) are SQLite files under `data/`.
+> **No PostgreSQL / pgvector.** Puzzle retrieval filters a local theme-tagged
+> index with numpy. All caches (per-game Stockfish lines, eval, ideas, Syzygy,
+> suggestions) are SQLite files under `data/`.
 
 ---
 
@@ -228,7 +270,7 @@ backend/bot/             — Maia2 move generator + human thinking-delay
 | **Mistake Replay** | `GET /api/cluster/{user}/{id}/mistakes`, `/insight`, `POST /api/cluster/note`, `POST /api/cluster/explain` |
 | **Counterfactual / DNA** | `GET /api/profile/{user}/counterfactual`, `POST /api/profile/{user}/compute-style`, `GET /api/profile/{user}/style`, `GET /api/profile/{user}/dna-card` |
 | **Forked Coach** | `POST /api/coach/chat` (SSE), `POST /api/coach/investigate`, `POST /api/coach/live-turn` |
-| **Game Review** | `POST /api/game-review/analyse` (SSE: start/move/done/error) |
+| **Game Review** | `POST /api/game-review/analyse` (SSE: start/move/done/error), `GET /api/game-review/recent`, `POST /api/game-review/check-move` |
 | **OTB Scan** | `POST /api/ocr/scoresheet` (multipart image → reviewed PGN) |
 | **Settings** | `GET/PUT /api/settings/{user}`, `GET /api/check/{user}` |
 
@@ -253,21 +295,28 @@ Forked/
 │   ├── evaluate_classifier.py         # Evaluate classifier on test set
 │   ├── verify_category_alignment.py   # Assert rule-based + ML labels in sync
 │   ├── run_puzzle_import.py           # Build the puzzle retrieval index
-│   └── build_endgame_positions.py     # Build endgame.db (+ optional Syzygy verify)
+│   ├── build_endgame_positions.py     # Build endgame.db (+ optional Syzygy verify)
+│   ├── run_stage12_bench.py           # Stage 1/2 on frozen benchmark accounts
+│   ├── eval_stage12.py                # Stage 1/2 evaluation (legacy vs v2) → reports/stage12_eval/
+│   ├── build_gold_set.py              # Hand-labelling page for real mistakes (gold set)
+│   ├── collect_accuracy_ratings.py    # Chess.com PubAPI accuracy/rating samples
+│   └── calibrate_review.py            # Fit Game Review → backend/review_calibration.json
 ├── ml/
 │   ├── config.py                      # Paths, thresholds, feature flags
 │   ├── pipeline.py                    # Stage 1 orchestrator
-│   ├── ingestion/                     # fetcher, annotator, mistake_extractor,
-│   │                                  #   threat_classifier, maia_annotator
-│   ├── classifier/                    # transformer/ (Chessformer: model, predict,
-│   │                                  #   board_encoding, classifier), label_map
-│   ├── clustering/                    # families, profile, profile_pipeline,
-│   │                                  #   blindspot (legacy pipeline kept for rollback)
+│   ├── ingestion/                     # fetcher, annotator (+cache, engine pool), winprob,
+│   │                                  #   mechanism (allowed/missed), mistake_extractor,
+│   │                                  #   maia_annotator, classify_events
+│   ├── classifier/                    # transformer/ (Chessformer + v2 training: prepare_data,
+│   │                                  #   mine_negatives, train_mt), label_map_v2, verifier
+│   ├── clustering/                    # families, profile (peer-relative), profile_pipeline,
+│   │                                  #   reclassify, blindspot
+│   ├── eval/                          # pre-v2 logic kept only for comparisons
 │   ├── matching.py                    # event → family_of(threat_type) (no scaler/reducer)
 │   ├── style/extractor.py             # 5-axis Chess DNA style profile + archetype
 │   ├── puzzles/                       # importer, retriever (query_by_themes)
 │   └── srs/                           # scheduler (SM-2), session builder (family allocation)
-├── models/                            # stage1_transformer.pt, stage1_reference.pkl
+├── models/                            # stage1_transformer_v2.pt + _reference_v2.pkl (v1 fallback)
 ├── backend/
 │   ├── main.py                        # Core API + bot-game WebSocket + debrief
 │   ├── openings.py                    # Opening explorer router
@@ -277,6 +326,7 @@ Forked/
 │   ├── replay.py                      # Mistake Replay (mistakes / insight / note / explain)
 │   ├── counterfactual.py              # Counterfactual rating estimate
 │   ├── card.py                        # Chess DNA card (Pillow PNG) + style endpoints
+│   ├── game_review.py                 # Game Review (+ review_calibration.json, GAME_REVIEW.md)
 │   ├── coach/                         # Forked Coach (capstone agentic coach)
 │   │   ├── router.py                  #   /api/coach chat (SSE + tools) + endpoints
 │   │   ├── profile.py                 #   questionnaire + memory file IO (Layers 1 & 2)
@@ -300,12 +350,15 @@ Forked/
 │                                      #   alerts / sync / style / counterfactual / dna_card.png
 ├── frontend/
 │   └── src/
-│       ├── pages/                     # Dashboard, Coach, PuzzleSession, OpeningExplorer,
+│       ├── nav.ts                     # Navigation tree (hub blocks → sub-blocks)
+│       ├── theme.ts                   # Neon / graphite colour constants
+│       ├── pages/                     # Hub, Dashboard, Coach, GameReview, PuzzleSession, OpeningExplorer,
 │       │                              #   Endgames, BotGame, AnalysisBoard,
 │       │                              #   MistakeReplay, DNAPage, …
 │       ├── features/otb-scan/         # OTB Scan (lazy; TFJS): OTBScanPage + screens/cv/game/hooks
 │       ├── components/
-│       │   ├── layout/                # AppShell, SectionHeader, ChessBackground
+│       │   ├── layout/                # AppShell (top bar + breadcrumbs), SectionHeader, ChessBackground
+│       │   ├── review/                # ReviewGraph, RecentGames
 │       │   ├── coach/                 # CoachBoard (inline puzzle / view / review board)
 │       │   ├── openings/              # OpeningTree, OpeningDetail, OpeningCoachChat,
 │       │   │                          #   MiniBoardThumbnail
@@ -317,8 +370,7 @@ Forked/
 │       ├── hooks/                     # useGameReview, useAudioCoach (STT/TTS)
 │       ├── data/                      # endgameTree.ts, openings_index.json
 │       └── api/                       # index, coach, openings, endgames, replay, insights, live, ws
-└── tests/
-    └── test_hybrid_classifier.py      # 13 unit tests for known tactical positions
+└── tests/                             # test_stage12 (pipeline v2), test_game_review, coach tests, …
 ```
 
 ---
@@ -330,8 +382,8 @@ Forked/
 
 ### 1 — Clone and install
 ```bash
-git clone https://github.com/ShahuPatil07/Zugzwang.git
-cd Zugzwang
+git clone https://github.com/ShahuPatil07/Forked.chess.git
+cd Forked.chess
 
 python -m venv .venv
 .venv\Scripts\activate          # Windows
@@ -376,9 +428,14 @@ uvicorn backend.main:app --reload --port 8000
 cd frontend && npm install && npm run dev    # http://localhost:5173
 ```
 
-Open `http://localhost:5173`, enter your Lichess/Chess.com username, and click
-Analyse. The Openings, Endgames and Play-vs-Maia sections work without a
-profile.
+Open `http://localhost:5173`, enter your Lichess/Chess.com username and import
+your games; you land on the hub when the import finishes (about 25 minutes for
+150 games on a typical laptop, cached per game afterwards). The Openings,
+Endgames, Coach, Game Review and Play-vs-Maia sections work without a profile.
+
+> `models/` and `data/` are not in git. The trained Stage-1 checkpoints
+> (`models/stage1_transformer_v2.pt` + `stage1_reference_v2.pkl`, or the v1
+> fallback) must be copied in or retrained (below).
 
 ---
 
@@ -388,11 +445,18 @@ profile.
 python scripts/run_analysis.py ShahuPatil07 --platform lichess --games 80
 # → data/output/ShahuPatil07_mistakes.json
 
-# Retrain the threat classifier from scratch:
-python scripts/build_training_data.py --resume --max 2000000   # ~30 min, downloads puzzle DB
-python scripts/train_classifier.py
-python scripts/evaluate_classifier.py --no-plot
-python scripts/verify_category_alignment.py
+# Relabel saved mistakes with the current model + rebuild the profile (no Stockfish):
+python -m ml.clustering.reclassify ShahuPatil07
+
+# Rebuild the v2 classifier (CPU is fine; ~3 h fine-tune from v1):
+python -m ml.classifier.transformer.prepare_data      # needs data/raw/lichess_db_puzzle.csv.zst
+python -m ml.classifier.transformer.mine_negatives
+python -m ml.classifier.transformer.train_mt --minutes 170
+python -m ml.classifier.transformer.predict --fit-v2
+
+# Evaluate Stage 1/2 (legacy vs v2) and recalibrate Game Review:
+python scripts/run_stage12_bench.py && python scripts/eval_stage12.py --all
+python scripts/collect_accuracy_ratings.py --save-pgn && python scripts/calibrate_review.py
 ```
 
 ---
@@ -401,20 +465,24 @@ python scripts/verify_category_alignment.py
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MISTAKE_THRESHOLD_CP` | 100 | Min centipawn drop to record a mistake (blunders only) |
-| `ANNOTATION_DEPTH_FAST` | 12 | Stockfish depth for initial screen |
-| `ANNOTATION_DEPTH_FULL` | 18 | Stockfish depth for deep re-analysis |
-| `USE_MAIA2` | True | Enable Maia2 human-probability filter |
-| `MAIA2_MIN_PROB_BEST` | 0.04 | Discard events below this human probability |
-| `EXCLUDE_OPENING_MISTAKES` | False | Include mistakes in moves 1–20 |
+| `GAME_TIME_CLASSES` | `rapid` | Rated standard games that feed the profile (`FORKED_TIME_CLASSES`) |
+| `ANNOTATION_DEPTH_FAST` | 12 | Stockfish depth for the screen of every position |
+| `ANNOTATION_DEPTH_FULL` | 18 | Depth for flagged moves and possible tactics |
+| `MISTAKE_ES` / `INACCURACY_ES` (`ml/ingestion/winprob.py`) | 0.10 / 0.05 | Win-probability loss for a mistake / a positional inaccuracy |
+| `USE_MAIA2` | True | Maia2 "how avoidable at your rating" weight |
+| `FORKED_SF_WORKERS` (env) | min(6, cores−2) | Stockfish processes for ingestion |
 
 ---
 
 ## Key design decisions
 
-**No PCA on bitboards** — LightGBM splits on individual binary features; PCA destroys the sparse "white queen on d5" structure trees use. Raw 805-dim beats PCA-64 by +4.5pp.
+**Show the classifier the right position** — Lichess puzzles are "the position after a blunder + the winning reply". A mistake that *allowed* a tactic is therefore classified on the position after your move with the opponent's refutation; one that *missed* a tactic on the position before it. Doing this took real-game family accuracy on allowed mistakes from 29% to 87%.
 
-**Hybrid classifier, not just rules** — rule-based covers ~65% at certainty 1.0; the rest goes through LightGBM with per-class confidence thresholds to minimise false positives in rare classes.
+**Win probability, not centipawns** — +9 → +6 is not a mistake; 0 → −1.5 is. Mistakes use Lichess's win-probability curve, and Game Review uses a human expected-points curve fitted to real results instead of Stockfish's engine-game model.
+
+**Your opponents are the baseline** — everyone at 1200 hangs pieces; a blindspot is what you do *more* than players at your level. Opponents' moves are already analysed, so the rating-matched peer rate costs nothing.
+
+**Calibrate against real targets** — Game Review accuracy and game rating are fitted to Chess.com's stored accuracies from its public API, and every claim in this README comes from a reproducible script under `scripts/` with results in `reports/`.
 
 **Curated corpora, not a full RAG scrape** — both coaches are grounded in hand-curated JSON corpora (openings + endgames) injected by ECO/material/keyword match, plus live data (Lichess stats / Syzygy). No vector DB, no multi-hour scrape, sources still cited.
 
@@ -452,12 +520,11 @@ python scripts/verify_category_alignment.py
 | Tablebase-verified endgame coach | Yes | No | No | No |
 | Requires login | No (username only) | Yes | Yes | Yes |
 | Focus | Whole-game improvement | General | Generic tactics | Openings |
-```
 
 ## Validate the current coaching/review slice
 
 ```powershell
-.venv/Scripts/python.exe -m pytest tests/test_coach_investigation.py tests/test_coach_live.py tests/test_game_review.py -q -p no:cacheprovider
+.venv/Scripts/python.exe -m pytest tests/test_stage12.py tests/test_game_review.py tests/test_coach_investigation.py tests/test_coach_live.py -q -p no:cacheprovider
 npm.cmd --prefix frontend run build
 # With both local servers running and Chrome installed:
 node scripts/test_share_screen.cjs

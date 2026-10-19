@@ -28,7 +28,7 @@ export function BoardDisplay({
         borderRadius: '8px',
         boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
       }}
-      customDarkSquareStyle={{ backgroundColor: '#3a3a52' }}
+      customDarkSquareStyle={{ backgroundColor: '#3A3A3A' }}
       customLightSquareStyle={{ backgroundColor: '#b8b8d0' }}
     />
   )

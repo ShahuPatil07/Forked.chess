@@ -50,6 +50,10 @@ def _g(obj: Any, key: str, default=None):
     return getattr(obj, key, default)
 
 
+def _tags(e) -> list:
+    return (_g(e, "description") or {}).get("tags", [])
+
+
 def _family_probs(e) -> dict[str, float]:
     fp = _g(e, "family_probs") or {}
     if fp:
@@ -286,7 +290,13 @@ def build_profile(
             "context": {
                 "eval_bucket": {k: round(v / len(roots), 3) for k, v in buckets.most_common()} if roots else {},
                 "time_trouble_share": round(tt_share, 3) if tt_share is not None else None,
+                "involves_king_share": round(sum("involves_king" in _tags(r) for r in roots) / len(roots), 3) if roots else None,
+                "inaccuracy_share": round(sum((_g(r, "judgement") == "inaccuracy") for r in roots) / len(roots), 3) if roots else None,
             },
+            "tags": dict(Counter(t for r in roots for t in _tags(r)
+                                 if t not in ("opening", "middlegame", "endgame", "ahead", "equal", "behind")).most_common(8)),
+            "also_attached": dict(Counter(f["family"] for r in roots for f in (_g(r, "description") or {}).get("families", [])
+                                          if f["family"] != fam).most_common()),
         }
         if fam == UNCLASSIFIED:
             row["reasons"] = dict(Counter(_g(r, "unclassified_reason") or "positional" for r in roots).most_common())
@@ -306,7 +316,7 @@ def build_profile(
                 profile={k: row[k] for k in (
                     "status", "status_reasons", "excess_from_missed_tactics", "rate_per_100", "rate_ci80", "peer_rate_per_100", "relative_rate",
                     "p_worse_than_peers", "impact_pts_per_10", "excess_pts_per_10", "severity_es",
-                    "direction", "allowed_kind", "hit_rate", "context", "soft_count")},
+                    "direction", "allowed_kind", "hit_rate", "context", "soft_count", "tags", "also_attached")},
             ))
 
     rows.sort(key=lambda r: r["score"], reverse=True)

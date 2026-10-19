@@ -8,8 +8,8 @@ import {
 } from 'lucide-react'
 import { coachApi, type GameMoment, type PlayStrength } from '../../api/coach'
 
-const DARK = '#1A1D36'
-const LIGHT = '#343761'
+const DARK = '#5C5C5C'
+const LIGHT = '#A9A9A9'
 export const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
 export interface BoardLine {
@@ -226,8 +226,8 @@ export function CoachWorkspaceBoard({ board, busy }: { board: CoachBoardApi; bus
     } catch { return null }
   })() : null
   const squareStyles = lastMove ? {
-    [lastMove.from]: { background: 'rgba(123,97,255,0.28)' },
-    [lastMove.to]: { background: 'rgba(123,97,255,0.38)' },
+    [lastMove.from]: { background: 'rgba(200,255,42,0.28)' },
+    [lastMove.to]: { background: 'rgba(200,255,42,0.38)' },
   } : {}
 
   // Move list rows: [moveNumber, whiteIdx?, blackIdx?]
@@ -262,7 +262,7 @@ export function CoachWorkspaceBoard({ board, busy }: { board: CoachBoardApi; bus
 
       <div className="flex gap-2 justify-center">
         <div className="w-2.5 rounded overflow-hidden flex flex-col-reverse flex-shrink-0" style={{ height: width }} title={`Engine: ${evalText(cp, mate)}`}>
-          <div className="bg-[#E8E8F0] transition-all duration-500" style={{ flex: whitePct }} />
+          <div className="bg-[#F0F0F0] transition-all duration-500" style={{ flex: whitePct }} />
           <div className="bg-bg-3 transition-all duration-500" style={{ flex: 100 - whitePct }} />
         </div>
         <Chessboard
@@ -274,7 +274,7 @@ export function CoachWorkspaceBoard({ board, busy }: { board: CoachBoardApi; bus
           customDarkSquareStyle={{ backgroundColor: DARK }}
           customLightSquareStyle={{ backgroundColor: LIGHT }}
           customSquareStyles={squareStyles}
-          customBoardStyle={{ borderRadius: '6px', boxShadow: busy ? '0 0 0 2px rgba(123,97,255,0.45)' : '0 0 0 1px rgba(123,97,255,0.15)' }}
+          customBoardStyle={{ borderRadius: '6px', boxShadow: busy ? '0 0 0 2px rgba(200,255,42,0.45)' : '0 0 0 1px rgba(200,255,42,0.15)' }}
           animationDuration={180}
         />
       </div>
@@ -351,7 +351,7 @@ function PlayMenu({ onStart }: { onStart: (color: 'white' | 'black', strength: P
             <option value="beginner">Beginner</option><option value="intermediate">Intermediate</option>
             <option value="advanced">Advanced</option><option value="strong">Strong</option><option value="engine">Full engine</option>
           </select>
-          <button onClick={() => { onStart(color, strength); setOpen(false) }} className="w-full rounded bg-accent hover:bg-accent-hover text-white text-xs py-1.5">Start from this position</button>
+          <button onClick={() => { onStart(color, strength); setOpen(false) }} className="w-full rounded bg-accent hover:bg-accent-hover text-accent-ink text-xs py-1.5">Start from this position</button>
         </div>
       )}
     </div>

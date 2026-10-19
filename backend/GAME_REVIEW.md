@@ -1,5 +1,45 @@
 # Game Review: methodology, implementation and acceptance tests
 
+## v2 (forked-review-v2) — calibrated toward Chess.com
+
+What changed from v1, why, and how close it gets. Calibration is reproducible:
+`python scripts/collect_accuracy_ratings.py --save-pgn` then
+`python scripts/calibrate_review.py` → `backend/review_calibration.json`
+(+ `reports/game_review_eval/calibration.json`).
+
+| Piece | v2 rule | Source |
+|---|---|---|
+| Expected points (labels) | Human logistic `1/(1+e^(-k·cp))`, k = 0.00326, fitted to the results of 630 real games (35K positions). Stockfish's WDL model (engine games) made losses far too large. A rating term was tested: +0.1% fit, so not used. | Chess.com: labels use rating-aware expected points |
+| Bands | 0.02 / 0.05 / 0.10 / 0.20 expected-points loss | Chess.com Classification V2 |
+| Blunder | Loss ≥ 0.20 **and a concrete punishment** (≥ 2 pawns settled material or a mating line, `ml/ingestion/mechanism.py`). Otherwise Mistake. | Staff AMA (concrete punishment) |
+| Miss | Loss ≥ 0.10 after a tactic or a winning chance was available (opponent erred), with no concrete punishment of your own move | Staff AMA / classification help |
+| Great | Best (or equal-eval) move, ≥ 0.10 better than the next candidate, position ≥ 0.40; **not** a recapture on the square just captured, an only move, or a ≤ 2-option check escape | Staff AMA (obvious recaptures excluded) |
+| Brilliant | Offers ≥ minor piece / exchange net on **any** square (declined offers count; mate-in-one is not a sacrifice), within 0.02 of best (0.03 under 1200), position ≥ 0.45, not needed only when another move also keeps ≥ 0.90; endgames: only good move | Help page, Brilliant article, AMA |
+| Best | Engine top move or equal evaluation (engine jitter) | AMA |
+| Book | Named CC0 opening lines **or** a move ≥ 50 games and ≥ 2% share among 2200+ Lichess games (cached explorer), first 30 plies, continuous from the start | — |
+| Accuracy | Per move `A·e^(−k·ΔW)+B` on Lichess win% loss, power-mean aggregation with a floor, forced moves excluded — constants fitted to **Chess.com stored accuracies** (PubAPI, 445 games 400–2800) | Fit |
+| Game rating | Posterior of rating given accuracy (likelihood from 11K Chess.com rating/accuracy pairs) × prior N(PGN rating, 350) — or flat when the PGN has no rating; 80% interval | Fit + Chess.com's "relative to your rating" description |
+
+**Accuracy vs Chess.com (held-out 133 games, 266 player scores):** mean absolute
+error 6.65 → **3.36** points, within 3 points 29% → **55%**, within 5 **79%**,
+correlation 0.75 → **0.90**, bias +3.5–5 → **≈0**. Per 400-Elo band (400–2800)
+the error is 2.6–3.8 points. For Chess.com games the official figure is fetched
+and shown beside ours (`official_accuracy`).
+
+**Known limits.** Move labels cannot be validated against Chess.com (its review
+labels are not in the API) — they follow the published bands and described rules.
+Game rating: accuracy is weak evidence of rating (typical accuracy rises ~1 point
+per 100 Elo, one player's games spread ~13 points), so estimates are conservative
+and ranges wide; matching Chess.com's own Game Rating would need some of its
+values to fit against.
+
+Also new in the UI: label icon on the destination square, an area evaluation
+graph with key-moment dots, accuracy by phase, Retry on mistakes
+(`POST /api/game-review/check-move`), one-click review of recent games
+(`GET /api/game-review/recent`), and the board oriented to the signed-in player.
+
+---
+
 `/game-review` is Forked's independent local game-review implementation. It uses
 existing python-chess/Stockfish and bundled CC0 opening data. No hosted API, paid
 review service, new Python dependency or daily quota is required for the review.

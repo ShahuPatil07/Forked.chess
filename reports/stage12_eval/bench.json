@@ -18,29 +18,29 @@
         }
       },
       "v2": {
-        "mistakes": 491,
-        "incidents": 437,
-        "cascades_merged": 54,
-        "labelled_opening": 0.11,
-        "unclassified": 0.446,
+        "mistakes": 966,
+        "incidents": 814,
+        "cascades_merged": 152,
+        "labelled_opening": 0.142,
+        "unclassified": 0.227,
         "direction": {
-          "quiet": 250,
-          "allowed": 154,
-          "missed": 68,
-          "both": 19
+          "quiet": 666,
+          "allowed": 190,
+          "missed": 90,
+          "both": 20
         },
         "families": {
+          "positional": 544,
           "unclassified": 219,
           "loose_pieces": 84,
-          "positional": 69,
           "defender_disruption": 52,
           "king_safety": 41,
           "alignment": 26
         },
-        "peer_mistakes": 460,
+        "peer_mistakes": 932,
         "opportunities": 433
       },
-      "overlap_events": 377
+      "overlap_events": 480
     },
     "semilore17": {
       "games": 100,
@@ -60,29 +60,29 @@
         }
       },
       "v2": {
-        "mistakes": 371,
-        "incidents": 341,
-        "cascades_merged": 30,
-        "labelled_opening": 0.119,
-        "unclassified": 0.485,
+        "mistakes": 721,
+        "incidents": 631,
+        "cascades_merged": 90,
+        "labelled_opening": 0.183,
+        "unclassified": 0.25,
         "direction": {
-          "quiet": 197,
-          "allowed": 103,
-          "missed": 56,
-          "both": 15
+          "quiet": 511,
+          "allowed": 128,
+          "missed": 66,
+          "both": 16
         },
         "families": {
+          "positional": 409,
           "unclassified": 180,
           "loose_pieces": 72,
-          "positional": 59,
           "defender_disruption": 32,
           "alignment": 15,
           "king_safety": 13
         },
-        "peer_mistakes": 365,
+        "peer_mistakes": 704,
         "opportunities": 332
       },
-      "overlap_events": 296
+      "overlap_events": 365
     },
     "MinnowMate": {
       "games": 100,
@@ -102,29 +102,29 @@
         }
       },
       "v2": {
-        "mistakes": 364,
-        "incidents": 324,
-        "cascades_merged": 40,
-        "labelled_opening": 0.049,
-        "unclassified": 0.453,
+        "mistakes": 676,
+        "incidents": 576,
+        "cascades_merged": 100,
+        "labelled_opening": 0.108,
+        "unclassified": 0.244,
         "direction": {
-          "quiet": 185,
-          "allowed": 99,
-          "missed": 67,
+          "quiet": 449,
+          "allowed": 122,
+          "missed": 92,
           "both": 13
         },
         "families": {
+          "positional": 357,
           "unclassified": 165,
           "loose_pieces": 74,
-          "positional": 45,
           "defender_disruption": 31,
           "alignment": 27,
           "king_safety": 22
         },
-        "peer_mistakes": 358,
+        "peer_mistakes": 666,
         "opportunities": 326
       },
-      "overlap_events": 293
+      "overlap_events": 383
     },
     "sambartiquel": {
       "games": 100,
@@ -144,29 +144,29 @@
         }
       },
       "v2": {
-        "mistakes": 362,
-        "incidents": 331,
-        "cascades_merged": 31,
-        "labelled_opening": 0.199,
-        "unclassified": 0.45,
+        "mistakes": 697,
+        "incidents": 611,
+        "cascades_merged": 86,
+        "labelled_opening": 0.261,
+        "unclassified": 0.234,
         "direction": {
-          "quiet": 184,
-          "allowed": 97,
-          "missed": 58,
+          "quiet": 458,
+          "allowed": 130,
+          "missed": 86,
           "both": 23
         },
         "families": {
+          "positional": 359,
           "unclassified": 163,
           "loose_pieces": 69,
           "king_safety": 42,
           "defender_disruption": 38,
-          "alignment": 26,
-          "positional": 24
+          "alignment": 26
         },
-        "peer_mistakes": 367,
+        "peer_mistakes": 668,
         "opportunities": 374
       },
-      "overlap_events": 278
+      "overlap_events": 357
     },
     "Pilkification": {
       "games": 100,
@@ -186,29 +186,29 @@
         }
       },
       "v2": {
-        "mistakes": 355,
-        "incidents": 322,
-        "cascades_merged": 33,
-        "labelled_opening": 0.163,
-        "unclassified": 0.465,
+        "mistakes": 751,
+        "incidents": 642,
+        "cascades_merged": 109,
+        "labelled_opening": 0.22,
+        "unclassified": 0.22,
         "direction": {
-          "quiet": 198,
-          "allowed": 102,
-          "missed": 48,
+          "quiet": 534,
+          "allowed": 133,
+          "missed": 77,
           "both": 7
         },
         "families": {
+          "positional": 442,
           "unclassified": 165,
           "loose_pieces": 76,
-          "positional": 46,
           "alignment": 27,
           "king_safety": 21,
           "defender_disruption": 20
         },
-        "peer_mistakes": 372,
+        "peer_mistakes": 729,
         "opportunities": 314
       },
-      "overlap_events": 284
+      "overlap_events": 366
     }
   },
   "e4": {
@@ -218,31 +218,31 @@
       "n": 150
     },
     "v2_labels+legacy_scoring": {
-      "spearman": 0.683,
-      "top1_agree": 0.42,
+      "spearman": 0.843,
+      "top1_agree": 1.0,
       "n": 150
     },
     "v2_labels+v2_scoring": {
-      "spearman": 0.815,
-      "top1_agree": 0.827,
+      "spearman": 0.89,
+      "top1_agree": 0.94,
       "n": 150
     }
   },
   "e5": {
     "legacy_scoring": {
-      "spearman_future_cost": 0.592,
-      "top1_in_true_top2_future_cost": 0.8,
-      "spearman_future_excess_vs_peers": 0.104,
-      "top1_in_true_top2_future_excess_vs_peers": 0.45,
-      "ndcg2_future_cost": 0.887,
+      "spearman_future_cost": 0.781,
+      "top1_in_true_top2_future_cost": 1.0,
+      "spearman_future_excess_vs_peers": 0.256,
+      "top1_in_true_top2_future_excess_vs_peers": 0.65,
+      "ndcg2_future_cost": 0.972,
       "n": 20
     },
     "v2_scoring": {
-      "spearman_future_cost": 0.738,
-      "top1_in_true_top2_future_cost": 0.95,
-      "spearman_future_excess_vs_peers": 0.082,
-      "top1_in_true_top2_future_excess_vs_peers": 0.4,
-      "ndcg2_future_cost": 0.962,
+      "spearman_future_cost": 0.835,
+      "top1_in_true_top2_future_cost": 1.0,
+      "spearman_future_excess_vs_peers": 0.2,
+      "top1_in_true_top2_future_excess_vs_peers": 0.65,
+      "ndcg2_future_cost": 0.996,
       "n": 20
     }
   }

@@ -1,10 +1,10 @@
 {
-  "advancedPawn": 0.688,
-  "skewer": 0.733,
+  "hangingPiece": 0.985,
   "pin": 0.883,
   "discoveredAttack": 0.839,
   "fork": 0.906,
+  "advancedPawn": 0.688,
   "mate": 1.0,
-  "backRankMate": 0.979,
-  "hangingPiece": 0.985
+  "skewer": 0.733,
+  "backRankMate": 0.979
 }

@@ -95,7 +95,7 @@ export default function DNAPage() {
           <div className="text-center">
             <p className="text-xs text-text-2 uppercase tracking-wider">{username}'s chess DNA</p>
             <h1 className="text-3xl font-black tracking-tight mt-1"
-              style={{ background: 'linear-gradient(135deg, #c4b5fd, #7c6af7)',
+              style={{ background: 'linear-gradient(135deg, #E9FF9E, #C8FF2A)',
                        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
                        backgroundClip: 'text' }}>
               {archetype}

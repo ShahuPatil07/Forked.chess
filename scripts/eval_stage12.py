@@ -487,6 +487,7 @@ def run_gold() -> dict:
             v = v2_rows.get((it["_game_id"], it["_ply"]))
             it["v2_family"] = v["cluster_id"] if v else None
             it["v2_dir"] = v["direction"] if v else None
+            it["v2_attached"] = [f["family"] for f in (v.get("description") or {}).get("families", [])] if v else None
 
         def acc(rows, key):
             rows = [r for r in rows if r[key] is not None]
@@ -500,6 +501,10 @@ def run_gold() -> dict:
                 a, n = acc(rows, pipe)
                 res[f"{pipe}_accuracy_{name}"] = a
                 res[f"{pipe}_n_{name}"] = n
+        att = [it for it in fam_rows if it["v2_attached"] is not None]
+        res["v2_human_family_among_attached"] = round(float(np.mean([it["human_family"] in it["v2_attached"] for it in att])), 3) if att else None
+        res["v2_mean_families_attached"] = round(float(np.mean([len(it["v2_attached"]) for it in att])), 2) if att else None
+        res["v2_flags_legacy_only_items_now"] = round(float(np.mean([it["v2_family"] is not None for it in items if it["_source"] == "legacy"])), 3)
         dirs = [it for it in items if it["v2_dir"] and it["human_dir"]]
         res["v2_direction_accuracy"] = round(float(np.mean([it["v2_dir"] == it["human_dir"] for it in dirs])), 3) if dirs else None
         res["v2_direction_n"] = len(dirs)
