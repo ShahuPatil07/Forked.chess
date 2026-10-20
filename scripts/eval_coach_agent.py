@@ -38,6 +38,7 @@ import chess  # noqa: E402
 
 OUT = ROOT / "reports" / "coach_eval"
 RESULTS = OUT / "results.jsonl"
+REPORT, TRANSCRIPTS = "report_auto.md", "transcripts.md"   # --tag v3 → v3_results.jsonl / v3_report.md / v3_transcripts.md
 DEFAULT_WORDS = {"simple": 120, "balanced": 200, "detailed": 320}
 JARGON = ["outpost", "prophylaxis", "zwischenzug", "minority attack", "initiative", "tempo", "fianchetto",
           "isolani", "zugzwang", "opposition", "blockade", "pawn break", "weak square", "compensation",
@@ -74,16 +75,20 @@ def run_turn(case: dict, turn: dict, history: list[dict], fen: str) -> dict:
     before = dict(llm.TOTALS)
     t0 = time.time()
     text, tools, steps, lines, boards, repairs = "", [], [], [], [], 0
-    provider, final_fen, notes, error = "", fen, "", None
+    provider, final_fen, notes, error, intent = "", fen, "", None, ""
     try:
         for ev in run_agent(message=turn["msg"], history=history, fen=fen, level=case.get("level", ""),
                             style=case.get("style", "balanced"), review=case.get("review")):
             t = ev["type"]
             if t == "token":
                 text += ev["text"]
+            elif t == "retract":
+                text = ""
+            elif t == "intent":
+                intent = ev["intent"]
             elif t == "tool_done":
-                if ev["name"] == "verify":
-                    repairs += 1
+                if ev["name"] in ("verify", "repair"):
+                    repairs += ev["name"] == "repair"
                 else:
                     tools.append(ev["name"])
                 steps.append(f"{ev['name']}: {ev.get('summary', '')}")
@@ -99,7 +104,7 @@ def run_turn(case: dict, turn: dict, history: list[dict], fen: str) -> dict:
         error = f"{type(exc).__name__}: {exc}"
         traceback.print_exc()
     return {"msg": turn["msg"], "answer": text, "tools": tools, "steps": steps, "lines": lines, "boards": boards,
-            "repairs": repairs, "provider": provider, "fen": final_fen, "notes": notes, "error": error,
+            "repairs": repairs, "provider": provider, "fen": final_fen, "notes": notes, "error": error, "intent": intent,
             "seconds": round(time.time() - t0, 1),
             "tokens": {k: llm.TOTALS[k] - before.get(k, 0) for k in llm.TOTALS}}
 
@@ -216,7 +221,8 @@ def run(args):
             turns_out.append({"turn": turn, "record": rec, "score": score})
             case["_answers"].append(rec["answer"])
             history += [{"role": "user", "content": turn["msg"]},
-                        {"role": "assistant", "content": rec["answer"], "notes": rec["notes"], "fen": rec["fen"]}]
+                        {"role": "assistant", "content": rec["answer"], "notes": rec["notes"], "fen": rec["fen"],
+                         "intent": rec.get("intent")}]
             fen = rec["fen"] or fen
             status = "PASS" if score["passed"] else "FAIL " + ",".join(k for k, v in score["checks"].items() if not v["ok"])
             print(f"[{datetime.now():%H:%M:%S}] ({ci}/{len(todo)}) {case['id']}#{ti} {status} · {rec['seconds']}s · "
@@ -235,7 +241,24 @@ def pct(a, b):
     return f"{100 * a / b:.0f}%" if b else "–"
 
 
-def build_report():
+def rescore(recs: dict) -> None:
+    """Re-apply the CURRENT case checks to stored answers (no LLM calls)."""
+    import backend.main  # noqa: F401  (Stockfish for best-move checks)
+    cases = {c["id"]: c for c in load_cases()}
+    for rid, r in recs.items():
+        case = cases.get(rid)
+        if not case:
+            continue
+        case = dict(case, _answers=[])
+        prev = None
+        for i, t in enumerate(r["turns"]):
+            turn = case["turns"][i] if i < len(case["turns"]) else t["turn"]
+            t["turn"], t["score"] = turn, score_turn(case, turn, t["record"], prev)
+            case["_answers"].append(t["record"]["answer"])
+            prev = t["record"]
+
+
+def build_report(do_rescore: bool = False):
     if not RESULTS.exists():
         print("no results yet")
         return
@@ -246,6 +269,8 @@ def build_report():
             recs[r["id"]] = r     # last write wins (re-runs)
         except Exception:
             continue
+    if do_rescore:
+        rescore(recs)
     order = {c["id"]: i for i, c in enumerate(load_cases())}
     cases = sorted(recs.values(), key=lambda r: order.get(r["id"], 999))
     turns = [(c, t) for c in cases for t in c["turns"]]
@@ -318,8 +343,8 @@ def build_report():
             md.append(f"- **{c['id']}** — _{t['turn']['msg'][:80]}_")
             for k, v in bad.items():
                 md.append(f"  - `{k}`: {v['detail']}")
-    md += ["", "Full transcripts: [`transcripts.md`](transcripts.md).", ""]
-    (OUT / "report_auto.md").write_text("\n".join(x for x in md if x is not None), encoding="utf-8")
+    md += ["", f"Full transcripts: [`{TRANSCRIPTS}`]({TRANSCRIPTS}).", ""]
+    (OUT / REPORT).write_text("\n".join(x for x in md if x is not None), encoding="utf-8")
 
     tr = ["# Forked Coach evaluation — transcripts", ""]
     for c in cases:
@@ -334,8 +359,8 @@ def build_report():
             if r["steps"]:
                 tr.append("\n_Tool trace:_ " + " | ".join(r["steps"])[:900])
         tr.append("\n---\n")
-    (OUT / "transcripts.md").write_text("\n".join(tr), encoding="utf-8")
-    print(f"report → {OUT / 'report_auto.md'}  ({passed}/{n} turns passed)")
+    (OUT / TRANSCRIPTS).write_text("\n".join(tr), encoding="utf-8")
+    print(f"report → {OUT / REPORT}  ({passed}/{n} turns passed)")
 
 
 if __name__ == "__main__":
@@ -345,9 +370,14 @@ if __name__ == "__main__":
     ap.add_argument("--retries", type=int, default=12)
     ap.add_argument("--only", default="")
     ap.add_argument("--report-only", action="store_true")
+    ap.add_argument("--rescore", action="store_true", help="with --report-only: re-apply current checks to stored answers")
+    ap.add_argument("--tag", default="", help="separate result/report files, e.g. --tag v3")
     a = ap.parse_args()
+    if a.tag:
+        RESULTS = OUT / f"{a.tag}_results.jsonl"
+        REPORT, TRANSCRIPTS = f"{a.tag}_report.md", f"{a.tag}_transcripts.md"
     if a.report_only:
-        build_report()
+        build_report(a.rescore)
     else:
         run(a)
     # The backend import leaves Stockfish and background threads alive; exit cleanly.

@@ -86,11 +86,12 @@ def evidence():
 
 
 def test_free_endpoint_never_calls_model_and_returns_speech(monkeypatch):
+    import backend.coach.agent as agent
     calls = []
     def investigate(*args, **kwargs):
         calls.append((args, kwargs)); return evidence()
     monkeypatch.setattr(live, "explain_position", investigate)
-    monkeypatch.setattr(live, "narrate_evidence", lambda *a, **kw: pytest.fail("Hosted narrator must be opt-in"))
+    monkeypatch.setattr(agent, "run_agent", lambda **kw: pytest.fail("The AI coach must be opt-in"))
     app = FastAPI(); app.include_router(router)
     response = TestClient(app).post("/api/coach/live-turn", json=turn(use_llm=False).model_dump())
     assert response.status_code == 200
@@ -100,15 +101,22 @@ def test_free_endpoint_never_calls_model_and_returns_speech(monkeypatch):
     assert calls[0][0][0] == chess.STARTING_FEN
 
 
-def test_ai_optin_only_groq_and_fallback_is_spoken(monkeypatch):
-    monkeypatch.setattr(live, "explain_position", lambda *a, **kw: evidence())
-    options = {}
-    def narrator(result, history, **kwargs):
-        options.update(kwargs); return "long fallback", "template"
-    monkeypatch.setattr(live, "narrate_evidence", narrator)
-    result = live.live_turn(turn(use_llm=True))
-    assert options == {"force_groq": True, "spoken": True}
-    assert "local engine explanation" in result["speech"]
+def test_ai_turn_runs_the_spoken_agent_on_the_last_move(monkeypatch):
+    import backend.coach.agent as agent
+    seen = {}
+    def fake_agent(**kwargs):
+        seen.update(kwargs)
+        yield {"type": "intent", "intent": "position"}
+        yield {"type": "token", "text": "**e4** grabs the centre "}
+        yield {"type": "token", "text": "and frees the bishop."}
+        yield {"type": "done", "notes": "[x] e4 best", "provider": "deepseek:deepseek-flash"}
+    monkeypatch.setattr(agent, "run_agent", fake_agent)
+    result = live.live_turn(turn(use_llm=True, profile={"rating_bucket": "800-1200"}))
+    assert seen["spoken"] is True and seen["review"]["move"] == "e4" and seen["fen"] == chess.STARTING_FEN
+    assert seen["profile"] == {"rating_bucket": "800-1200"} and seen["force_intent"] is None
+    assert result["intent"] == "position" and result["events"] == []
+    assert result["speech"].startswith("Your last move, pawn to e 4.") and "*" not in result["speech"]
+    assert result["notes"] == "[x] e4 best" and result["source"] == "deepseek:deepseek-flash"
 
 
 def test_unequal_depth_and_mate_never_subtracted_as_pawns():

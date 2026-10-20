@@ -279,7 +279,83 @@ def positional_report(board: chess.Board) -> dict:
             report[name].pop("undeveloped_minors")
     report["files"] = files_report(board)
     report["centre"] = centre_control(board)
+    named = structures(board)
+    if named:
+        report["structures"] = named
     return report
+
+
+def structures(board: chess.Board) -> list[str]:
+    """Named pawn structures (exact pattern match) with their textbook plans — theory, not engine."""
+    W, B = chess.WHITE, chess.BLACK
+
+    def has(color, sq):
+        return board.piece_at(chess.parse_square(sq)) == chess.Piece(chess.PAWN, color)
+
+    def none_on(color, file_name):
+        f = chess.FILE_NAMES.index(file_name)
+        return not any(chess.square_file(s) == f for s in board.pieces(chess.PAWN, color))
+    out = []
+    for color, sq, side, other in ((W, "d4", "White", "Black"), (B, "d5", "Black", "White")):
+        if has(color, sq) and none_on(color, "c") and none_on(color, "e"):
+            out.append(f"{side} has an isolated queen's pawn (IQP) on {sq}: {side} wants active pieces, a kingside attack "
+                       f"and the {sq[0]}-pawn advance; {other} blockades the square in front of it and trades pieces toward an endgame.")
+    if has(W, "d4") and none_on(W, "c") and has(B, "d5") and has(B, "c6") and none_on(B, "e"):
+        out.append("Carlsbad structure (Queen's Gambit Exchange type): White's classic plan is the minority attack b4–b5 "
+                   "to leave Black a weak c-pawn (alternative: the central break f3 and e4); Black seeks kingside play "
+                   "(…Ne4, …f5) or the …c5 break.")
+    if has(B, "d5") and none_on(B, "c") and has(W, "d4") and has(W, "c3") and none_on(W, "e"):
+        out.append("Reversed Carlsbad (e.g. Caro-Kann Exchange): Black's classic plan is the minority attack …b5–b4; "
+                   "White plays on the kingside.")
+    if has(W, "d5") and has(W, "e4") and has(B, "d6") and has(B, "e5"):
+        out.append("Closed centre d5/e4 vs d6/e5 (King's Indian type): each side attacks where its chain points — White "
+                   "on the queenside (c4–c5, b4), Black on the kingside (…f5–f4, …g5); a race on opposite wings.")
+    if has(W, "d4") and has(W, "e5") and has(B, "d5") and has(B, "e6"):
+        out.append("French chain d4/e5 vs d5/e6: Black attacks the base with …c5 (and …f6); White uses the kingside space "
+                   "(f4–f5, a piece attack) and keeps d4 supported.")
+    if has(W, "c4") and has(W, "e4") and none_on(W, "d") and has(B, "d6") and none_on(B, "c"):
+        out.append("Maróczy bind (c4 + e4 vs d6): White restrains …b5 and …d5; Black regroups and aims for those breaks or …f5.")
+    for color, c, d, side in ((W, "c4", "d4", "White"), (B, "c5", "d5", "Black")):
+        if has(color, c) and has(color, d) and none_on(color, "b") and none_on(color, "e"):
+            out.append(f"{side} has hanging pawns on {c}/{d}: strong while they can advance, targets once blockaded — "
+                       f"the opponent pressures them with pieces and pawn levers.")
+    for color, sqs, side, hole in ((W, ("d4", "e3", "f4"), "White", "e4"), (B, ("d5", "e6", "f5"), "Black", "e5")):
+        if all(has(color, s) for s in sqs):
+            out.append(f"{side} has a Stonewall ({'/'.join(sqs)}): a strong outpost for a knight in front of it, "
+                       f"but a permanent hole on {hole} and a bad light-squared bishop.")
+    return out
+
+
+def threats_after(board: chess.Board, move: chess.Move, limit: int = 2) -> list[str]:
+    """Captures that would win material if the mover could move again (exact, by static exchange),
+    which were not already winning before the move — "Ng5 threatens Nxf7". Adds the fork that
+    capture would create, when it attacks the king, queen or a rook."""
+    mover = board.turn
+    after = board.copy(stack=False); after.push(move)
+    if after.is_game_over():
+        return []
+    probe = after.copy(stack=False); probe.turn = mover; probe.ep_square = None
+    if not probe.is_valid():
+        return []
+    before = {m.uci(): see(board, m) for m in board.legal_moves if board.is_capture(m)}
+    found = []
+    for m in probe.legal_moves:
+        if not probe.is_capture(m):
+            continue
+        gain = see(probe, m)
+        if gain <= 0 or before.get(m.uci(), -99) >= gain:
+            continue
+        found.append((gain, m))
+    out = []
+    for gain, m in sorted(found, key=lambda x: -x[0])[:limit]:
+        text = f"threatens {probe.san(m)} next (wins {gain} point{'s' if gain != 1 else ''} by exchange)"
+        hit = probe.copy(stack=False); hit.push(m)
+        big = [pname(hit, s) for s in hit.attacks(m.to_square)
+               if hit.piece_at(s) and hit.color_at(s) != mover and hit.piece_type_at(s) in (chess.KING, chess.QUEEN, chess.ROOK)]
+        if len(big) >= 2:
+            text += f", and that capture would fork the {' and the '.join(big[:2])}"
+        out.append(text)
+    return out
 
 
 def move_effects(board: chess.Board, move: chess.Move) -> list[str]:
@@ -323,6 +399,8 @@ def move_effects(board: chess.Board, move: chess.Move) -> list[str]:
     # Pins created.
     before_pins = set(pins(board, not mover)); new_pins = [p for p in pins(after, not mover) if p not in before_pins]
     out.extend(new_pins[:1])
+    # Threats created (what it would win if ignored).
+    out.extend(threats_after(board, move))
     # Pieces left hanging by this move.
     hanging_before = {x["piece"] for x in loose_pieces(board, mover)}
     hanging_after = [x for x in loose_pieces(after, mover) if x["piece"] not in hanging_before]
@@ -344,6 +422,29 @@ def move_effects(board: chess.Board, move: chess.Move) -> list[str]:
         # Pawn break: attacks an enemy pawn.
         if any(after.piece_type_at(s) == chess.PAWN and after.color_at(s) != mover for s in after.attacks(move.to_square)):
             out.append("challenges the enemy pawn chain (pawn break)")
+        # Prophylaxis, exactly: squares the pawn now covers that enemy pieces could have jumped to.
+        covered_before = set()
+        for s in board.pieces(chess.PAWN, mover):
+            covered_before |= set(board.attacks(s))
+        probe = board.copy(stack=False); probe.turn = not mover; probe.ep_square = None
+        if probe.is_valid():
+            denied = {}
+            for m in probe.pseudo_legal_moves:
+                p = probe.piece_at(m.from_square)
+                if (m.to_square in after.attacks(move.to_square) and m.to_square not in covered_before
+                        and p.piece_type not in (chess.PAWN, chess.KING) and not probe.piece_at(m.to_square)):
+                    denied.setdefault(chess.square_name(m.to_square), []).append(probe.san(m) if m in probe.legal_moves else None)
+            for sq, moves in list(denied.items())[:1]:
+                moves = [x for x in moves if x]
+                if moves:
+                    out.append(f"takes the {sq} square away from the enemy pieces ({', '.join('...' + x for x in moves[:2])} "
+                               f"would now land on a square the pawn attacks)")
+        king = board.king(mover)
+        # Luft: a castled king's shield pawn steps up, freeing a square right next to the king.
+        if (king is not None and chess.square_distance(king, move.from_square) == 1
+                and chess.square_rank(king) == (0 if mover else 7) and chess.square_file(king) in (0, 1, 2, 6, 7)
+                and abs(chess.square_file(move.from_square) - chess.square_file(king)) <= 1):
+            out.append(f"gives the king a flight square on {chess.square_name(move.from_square)} (no back-rank mate worries)")
     if piece.piece_type in (chess.ROOK, chess.QUEEN) and chess.square_file(move.to_square) != chess.square_file(move.from_square):
         f = chess.square_file(move.to_square)
         own = [s for s in after.pieces(chess.PAWN, mover) if chess.square_file(s) == f]

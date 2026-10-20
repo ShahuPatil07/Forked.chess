@@ -1,5 +1,13 @@
 # Share Screen: current implementation and testing
 
+> **v3 update (20 Oct 2026).** Voice turns now run on the Coach v3 agent (`live.py` → `run_agent`,
+> spoken style) instead of the v1 Groq narrator; "AI coach explanations" off still gives the local engine
+> answer. The call embeds the Coach's tabbed board (`CoachWorkspaceBoard`, which publishes to the session
+> exactly like the Analysis Board did) instead of the Analysis Board. Asking aloud for a puzzle or a
+> position ("give me a fork puzzle", "set up the Lucena") opens it in a new board tab; a board change made
+> by the coach does not cancel its answer. The position editor appears in the side panel. Tests:
+> `node scripts/test_share_screen.cjs` (no LLM) and `--llm` (voice puzzle request).
+
 Updated October 2026. Read [Coach architecture](README.md) for the underlying
 investigation and [Game Review](../GAME_REVIEW.md) for the other new study surface.
 The accepted scope is **Forked's own Analysis Board**. External website recognition

@@ -8,7 +8,7 @@ import { checkMove, reviewGame, type CheckMoveResult, type MoveClass, type Offic
 import { ReviewGraph } from '../components/review/ReviewGraph'
 import { RecentGames } from '../components/review/RecentGames'
 import { useUserStore } from '../store/userStore'
-import { coachApi, type AgentLine, type CoachChatMessage } from '../api/coach'
+import { coachApi, type AgentLine, type CoachChatMessage, type CoachProfile } from '../api/coach'
 import { AnswerText } from '../components/coach/AnswerText'
 
 export const CLASSIFICATION: Record<MoveClass, { label: string; symbol: string; color: string }> = {
@@ -148,7 +148,7 @@ export default function GameReview() {
       ? `Why is ${row.san} a ${row.classification}, and what should I have played instead?`
       : `Why is ${row.san} ${row.classification === 'book' ? 'a good opening move' : 'a strong move'}? What is the idea?`)
     const history: CoachChatMessage[] = chat.filter(m => m.content).map(m => ({ role: m.role, content: m.content, notes: m.notes, fen: m.fen }))
-    let level: { rating_bucket?: string; explanation_style?: string } = {}
+    let level: Partial<CoachProfile> = {}
     try { level = JSON.parse(localStorage.getItem('forked-coach-level') || '{}') } catch { /* none */ }
     const ctrl = new AbortController(); explainAbort.current = ctrl; setExplaining(true); setFollowUp('')
     setChat(old => [...old, { role: 'user', content: message, lines: [] }, { role: 'assistant', content: '', lines: [] }])
@@ -156,6 +156,7 @@ export default function GameReview() {
     try {
       await coachApi.chatStream({ username: 'review', mode: 'agent', message, conversation_history: history,
         position_fen: row.before_fen, level: level.rating_bucket, style: level.explanation_style,
+        profile: level.rating_bucket ? level as CoachProfile : null,
         review: { move: row.san, classification: row.classification, best: row.best_san, move_number: row.move_number, color: row.color } }, event => {
         if (event.type === 'token') patch(m => ({ ...m, content: m.content + event.text }))
         if (event.type === 'tool') patch(m => ({ ...m, status: event.label ?? 'Analysing…' }))

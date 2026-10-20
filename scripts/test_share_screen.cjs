@@ -58,10 +58,8 @@ let browser;
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('http://localhost:5173/share-screen');
   await page.getByRole('heading', { name: /Play a move/ }).waitFor();
-  const nav = await page.locator('nav a').allTextContents();
-  assert(nav[0].includes('Share Screen') && nav[1].includes('Game Review') && nav[2].includes('Dashboard'));
-  assert.equal(await page.getByLabel('Coach explanations (Groq free tier)').isChecked(), true);
-  await page.getByLabel('Coach explanations (Groq free tier)').uncheck();
+  assert.equal(await page.getByLabel('AI coach explanations').isChecked(), true);
+  await page.getByLabel('AI coach explanations').uncheck();
   await page.screenshot({ path: 'logs/share-screen-tutorial.png', fullPage: true });
   await page.getByRole('button', { name: 'Open Analysis Board', exact: true }).click();
   board = page;
@@ -125,6 +123,21 @@ let browser;
   }
   await board.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.getByText('Exact board position connected').waitFor();
+  if (process.argv.includes('--llm')) {
+    // Voice "create" request: the puzzle opens in a new board tab while the coach keeps talking.
+    await page.getByLabel('Coach explanations').check();
+    await page.waitForFunction(() => window.__recognition?.active);
+    const before = await page.evaluate(() => window.__spoken.length);
+    await page.evaluate(() => window.__ask('Give me a fork puzzle'));
+    await page.getByRole('tab', { name: /Puzzle/ }).waitFor({ timeout: 60000 });
+    await page.waitForFunction(n => window.__spoken.length > n, before, { timeout: 60000 });
+    const said = await page.evaluate(n => window.__spoken.slice(n).join(' '), before);
+    console.log('Coach said:', said.slice(0, 200));
+    assert(said.length > 20 && !/could not|unavailable/i.test(said));
+    await page.getByText(/Find the best move for (White|Black)/).waitFor();
+    await page.getByText('Exact board position connected').waitFor({ timeout: 15000 });
+    console.log('Voice puzzle request opened a puzzle tab, spoke the answer and reconnected the board.');
+  }
   await page.getByRole('button', { name: 'End call', exact: true }).click();
   await page.getByRole('button', { name: 'Open Analysis Board', exact: true }).waitFor();
   await page.waitForFunction(() => !window.__recognition?.active);

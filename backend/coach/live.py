@@ -1,4 +1,9 @@
-"""Voice turns for a linked Analysis Board. No audio or screen recording is stored."""
+"""Voice turns for a linked Analysis Board (Share Screen). No audio or screen recording is stored.
+
+Turns run on the same Coach agent as text chat (agent/loop.py), forced to the
+position intent and a spoken answer style. Which position is analysed (the
+current one vs the one before the last move) is decided deterministically here,
+never by the LLM."""
 from __future__ import annotations
 
 import re
@@ -8,13 +13,15 @@ import chess
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from backend.coach.explain import explain_position, narrate_evidence
+from backend.coach.explain import explain_position
 from backend.coach.teaching import concise_explanation as local_answer
 
 
 class VoiceMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=2500)
+    notes: str | None = Field(default=None, max_length=4000)   # agent analysis notes (follow-ups stay grounded)
+    fen: str | None = Field(default=None, max_length=200)
 
 
 class LiveTurnRequest(BaseModel):
@@ -25,8 +32,11 @@ class LiveTurnRequest(BaseModel):
     previous_target: Literal["current", "last_move"] | None = None
     history: list[VoiceMessage] = Field(default_factory=list, max_length=6)
     budget_seconds: float = Field(default=8, ge=0.25, le=15, allow_inf_nan=False)
-    # Match Coach narration by default; the existing free-tier provider has a local fallback.
     use_llm: bool = True
+    profile: dict | None = None   # the Coach questionnaire (language/depth), if the user filled it in
+    board_info: dict | None = None    # {"kind": "puzzle", "solved": false} when a puzzle tab is active
+    seen_puzzles: list[str] = Field(default_factory=list, max_length=200)
+    maia_elo: int | None = Field(default=None, ge=1100, le=1900)
 
 
 def validated_board(fen: str) -> chess.Board:
@@ -115,19 +125,52 @@ def normalize_question(question: str) -> str:
 def live_turn(req: LiveTurnRequest) -> dict:
     board, focus, target = select_position(req)
     question = normalize_question(req.question)
+    if not req.use_llm:
+        return _local_turn(req, board, focus, target, question)
+    import backend.coach.agent as agent
+    from backend.coach.agent.intent import rule_intent
+    # "Give me a puzzle" / "set up a rook endgame" / a general question beats the last-move context.
+    pre = rule_intent(question, validated_board(req.fen), pasted=False)
+    if pre is not None and pre.kind != "position" and focus:
+        board, focus, target = validated_board(req.fen), None, "current"
+    review = None
+    if focus:
+        move = chess.Move.from_uci(focus)
+        review = {"move": board.san(move), "color": "white" if board.turn else "black",
+                  "move_number": board.fullmove_number}
+    parts, notes, provider, intent, events = [], "", "", "position", []
+    for event in agent.run_agent(message=question, history=[m.model_dump() for m in req.history], fen=board.fen(),
+                                 review=review, spoken=True, force_intent=None, profile=req.profile,
+                                 board_info=req.board_info, seen_puzzles=req.seen_puzzles, maia_elo=req.maia_elo):
+        kind = event["type"]
+        if kind == "token":
+            parts.append(event["text"])
+        elif kind == "retract":
+            parts = []
+        elif kind == "intent":
+            intent = event["intent"]
+        elif kind == "done":
+            notes, provider = event.get("notes") or "", event.get("provider") or ""
+        elif kind in BOARD_EVENTS:
+            events.append(event)   # puzzles, positions, the editor, play mode, arrows → the call's board
+    answer = "".join(parts).strip()
+    anchor = (f"Your last move, {say_move(review['move'])}. " if review else "")
+    return {"speech": speech_text(anchor + answer), "target": target, "analyzed_fen": board.fen(),
+            "focus_move": focus, "source": provider or "agent", "status": "complete", "intent": intent,
+            "events": events, "notes": notes, "evidence": {"notes": notes}}
+
+
+BOARD_EVENTS = {"puzzle", "position", "configurator", "play", "board", "arrows"}
+
+
+def _local_turn(req: LiveTurnRequest, board: chess.Board, focus: str | None, target: str, question: str) -> dict:
+    """Engine-only voice answer (no LLM), kept for the 'AI wording off' setting."""
     result = explain_position(board.fen(), question, focus, budget_seconds=req.budget_seconds)
     if result.get("source") == "error":
         raise HTTPException(400, result["explanation"])
-    effective_focus = focus or result.get("focus_move")
-    answer, source = local_answer(result, effective_focus), "template"
-    if req.use_llm:
-        # Voice and text use the same existing Groq narrator and evidence ledger.
-        answer, source = narrate_evidence(result, [m.model_dump() for m in req.history],
-                                         force_groq=True, spoken=True)
-        if source == "template":
-            answer = "I'll use the local engine explanation for this answer. " + local_answer(result, effective_focus)
+    answer = local_answer(result, focus or result.get("focus_move"))
     anchor = (f"Reviewing the last move played, by {'White' if board.turn else 'Black'}. "
               if focus else f"Looking at the current position, with {result.get('side_to_move', 'the next side')} to move. ")
     return {"speech": speech_text(anchor + answer), "target": target,
-            "analyzed_fen": board.fen(), "focus_move": focus, "source": source,
+            "analyzed_fen": board.fen(), "focus_move": focus, "source": "template",
             "status": result.get("status"), "evidence": result}

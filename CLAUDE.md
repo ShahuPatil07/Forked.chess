@@ -246,8 +246,15 @@ flat per-game Elo (that produced fantasy +1000 ratings). Chess DNA style axes
 are computed from the mistake dataset with documented proxies (no full-game
 re-annotation); axes with too little data are reported `None` and omitted.
 
-**Forked Coach (agent v2, current)** — `backend/coach/agent/` (full map in
-`backend/coach/README.md`, top section). The Coach page and Game Review's move
+**Forked Coach v3 (current, Oct 2026)** — v2 below plus: paid **DeepSeek `deepseek-flash`**
+first (free chain = fallback; spend ledger + `COACH_SPEND_LIMIT_USD`), a **request router**
+(`agent/intent.py`: position / create / general — general never sees the board), the 7-question
+profile, create tools (puzzles, tablebase-verified named positions, material editor → equal
+position via `positions.py`, play always vs **Maia**), Wikipedia grounding, arrows, and **board
+tabs** shared by Coach and Share Screen. Details: top section of `backend/coach/README.md`.
+
+**Forked Coach (agent v2)** — `backend/coach/agent/` (full map in
+`backend/coach/README.md`). The Coach page and Game Review's move
 explainer use `mode: "agent"`: a board-aware investigate → verify → explain loop
 over 13 grounded tools (Stockfish MultiPV, move-vs-best counterfactuals, null-move
 threats, exact board features, what-if lines, Lichess explorer + Masters game
@@ -255,9 +262,9 @@ verification, Syzygy, game review, puzzles, play mode). The client sends the
 board FEN/moves/PGN, a static questionnaire level, and each prior answer's
 analysis `notes` so follow-ups stay grounded. A verifier repairs illegal moves,
 wrong piece placements and false file/pin claims before streaming. LLMs come from
-a free-tier failover chain (`agent/llm.py`: Gemini/Cerebras if keyed, then Groq
-`gpt-oss-120b → qwen3.8-27b → gpt-oss-20b`); never require a paid key, and keep
-the engine-only fallback. Free Groq ≈ 8K tokens/min + 200K tokens/day per model,
+a failover chain (`agent/llm.py`: DeepSeek if keyed, then Gemini/Cerebras, then Groq
+`gpt-oss-120b → qwen3.8-27b → gpt-oss-20b`); the app must still work with only the
+free keys, and keep the engine-only fallback. Free Groq ≈ 8K tokens/min + 200K tokens/day per model,
 so keep tool outputs compact and only send relevant tool schemas.
 
 **Forked Coach (v1 pipeline, still used by Share Screen voice + `/investigate`)** —

@@ -1,34 +1,40 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   Sparkles, Send, Loader2, Mic, MicOff, Volume2, VolumeX, RotateCcw, Check, AlertTriangle,
-  GraduationCap, ChevronDown, Square as StopIcon,
+  GraduationCap, ChevronDown, Square as StopIcon, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { SectionHeader } from '../components/layout/SectionHeader'
 import { useUserStore } from '../store/userStore'
 import { useAudioCoach } from '../hooks/useAudioCoach'
-import { CoachBoard } from '../components/coach/CoachBoard'
-import { CoachWorkspaceBoard, useCoachBoard, START_FEN } from '../components/coach/CoachWorkspaceBoard'
+import {
+  CoachWorkspaceBoard, useCoachBoard, applyCoachEvent, boardInfo, loadMaiaElo, START_FEN,
+} from '../components/coach/CoachWorkspaceBoard'
 import { AnswerText } from '../components/coach/AnswerText'
-import { LevelQuestionnaire, STYLE_OPTIONS, type CoachLevel } from '../components/coach/LevelQuestionnaire'
-import { coachApi, type AgentLine, type CoachChatMessage, type CoachStreamEvent, type PuzzlePayload } from '../api/coach'
+import { PositionEditor } from '../components/coach/PositionEditor'
+import { LevelQuestionnaire, STYLE_OPTIONS, PROFILE_KEY, loadCoachProfile } from '../components/coach/LevelQuestionnaire'
+import {
+  coachApi, type AgentLine, type CoachChatMessage, type CoachIntent, type CoachProfile,
+  type CoachStreamEvent, type ConfiguratorEvent,
+} from '../api/coach'
 
 interface Step { name: string; label: string; summary?: string; done: boolean }
 type Msg =
   | { role: 'user'; content: string }
   | { role: 'assistant'; content: string; streaming: boolean; steps: Step[]; lines: AgentLine[];
-      puzzles: PuzzlePayload[]; notes?: string; fen?: string; provider?: string }
+      editors: ConfiguratorEvent[]; notes?: string; fen?: string; provider?: string; intent?: CoachIntent }
 
-const LEVEL_KEY = 'forked-coach-level'
+const BOARD_KEY = 'forked-coach-board-visible'
+const loadProfile = loadCoachProfile
 
-function loadLevel(): CoachLevel | null {
-  try { const raw = localStorage.getItem(LEVEL_KEY); return raw ? JSON.parse(raw) : null } catch { return null }
+function loadBoardVisible(): boolean {
+  try { return localStorage.getItem(BOARD_KEY) !== '0' } catch { return true }
 }
 
 export default function Coach() {
   return (
     <div className="p-4 lg:p-6 max-w-[1700px] mx-auto h-full">
       <SectionHeader icon={Sparkles} title="Coach"
-        description="Ask about the board, any move, an opening, or a whole game. Every claim is checked with Stockfish." />
+        description="Ask about the board, any move, an opening, chess history — or ask for a puzzle or a position to play. Every chess claim is checked." />
       <CoachWorkspace />
     </div>
   )
@@ -37,8 +43,9 @@ export default function Coach() {
 function CoachWorkspace() {
   const { username } = useUserStore()
   const board = useCoachBoard(START_FEN)
-  const [level, setLevel] = useState<CoachLevel | null>(loadLevel)
-  const [showLevel, setShowLevel] = useState(() => !loadLevel())
+  const [profile, setProfile] = useState<CoachProfile | null>(loadProfile)
+  const [showProfile, setShowProfile] = useState(() => !loadProfile())
+  const [boardVisible, setBoardVisibleRaw] = useState(loadBoardVisible)
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -52,17 +59,26 @@ function CoachWorkspace() {
   messagesRef.current = messages
   const boardRef = useRef(board)
   boardRef.current = board
+  const seenPuzzles = useRef<string[]>([])
 
   const audio = useAudioCoach(text => { if (text.trim()) void send(text) })
 
   useEffect(() => { scrollRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }) }, [messages])
 
-  function saveLevel(l: CoachLevel) {
-    setLevel(l); setShowLevel(false)
-    try { localStorage.setItem(LEVEL_KEY, JSON.stringify(l)) } catch { /* private mode */ }
+  function setBoardVisible(v: boolean) {
+    setBoardVisibleRaw(v)
+    try { localStorage.setItem(BOARD_KEY, v ? '1' : '0') } catch { /* private mode */ }
+  }
+
+  function saveProfile(p: CoachProfile) {
+    setProfile(p); setShowProfile(false)
+    try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)) } catch { /* private mode */ }
     if (username) {
-      void coachApi.saveQuestionnaire(username, { rating_bucket: l.rating_bucket, explanation_style: l.explanation_style,
-        goal: l.goal, play_style: '', study_time: '', struggle: '' }).catch(() => undefined)
+      void coachApi.saveQuestionnaire(username, {
+        rating_bucket: p.rating_bucket, explanation_style: p.explanation_style, goal: p.goal ?? '',
+        learning: p.learning, vocabulary: p.vocabulary, tone: p.tone, notation: p.notation,
+        play_style: '', study_time: '', struggle: '',
+      }).catch(() => undefined)
     }
   }
 
@@ -78,8 +94,17 @@ function CoachWorkspace() {
   }
 
   function onEvent(evt: CoachStreamEvent) {
-    const b = boardRef.current
+    // Anything that puts something on the board brings the board back if it was hidden.
+    if (applyCoachEvent(boardRef.current, evt)) {
+      if (evt.type !== 'arrows' && evt.type !== 'moments') setBoardVisible(true)
+      if (evt.type === 'puzzle' && evt.payload.puzzle_id) seenPuzzles.current = [...seenPuzzles.current, evt.payload.puzzle_id].slice(-150)
+      return
+    }
     switch (evt.type) {
+      case 'intent':
+        if (evt.intent === 'position') setBoardVisible(true)
+        patchAssistant(m => ({ ...m, intent: evt.intent }))
+        break
       case 'tool':
         patchAssistant(m => ({ ...m, steps: [...m.steps, { name: evt.name, label: evt.label ?? evt.name, done: false }] }))
         break
@@ -92,17 +117,11 @@ function CoachWorkspace() {
           return { ...m, steps }
         })
         break
-      case 'board':
-        if (evt.game) b.showLine(evt.fen, evt.line.san, evt.line.fens, evt.label, 'game', 0, { gamePgn: evt.game.pgn, moments: undefined })
-        else if (evt.label.startsWith('Pasted')) b.setPosition(evt.fen, evt.label)
-        else b.showLine(evt.fen, evt.line.san, evt.line.fens, evt.label, 'coach')
-        break
-      case 'moments': b.setMoments(evt.moments); break
-      case 'play': b.startPlay(evt.fen, evt.user_color, evt.strength); break
-      case 'puzzle': patchAssistant(m => ({ ...m, puzzles: [...m.puzzles, evt.payload] })); break
+      case 'configurator': patchAssistant(m => ({ ...m, editors: [...m.editors, evt] })); break
       case 'lines': patchAssistant(m => ({ ...m, lines: evt.lines })); break
+      case 'retract': patchAssistant(m => ({ ...m, content: '' })); break
       case 'token': patchAssistant(m => ({ ...m, content: m.content + evt.text })); break
-      case 'done': patchAssistant(m => ({ ...m, notes: evt.notes, fen: evt.fen, provider: evt.provider })); break
+      case 'done': patchAssistant(m => ({ ...m, notes: evt.notes, fen: evt.fen, provider: evt.provider, intent: evt.intent ?? m.intent })); break
       case 'error': throw new Error(evt.message)
     }
   }
@@ -113,9 +132,11 @@ function CoachWorkspace() {
     const history: CoachChatMessage[] = messagesRef.current
       .filter(m => m.content.trim())
       .slice(-10)
-      .map(m => m.role === 'assistant' ? { role: 'assistant', content: m.content, notes: m.notes, fen: m.fen } : { role: 'user', content: m.content })
+      .map(m => m.role === 'assistant'
+        ? { role: 'assistant', content: m.content, notes: m.notes, fen: m.fen, intent: m.intent }
+        : { role: 'user', content: m.content })
     setMessages(prev => [...prev, { role: 'user', content: message },
-      { role: 'assistant', content: '', streaming: true, steps: [], lines: [], puzzles: [] }])
+      { role: 'assistant', content: '', streaming: true, steps: [], lines: [], editors: [] }])
     setInput(''); setError(null); setStreaming(true)
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -124,7 +145,8 @@ function CoachWorkspace() {
       await coachApi.chatStream({
         username: username || 'guest', message, mode: 'agent', conversation_history: history,
         position_fen: b.fen, board_moves: b.movesContext, game_pgn: b.state.gamePgn,
-        level: level?.rating_bucket, style: level?.explanation_style,
+        level: profile?.rating_bucket, style: profile?.explanation_style, profile,
+        board_info: boardInfo(b), seen_puzzles: seenPuzzles.current, maia_elo: loadMaiaElo(),
       }, onEvent, ctrl.signal)
       const final = messagesRef.current[messagesRef.current.length - 1]
       if (audioOnRef.current && final?.role === 'assistant' && final.content) audio.speak(final.content)
@@ -135,7 +157,7 @@ function CoachWorkspace() {
       patchAssistant(m => ({ ...m, streaming: false, steps: m.steps.map(s => ({ ...s, done: true })) }))
       setMessages(prev => {
         const last = prev[prev.length - 1]
-        return last?.role === 'assistant' && !last.content && !last.puzzles.length ? prev.slice(0, -1) : prev
+        return last?.role === 'assistant' && !last.content && !last.editors.length && !last.steps.length ? prev.slice(0, -1) : prev
       })
       setStreaming(false); abortRef.current = null
     }
@@ -146,32 +168,41 @@ function CoachWorkspace() {
   const isStart = board.fen.split(' ')[0] === START_FEN.split(' ')[0]
   const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
   const suggestions = streaming ? [] : lastAssistant && lastAssistant.content
-    ? ['Explain it simpler', 'Go deeper', 'What if they defend differently?', 'What should I remember from this?']
-    : board.state.gamePgn
-      ? ['Review this game', 'What was the turning point?', 'What is the main lesson from this game?']
-      : isStart
-        ? ['What is the idea behind the Italian Game?', 'How should a beginner start a game?', 'Give me a fork puzzle', "Let's play a game, I'm White"]
-        : ["What's the best move here, and why?", 'What is the plan for both sides?', 'What is my opponent threatening?', 'Which side is better and why?']
+    ? lastAssistant.intent === 'general'
+      ? ['Tell me more', 'Explain it simpler', 'Show me a famous game about this']
+      : ['Explain it simpler', 'Go deeper', 'What if they defend differently?', 'What should I remember from this?']
+    : board.state.puzzle
+      ? ['Give me a hint', 'What theme is this puzzle?']
+      : board.state.gamePgn
+        ? ['Review this game', 'What was the turning point?', 'What is the main lesson from this game?']
+        : isStart
+          ? ['Give me a fork puzzle', 'Set up a rook endgame to play', 'What is the idea behind the Italian Game?', 'Who was the first world champion?']
+          : ["What's the best move here, and why?", 'What is the plan for both sides?', 'What is my opponent threatening?', 'Which side is better and why?']
 
-  const styleLabel = STYLE_OPTIONS.find(s => s.value === level?.explanation_style)?.label ?? 'Balanced'
+  const styleLabel = STYLE_OPTIONS.find(s => s.value === profile?.explanation_style)?.label ?? 'Balanced'
 
   return (
     <>
-      {showLevel && <LevelQuestionnaire initial={level} onSave={saveLevel} onClose={level ? () => setShowLevel(false) : undefined} />}
-      <div className="grid gap-4 lg:grid-cols-[minmax(300px,500px)_minmax(0,1fr)]" style={{ minHeight: 460 }}>
-        <div className="lg:overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 201px)' }}>
-          <CoachWorkspaceBoard board={board} busy={streaming} />
+      {showProfile && <LevelQuestionnaire initial={profile} onSave={saveProfile} onClose={profile ? () => setShowProfile(false) : undefined} />}
+      <div className={`grid gap-4 ${boardVisible ? 'lg:grid-cols-[minmax(300px,500px)_minmax(0,1fr)]' : ''}`} style={{ minHeight: 460 }}>
+        <div className={`lg:overflow-y-auto ${boardVisible ? '' : 'hidden'}`} style={{ maxHeight: 'calc(100dvh - 201px)' }}>
+          <CoachWorkspaceBoard board={board} busy={streaming} onAsk={text => void send(text)} />
           <p className="text-[11px] text-text-2 mt-2 px-1">
-            The coach sees this board. Move pieces, paste a FEN/PGN, or click moves in an answer to explore them here.
+            The coach sees the board in the active tab. Move pieces, paste a FEN/PGN, or click moves in an answer to explore them.
           </p>
         </div>
 
         <div className="card p-0 flex flex-col min-w-0" style={{ height: 'calc(100dvh - 201px)', minHeight: 460 }}>
           <div className="flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-b border-border">
-            <button onClick={() => setShowLevel(true)} title="Change how the coach explains"
+            <button onClick={() => setBoardVisible(!boardVisible)} title={boardVisible ? 'Hide the board' : 'Show the board'}
+              aria-pressed={boardVisible}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-text-2 hover:text-text-0 hover:bg-bg-2 border border-transparent">
+              {boardVisible ? <PanelLeftClose size={13} /> : <PanelLeftOpen size={13} />} {boardVisible ? 'Hide board' : 'Board'}
+            </button>
+            <button onClick={() => setShowProfile(true)} title="Change how the coach explains"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-text-1 hover:text-text-0 hover:bg-bg-2 border border-border">
               <GraduationCap size={13} className="text-accent" />
-              {level ? `${level.rating_bucket} · ${styleLabel}` : 'Set your level'}
+              {profile ? `${profile.rating_bucket} · ${styleLabel}` : 'Set your level'}
               <ChevronDown size={12} className="text-text-2" />
             </button>
             <button
@@ -196,10 +227,10 @@ function CoachWorkspace() {
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center px-6">
                 <div className="w-10 h-10 rounded-xl bg-accent/15 text-accent flex items-center justify-center mb-3"><Sparkles size={18} /></div>
-                <p className="text-sm text-text-0 font-medium">Your chess coach, with an engine behind every answer.</p>
+                <p className="text-sm text-text-0 font-medium font-display">Your chess coach, with an engine behind every answer.</p>
                 <p className="text-xs text-text-2 mt-1.5 max-w-md">
-                  Ask why a move works, what happens after the natural alternative, what the opponent threatens,
-                  or paste a game for a review. Follow-up questions keep the context — ask “why?” as often as you like.
+                  Ask why a move works, what the opponent threatens, or about any chess topic. Ask for a puzzle,
+                  a famous position, or an endgame to play against Maia — it opens in a new board tab.
                 </p>
               </div>
             )}
@@ -218,22 +249,23 @@ function CoachWorkspace() {
                   )}
                   {m.content && (
                     <div className="rounded-2xl rounded-tl-sm px-4 py-3 bg-bg-2 border border-border">
-                      <AnswerText text={m.content} lines={m.lines} onMove={(line, ply) => board.showLine(line.start_fen, line.san, line.fens, line.label, 'coach', ply)} />
+                      <AnswerText text={m.content} lines={m.lines} onMove={(line, ply) => { setBoardVisible(true); board.showLine(line.start_fen, line.san, line.fens, line.label, 'coach', ply) }} />
+                      {m.streaming && <span className="inline-block w-1.5 h-3.5 bg-accent/70 animate-pulse align-middle ml-0.5" aria-hidden="true" />}
                       {m.provider === 'fallback' && (
-                        <p className="text-[10px] text-amber-300 mt-2 flex items-center gap-1"><AlertTriangle size={11} /> Free AI quota is busy — this is the engine-only summary.</p>
+                        <p className="text-[10px] text-amber-300 mt-2 flex items-center gap-1"><AlertTriangle size={11} /> The AI model is unavailable — this is the engine-only summary.</p>
                       )}
                     </div>
                   )}
-                  {m.puzzles.map((p, j) => p.found && p.fen ? (
-                    <div key={j} className="p-2 rounded-lg bg-bg-1 border border-border inline-block">
-                      <CoachBoard mode="puzzle" fen={p.fen} fullLineUci={p.full_line_uci} solutionUci={p.solution_uci} orientation={p.side_to_move} size={300} />
-                      <p className="text-[10px] text-text-2 mt-1.5">Puzzle {p.puzzle_id} · rating {p.rating}{p.themes ? ` · ${p.themes.split(' ').slice(0, 3).join(', ')}` : ''}</p>
-                    </div>
-                  ) : null)}
+                  {m.editors.map((e, j) => (
+                    <PositionEditor key={j} initial={e} onGenerated={pos => {
+                      setBoardVisible(true)
+                      board.openPosition(pos.fen, pos.material, null, ['play', 'explain'])
+                    }} />
+                  ))}
                   {m.lines.length > 0 && !m.streaming && (
                     <div className="flex flex-wrap gap-1.5">
                       {m.lines.slice(0, 5).map((l, j) => (
-                        <button key={j} onClick={() => board.showLine(l.start_fen, l.san, l.fens, l.label, 'coach', 0)}
+                        <button key={j} onClick={() => { setBoardVisible(true); board.showLine(l.start_fen, l.san, l.fens, l.label, 'coach', 0) }}
                           className="text-[11px] px-2 py-1 rounded-md border border-border text-text-2 hover:text-accent hover:border-accent/40"
                           title={l.san.join(' ')}>▶ {l.label}</button>
                       ))}
@@ -280,7 +312,7 @@ function CoachWorkspace() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e) } }}
               rows={2}
-              placeholder={audioOn ? 'Speak, or type…' : 'Ask about the board, a move, an opening — or paste a PGN…'}
+              placeholder={audioOn ? 'Speak, or type…' : 'Ask about the board, any chess topic, or for a puzzle / position to play…'}
               className="input text-sm py-2 resize-none flex-1"
             />
             {streaming ? (

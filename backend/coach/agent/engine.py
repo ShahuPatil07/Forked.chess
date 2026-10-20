@@ -98,17 +98,38 @@ def numbered(board: chess.Board, sans: list[str]) -> str:
     return " ".join(out)
 
 
+_INFLIGHT: dict[tuple, threading.Event] = {}
+
+
 def _cached(key: tuple, fn):
-    with _CACHE_LOCK:
-        if key in _CACHE:
-            _CACHE.move_to_end(key)
-            return _CACHE[key]
-    value = fn()
-    with _CACHE_LOCK:
-        _CACHE[key] = value
-        while len(_CACHE) > _CACHE_SIZE:
-            _CACHE.popitem(last=False)
-    return value
+    """LRU cache with in-flight de-duplication: a second caller asking for a search that is
+    already running (e.g. the router's Stockfish warm-up) waits for it instead of repeating it."""
+    while True:
+        with _CACHE_LOCK:
+            if key in _CACHE:
+                _CACHE.move_to_end(key)
+                return _CACHE[key]
+            pending = _INFLIGHT.get(key)
+            if pending is None:
+                _INFLIGHT[key] = threading.Event()
+                break
+        pending.wait(timeout=30)
+        with _CACHE_LOCK:
+            if key in _CACHE or key not in _INFLIGHT:
+                continue   # finished (or failed): re-check the cache / take over
+        return fn()        # the first computation is stuck: compute independently
+    try:
+        value = fn()
+        with _CACHE_LOCK:
+            _CACHE[key] = value
+            while len(_CACHE) > _CACHE_SIZE:
+                _CACHE.popitem(last=False)
+        return value
+    finally:
+        with _CACHE_LOCK:
+            event = _INFLIGHT.pop(key, None)
+        if event:
+            event.set()
 
 
 def _analyse(board: chess.Board, limit: chess.engine.Limit, multipv: int = 1, root_moves=None) -> list[dict]:

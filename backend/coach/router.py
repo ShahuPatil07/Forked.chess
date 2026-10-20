@@ -72,8 +72,9 @@ _MODE_LINES = {
 class ChatMessage(BaseModel):
     role: str
     content: str
-    notes: str | None = Field(default=None, max_length=2000)   # agent analysis notes for follow-ups
+    notes: str | None = Field(default=None, max_length=4000)   # agent analysis notes for follow-ups
     fen: str | None = Field(default=None, max_length=200)      # board the turn was about
+    intent: str | None = Field(default=None, max_length=20)    # position | create | general
 
 
 class CoachChatRequest(BaseModel):
@@ -92,6 +93,10 @@ class CoachChatRequest(BaseModel):
     level: str = Field(default="", max_length=40)
     style: str = Field(default="balanced", max_length=20)
     review: dict | None = None   # Game Review: {move, classification, best, move_number, color}
+    profile: dict | None = None  # questionnaire v2: rating_bucket, learning, vocabulary, explanation_style, tone, notation, goal
+    board_info: dict | None = None   # {"kind": "puzzle"|"play"|"position"|"board", "solved": bool}
+    seen_puzzles: list[str] = Field(default_factory=list, max_length=200)
+    maia_elo: int | None = Field(default=None, ge=1100, le=1900)
 
 
 class PositionRequest(BaseModel):
@@ -117,6 +122,10 @@ class QuestionnaireRequest(BaseModel):
     study_time: str = ""
     struggle: str = ""
     explanation_style: str = ""
+    learning: str = ""
+    vocabulary: str = ""
+    tone: str = ""
+    notation: str = ""
 
 
 # ── Groq ───────────────────────────────────────────────────────────────────────
@@ -223,7 +232,8 @@ def _agent_stream(req: CoachChatRequest) -> Iterator[str]:
     try:
         for event in run_agent(message=req.message, history=[m.model_dump() for m in req.conversation_history],
                                fen=req.position_fen, moves_context=req.board_moves, game_pgn=req.game_pgn,
-                               level=level, style=req.style, review=req.review):
+                               level=level, style=req.style, review=req.review, profile=req.profile,
+                               board_info=req.board_info, seen_puzzles=req.seen_puzzles, maia_elo=req.maia_elo):
             yield _sse(event)
     except Exception as exc:
         log.error("coach agent failed: %s", exc, exc_info=True)
@@ -346,6 +356,57 @@ def coach_engine_move(req: EngineMoveRequest):
         raise HTTPException(400, str(exc))
 
 
+class MaiaMoveRequest(BaseModel):
+    fen: str = Field(max_length=200)
+    elo: int = Field(default=1900, ge=1100, le=1900)
+
+
+@router.post("/maia-move")
+def coach_maia_move(req: MaiaMoveRequest):
+    """Play-along opponent: Maia2 (human-like) at the requested Elo; 1900 is its strongest.
+    Falls back to a strong Stockfish move only if Maia2 is unavailable."""
+    import chess
+    from backend.bot import maia_engine
+    try:
+        board = chess.Board(req.fen)
+        if not board.is_valid() or board.is_game_over():
+            raise ValueError("The game is over or the position is invalid.")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if maia_engine._ensure_loaded():
+        uci = maia_engine.get_move(board.fen(), req.elo, req.elo)
+        move = chess.Move.from_uci(uci)
+        if move in board.legal_moves:
+            return {"move_uci": uci, "move_san": board.san(move), "engine": "maia", "elo": req.elo}
+    from backend.coach.agent.engine import pick_move_for_strength
+    res = pick_move_for_strength(board.fen(), "strong")
+    return {"move_uci": res["move_uci"], "move_san": res["move_san"], "engine": "stockfish-fallback", "elo": req.elo}
+
+
+class GeneratePositionRequest(BaseModel):
+    white: dict[str, int] = Field(default_factory=dict)
+    black: dict[str, int] = Field(default_factory=dict)
+    user_color: str = Field(default="white", max_length=5)
+    exclude_fens: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.post("/generate-position")
+def coach_generate_position(req: GeneratePositionRequest):
+    from backend.coach.positions import generate_position
+    try:
+        return generate_position(req.white, req.black, req.user_color, set(req.exclude_fens))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@router.get("/llm-status")
+def coach_llm_status():
+    """Which model answers, and the paid spend so far (for the dev budget)."""
+    from backend.coach.agent import llm
+    return {"primary": llm.primary(), "chain": [f"{p}:{m}" for p, m in llm.chain()],
+            "spent_usd": round(llm.spent(), 4), "limit_usd": llm.spend_limit(), "critic": llm.critic_enabled()}
+
+
 @router.post("/live-turn")
 def coach_live_turn(req: LiveTurnRequest):
     return live_turn(req)
@@ -365,7 +426,8 @@ def coach_save_questionnaire(req: QuestionnaireRequest):
     profile = save_questionnaire(req.username, {
         "rating_bucket": req.rating_bucket, "play_style": req.play_style,
         "goal": req.goal, "study_time": req.study_time, "struggle": req.struggle,
-        "explanation_style": req.explanation_style,
+        "explanation_style": req.explanation_style, "learning": req.learning,
+        "vocabulary": req.vocabulary, "tone": req.tone, "notation": req.notation,
     })
     return {"ok": True, "profile": profile}
 

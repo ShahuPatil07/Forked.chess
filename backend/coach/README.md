@@ -21,7 +21,31 @@ The new **Share Screen** voice-session layer is documented separately in
 free-tool configuration, single-tab operation, spoken turn routing, limits, and manual acceptance tests. It reuses
 the investigation described here and leaves the original Coach available.
 
-## Coach agent v2 — board-aware investigate → verify → explain (current, October 2026)
+## Coach v3 — paid model, request router, board tabs (current, 20 October 2026)
+
+v3 keeps the v2 investigate → verify → explain loop below and adds:
+
+| Area | What changed | Where |
+|---|---|---|
+| Model | **DeepSeek `deepseek-flash`** (V4.1-Flash-1017) first, free chain as fallback. Thinking mode with `reasoning_content` replayed in tool loops; real token streaming; `tool_choice:"none"` on the last round (otherwise it writes tool syntax as text); 1,600-token answer cap (stops rare repetition loops). | `agent/llm.py` |
+| Spend cap | Every paid call is priced from its usage (peak rates, so never under-counted) into `data/coach_spend.json`; at `COACH_SPEND_LIMIT_USD` paid providers are skipped and the free chain answers. `GET /api/coach/llm-status` shows model + spend. | `agent/llm.py`, `router.py` |
+| Router | Every message → **position** (about the board) / **create** (puzzle, named position, material editor, play) / **general** (history, rules, concepts…). Rules first (free, never mis-route on the labelled set); ambiguous ones → fast JSON call (thinking off) run in parallel with a Stockfish warm-up. General questions never see the board. Follow-ups may switch topic any time. | `agent/intent.py` |
+| Profile | 7-question questionnaire (rating, learning mode, vocabulary, length, tone, notation, goal) → AUDIENCE block. "Moves in words" is a post-process so answers stay verifiable. | `agent/prompt.py`, `components/coach/LevelQuestionnaire.tsx` |
+| Grounding | Lichess-tagger **motifs** on winning engine lines (names the fork/pin/skewer); exact **prophylaxis** facts for quiet pawn moves ("takes g4 away from …Bg4/…Ng4", "flight square on h2"); colour-named tactic facts; threat probe added when the best move is quiet; tablebase kickoff for ≤7 pieces; **wiki_lookup** (Wikipedia API) for real-world facts; claim-by-claim critic with thinking off (≈1.6 s, same catches). | `agent/tools.py`, `agent/features.py`, `agent/loop.py` |
+| Create tools | `get_puzzle` (all requested Lichess themes, player-level rating, no repeats), `setup_position` (named positions with **tablebase-verified textbook lines**, FENs, opening moves), `material_setup` (opens the editor), `start_game` (always **Maia**, default 1900 = strongest, slider 1100–1900). | `agent/tools.py`, `positions.py` |
+| Positions | `POST /api/coach/generate-position`: balanced material → equal position (|eval| ≤ 0.8, user to move; mirrored fallback); unbalanced → Endgames practice path. `POST /api/coach/maia-move`. | `positions.py`, `router.py` |
+| Output | No ASCII boards / code fences / leaked tool markup (stream-safe filter); arrows for the moves the answer names; "set up X" streams a short confirmation, "set up X and explain…" is checked like a position answer. | `agent/postprocess.py`, `agent/loop.py` |
+| UI | Board tabs (My board + puzzle / position / vs Maia tabs, never erasing the user's board), puzzle solving on the main board, arrows, Play vs Maia / Explain chips, click-to-move + Undo, hide/show board (auto-returns when needed). | `components/coach/CoachWorkspaceBoard.tsx`, `pages/Coach.tsx` |
+| Share Screen | Voice turns run on the same agent (spoken style); puzzles/positions requested by voice open in a tab of the same board, without cutting the answer off. | `live.py`, `pages/ShareScreen.tsx`, `features/share-screen/useShareSession.ts` |
+
+**SSE events added:** `intent`, `retract` (drop a streamed preamble), `arrows`, `position`, `configurator`; `play` now carries `engine:"maia"`, `elo`; `done` carries `intent`.
+**Request fields added:** `profile`, `board_info` (`{kind:"puzzle", solved}` stops solution leaks), `seen_puzzles`, `maia_elo`; history items carry `intent`.
+
+**Env:** `DEEPSEEK_API_KEY` (paid primary), `COACH_SPEND_LIMIT_USD` (dev cap), optional `COACH_ANSWER_EFFORT` (low|high; low measured faster with no quality loss), `FORKED_CONTACT` (email/URL for Wikipedia's API policy — without it Wikipedia rate-limits sooner).
+
+**Checks:** `pytest tests/test_coach_agent.py tests/test_coach_live.py`; `python scripts/eval_intent.py` (router accuracy on `tests/fixtures/coach_intents.json`); `node scripts/test_coach_v3.cjs` (browser: profile, general, hidden board, arrows, puzzle tab, editor → equal position → Maia); `node scripts/test_share_screen.cjs --llm`; `python scripts/eval_coach_agent.py --tag v3 --gap 0` (88-turn eval → `reports/coach_eval/v3_*`).
+
+## Coach agent v2 — board-aware investigate → verify → explain (October 2026)
 
 The Coach page (`/coach`) and Game Review's move explainer now run the agent in
 [`agent/`](agent/). The earlier position-investigation pipeline (sections below)

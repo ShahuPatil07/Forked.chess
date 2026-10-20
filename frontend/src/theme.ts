@@ -15,5 +15,12 @@ export const BOARD_DARK = '#5C5C5C'
 export const BOARD_LIGHT = '#A9A9A9'
 export const LAST_MOVE = 'rgba(200,255,42,0.32)'
 
+/** Coach board arrows: the recommended move in neon, alternatives in white, threats/mistakes in red. */
+export const ARROW_BEST = NEON
+export const ARROW_ALT = 'rgba(245,245,245,0.75)'
+export const ARROW_THREAT = 'rgba(255,90,90,0.9)'
+export const PUZZLE_WRONG = 'rgba(255,90,90,0.9)'
+export const HINT_SQUARE = 'rgba(200,255,42,0.45)'
+
 /** Ordered series palette for charts: neon first, then whites and greys. */
 export const SERIES = ['#C8FF2A', '#F5F5F5', '#8FD400', '#A3A3A3', '#E9FF9E', '#5E8C00', '#6B6B6B']

@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
-import { ArrowUpRight, Check, Headphones, Mic, MicOff, MonitorUp, PhoneOff, Play, RotateCcw, Sparkles, Square, Volume2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowUpRight, Check, Headphones, Mic, MicOff, MonitorUp, PhoneOff, Play, RotateCcw, Sparkles, Square, Volume2, X } from 'lucide-react'
 import { Chessboard } from 'react-chessboard'
 import { useShareSession } from '../features/share-screen/useShareSession'
-import AnalysisBoard from './AnalysisBoard'
+import { CoachWorkspaceBoard, useCoachBoard, applyCoachEvent, boardInfo, loadMaiaElo, START_FEN } from '../components/coach/CoachWorkspaceBoard'
+import { PositionEditor } from '../components/coach/PositionEditor'
+import { loadCoachProfile } from '../components/coach/LevelQuestionnaire'
+import type { ConfiguratorEvent } from '../api/coach'
 import { Chess } from 'chess.js'
 
 function VoiceOrb({ speaking = false, listening = false }: { speaking?: boolean; listening?: boolean }) {
@@ -26,12 +29,29 @@ function CallClock({ since }: { since: number }) {
 }
 
 export default function ShareScreen() {
-  const call = useShareSession()
+  // The call uses the Coach's tabbed board: puzzles and positions the coach sets up open in their own tab.
+  const board = useCoachBoard(START_FEN)
+  const boardRef = useRef(board); boardRef.current = board
+  const seenPuzzles = useRef<string[]>([])
+  const [editor, setEditor] = useState<ConfiguratorEvent | null>(null)
+  const call = useShareSession({
+    context: () => ({ profile: loadCoachProfile(), board_info: boardInfo(boardRef.current),
+                      seen_puzzles: seenPuzzles.current, maia_elo: loadMaiaElo() }),
+    onEvents: events => events.forEach(e => {
+      if (e.type === 'configurator') { setEditor(e); return }
+      applyCoachEvent(boardRef.current, e)
+      if (e.type === 'puzzle' && e.payload.puzzle_id) seenPuzzles.current = [...seenPuzzles.current, e.payload.puzzle_id].slice(-150)
+    }),
+  })
   const [boardOpened, setBoardOpened] = useState(false)
   const [startingFen, setStartingFen] = useState('')
   let validPosition = true
   try { if (startingFen) new Chess(startingFen) } catch { validPosition = false }
-  const openBoard = () => setBoardOpened(true)
+  const openBoard = () => {
+    board.switchTab('main')
+    board.setPosition(startingFen ? new Chess(startingFen).fen() : START_FEN, 'Your board')
+    setBoardOpened(true)
+  }
   const state = call.speaking ? 'Coach speaking' : call.busy ? 'Thinking through your move' : !call.ready
     ? call.boardState : call.muted ? 'Microphone muted' : call.listening ? 'Listening to you' : 'Ready when you are'
 
@@ -96,7 +116,7 @@ export default function ShareScreen() {
           </div>
           <div className="mx-6 mb-6 p-4 rounded-xl bg-black/20 border border-white/5">
             <p className="text-[10px] uppercase tracking-widest text-accent mb-3">Try asking aloud</p>
-            <p className="text-sm text-text-1 leading-loose">“Was that a good move?”<br />“Why is the alternative better?”<br />“What should I play now?”</p>
+            <p className="text-sm text-text-1 leading-loose">“Was that a good move?”<br />“What should I play now?”<br />“Give me a fork puzzle.”<br />“Set up the Lucena position.”</p>
           </div>
           <div className="border-t border-white/5 p-4 flex items-center justify-center gap-4" aria-hidden="true">
             <div className="p-3 rounded-full bg-white/5"><Mic size={16} /></div><div className="p-3 rounded-full bg-accent/20 text-accent"><MonitorUp size={16} /></div><div className="p-3 rounded-full bg-red-500/15 text-red-300"><PhoneOff size={16} /></div>
@@ -107,9 +127,9 @@ export default function ShareScreen() {
         <div className="card p-5"><h3 className="text-text-0 font-medium mb-2 flex gap-2 items-center"><Volume2 size={15} /> Check your sound</h3>
           <p>Headphones help keep your voice clear. Listening pauses while the coach speaks; use Interrupt to take your turn.</p>
           <button onClick={call.testSpeaker} disabled={!call.supported} className="mt-3 text-accent flex gap-1.5 items-center disabled:opacity-40"><Play size={12} /> Test English voice</button></div>
-        <div className="card p-5"><h3 className="text-text-0 font-medium mb-2">Free to start</h3>
-          <p>The same evidence-based Coach explains your moves aloud using the configured Groq free tier. If its quota is unavailable, a local explanation takes over.</p>
-          <label className="flex items-center gap-2 mt-3 text-text-1"><input type="checkbox" className="accent-lime-300" checked={call.useLlm} onChange={e => call.setUseLlm(e.target.checked)} /> Coach explanations (Groq free tier)</label></div>
+        <div className="card p-5"><h3 className="text-text-0 font-medium mb-2">The same Coach, out loud</h3>
+          <p>The same evidence-based Coach as the chat answers aloud: it analyses your board, and can put a puzzle or a position on it in a new tab. If the AI model is unavailable, a local engine explanation takes over.</p>
+          <label className="flex items-center gap-2 mt-3 text-text-1"><input type="checkbox" className="accent-lime-300" checked={call.useLlm} onChange={e => call.setUseLlm(e.target.checked)} /> AI coach explanations</label></div>
         <div className="card p-5"><h3 className="text-text-0 font-medium mb-2">A connected board, a private preview</h3>
           <p>Play and talk in this tab. The board supplies the exact position and last move. Screen video stays in your browser. Speech recognition may send audio to your browser’s speech service. Calls aren’t recorded by Forked.</p></div>
       </div>
@@ -120,7 +140,7 @@ export default function ShareScreen() {
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_270px] gap-4">
         <div className="rounded-2xl border border-border bg-bg-1 p-4">
-          <AnalysisBoard key={startingFen} embedded liveSession={call.session} startingFen={startingFen} />
+          <CoachWorkspaceBoard board={board} busy={call.busy} liveSession={call.session} />
         </div>
         <div className="rounded-2xl border border-accent/20 bg-gradient-to-b from-accent/10 to-bg-1 p-6 flex flex-col items-center justify-center min-h-[300px] text-center">
           <VoiceOrb speaking={call.speaking} listening={call.listening} />
@@ -130,6 +150,14 @@ export default function ShareScreen() {
             {[12, 22, 32, 18, 26, 14, 22].map((h, i) => <span key={i} className={`w-1 rounded-full bg-accent/60 ${call.speaking || call.listening ? 'animate-pulse' : ''}`} style={{ height: call.speaking || call.listening ? h : 4, animationDelay: `${i * 110}ms` }} />)}
           </div>
           <span className="text-[11px] text-text-2 mt-5">{call.ready ? 'Exact board position connected' : 'Waiting for a stable position'}</span>
+          {editor && (
+            <div className="mt-5 w-full text-left">
+              <div className="flex justify-end mb-1">
+                <button onClick={() => setEditor(null)} className="text-text-2 hover:text-text-0" aria-label="Close the position editor"><X size={13} /></button>
+              </div>
+              <PositionEditor initial={editor} onGenerated={pos => board.openPosition(pos.fen, pos.material, null, ['play'])} />
+            </div>
+          )}
         </div>
       </div>
       <div className="rounded-2xl border border-border bg-bg-1 p-4 flex flex-wrap justify-center gap-3">
@@ -141,7 +169,7 @@ export default function ShareScreen() {
         <button className="btn-ghost border border-border flex items-center gap-2 disabled:opacity-30" disabled={!call.hasAnswer || call.busy} onClick={call.repeat}><RotateCcw size={15} />Repeat answer</button>
         <button className="btn-danger flex items-center gap-2" onClick={() => { call.end(); setBoardOpened(false) }}><PhoneOff size={17} />End call</button>
       </div>
-      <p className="text-center text-xs text-text-2">Play on this board while you talk. Say “what should I play now” to discuss the current position.</p>
+      <p className="text-center text-xs text-text-2">Play on this board while you talk. Ask “what should I play now”, or for a puzzle or position — it opens in a new tab above the board.</p>
     </div>}
   </div>
 }

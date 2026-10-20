@@ -15,6 +15,10 @@ export interface CoachQuestionnaire {
   study_time: string
   struggle: string
   explanation_style?: string
+  learning?: string
+  vocabulary?: string
+  tone?: string
+  notation?: string
 }
 
 export interface CoachProfileResponse {
@@ -161,6 +165,31 @@ export interface AgentBoardEvent {
 
 export type PlayStrength = 'beginner' | 'intermediate' | 'advanced' | 'strong' | 'engine'
 
+/** Questionnaire v2 — how the coach should talk to this user (language/depth only). */
+export interface CoachProfile {
+  rating_bucket: string
+  learning?: 'ideas' | 'lines' | 'mix'
+  vocabulary?: 'none' | 'basic' | 'advanced'
+  explanation_style: string          // simple | balanced | detailed
+  tone?: 'encouraging' | 'direct' | 'socratic'
+  notation?: 'san' | 'words'
+  goal?: string
+}
+
+export type CoachIntent = 'position' | 'create' | 'general'
+export interface PieceCounts { Q: number; R: number; B: number; N: number; P: number }
+export interface BoardArrowEvent { from: string; to: string; kind: 'best' | 'alt' | 'bad' | 'threat' | string; san?: string }
+export interface ConfiguratorEvent { type: 'configurator'; white: PieceCounts; black: PieceCounts; user_color: 'white' | 'black'; label?: string }
+export interface PositionEvent {
+  type: 'position'; fen: string; label: string
+  line: { san: string[]; uci: string[]; fens: string[] } | null
+  offer: ('play' | 'explain')[]
+}
+export interface GeneratedPosition {
+  fen: string; balanced: boolean; eval_cp: number | null; mate: number | null; source: string
+  description: string; side_to_move: 'white' | 'black'; material: string; user_color: 'white' | 'black'
+}
+
 export interface GameMoment { ply: number; type: string; move: string }
 
 /** Game Review hand-off: the move being explained. */
@@ -182,13 +211,18 @@ export type CoachStreamEvent =
   | AgentBoardEvent
   | { type: 'lines'; lines: AgentLine[] }
   | { type: 'puzzle'; payload: PuzzlePayload }
-  | { type: 'play'; fen: string; user_color: 'white' | 'black'; strength: PlayStrength }
+  | { type: 'play'; fen: string; user_color: 'white' | 'black'; engine?: 'maia'; elo?: number }
+  | { type: 'intent'; intent: CoachIntent; sub?: string; source?: string }
+  | { type: 'retract' }
+  | { type: 'arrows'; fen: string; arrows: BoardArrowEvent[] }
+  | ConfiguratorEvent
+  | PositionEvent
   | { type: 'moments'; moments: GameMoment[] }
   | { type: 'token'; text: string }
-  | { type: 'done'; notes?: string; fen?: string; provider?: string }
+  | { type: 'done'; notes?: string; fen?: string; provider?: string; intent?: CoachIntent }
   | { type: 'error'; message: string }
 
-export interface CoachChatMessage { role: 'user' | 'assistant'; content: string; notes?: string; fen?: string }
+export interface CoachChatMessage { role: 'user' | 'assistant'; content: string; notes?: string; fen?: string; intent?: CoachIntent }
 
 export const coachApi = {
   getProfile: async (username: string): Promise<CoachProfileResponse> => {
@@ -227,6 +261,29 @@ export const coachApi = {
     return res.json()
   },
 
+  /** Play-along opponent: Maia2 (human-like); 1900 is its strongest setting. */
+  maiaMove: async (fen: string, elo: number): Promise<{ move_uci: string; move_san: string; engine: string }> => {
+    const res = await fetch('/api/coach/maia-move', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fen, elo }),
+    })
+    if (!res.ok) throw new Error(await res.text().catch(() => res.statusText))
+    return res.json()
+  },
+
+  /** Position editor: an equal position when material is balanced, else a practice position. */
+  generatePosition: async (white: PieceCounts, black: PieceCounts, userColor: 'white' | 'black', exclude: string[] = []): Promise<GeneratedPosition> => {
+    const res = await fetch('/api/coach/generate-position', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ white, black, user_color: userColor, exclude_fens: exclude }),
+    })
+    if (!res.ok) {
+      let detail = res.statusText
+      try { detail = (await res.json()).detail ?? detail } catch { /* not JSON */ }
+      throw new Error(detail)
+    }
+    return res.json()
+  },
+
   chatStream: async (
     body: {
       username: string
@@ -243,6 +300,10 @@ export const coachApi = {
       level?: string
       style?: string
       review?: ReviewContext
+      profile?: CoachProfile | null
+      board_info?: { kind: string; solved?: boolean } | null
+      seen_puzzles?: string[]
+      maia_elo?: number
     },
     onEvent: (evt: CoachStreamEvent) => void,
     signal?: AbortSignal,

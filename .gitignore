@@ -70,3 +70,6 @@ data/annotation_cache.db
 data/bench/
 data/gold/
 logs/
+
+# Coach LLM spend ledger (runtime)
+data/coach_spend.json

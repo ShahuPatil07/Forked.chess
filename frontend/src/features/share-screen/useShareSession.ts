@@ -3,9 +3,21 @@ import { Chess } from 'chess.js'
 import { useLiveVoice } from './useLiveVoice'
 import { capturedBoardId, channelName, SETTLE_MS, snapshotKey, STALE_MS } from './boardLink'
 import type { BoardSnapshot, CaptureTrack } from './boardLink'
+import type { CoachProfile, CoachStreamEvent } from '../../api/coach'
 
-interface Turn { role: 'user' | 'assistant'; content: string }
-export function useShareSession() {
+interface Turn { role: 'user' | 'assistant'; content: string; notes?: string; fen?: string }
+export interface ShareContext {
+  profile?: CoachProfile | null
+  board_info?: { kind: string; solved?: boolean } | null
+  seen_puzzles?: string[]
+  maia_elo?: number
+}
+/** `context` is read at question time; `onEvents` receives the coach's board actions
+ *  (puzzle / position / editor / play / arrows) to apply to the shared board. */
+export function useShareSession(options: { context?: () => ShareContext; onEvents?: (events: CoachStreamEvent[]) => void } = {}) {
+  const optionsRef = useRef(options); optionsRef.current = options
+  // While the coach itself changes the shared board, the new snapshot must not cancel its answer.
+  const coachChange = useRef(0)
   const [session] = useState(() => crypto.randomUUID())
   const [stream, setStream] = useState<MediaStream | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -73,7 +85,7 @@ export function useShareSession() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
         body: JSON.stringify({ fen: snapshot.fen, before_fen: snapshot.beforeFen, last_move: snapshot.lastMove,
           question, history: history.current, previous_target: previousTarget.current,
-          budget_seconds: 8, use_llm: settings.current.useLlm }),
+          budget_seconds: 8, use_llm: settings.current.useLlm, ...(optionsRef.current.context?.() ?? {}) }),
       })
       if (!response.ok) throw new Error('The coach could not analyze this position. Please try again.')
       const result = await response.json()
@@ -82,8 +94,15 @@ export function useShareSession() {
           capturedBoardId(streamRef.current.getVideoTracks()[0] as CaptureTrack, session) !== snapshot.boardId) return
       previousTarget.current = result.target
       history.current = [...history.current, { role: 'user', content: question.slice(0, 2500) } as Turn,
-        { role: 'assistant', content: result.speech.slice(0, 2500) } as Turn].slice(-6)
+        { role: 'assistant', content: result.speech.slice(0, 2500), notes: (result.notes ?? '').slice(0, 3900),
+          fen: result.analyzed_fen } as Turn].slice(-6)
       lastAnswer.current = result.speech; setHasAnswer(true)
+      const events: CoachStreamEvent[] = Array.isArray(result.events) ? result.events : []
+      if (events.length) {
+        // Puzzles / positions / play open on the shared board while the coach speaks.
+        if (events.some(e => e.type !== 'arrows')) coachChange.current = Date.now() + 4000
+        optionsRef.current.onEvents?.(events)
+      }
       await voiceRef.current.speak(result.speech)
     } catch (failure) {
       if (version !== generation.current) return
@@ -115,7 +134,12 @@ export function useShareSession() {
       const snapshot = data as BoardSnapshot
       seenAt.current = Date.now()
       if (!board.current || snapshotKey(snapshot) !== snapshotKey(board.current)) {
-        resetBoard(); board.current = snapshot; changedAt.current = Date.now()
+        if (Date.now() < coachChange.current) {
+          // The coach opened a puzzle/position tab: keep its answer playing and the conversation going.
+          board.current = snapshot; changedAt.current = Date.now(); readyRef.current = false; setReady(false)
+        } else {
+          resetBoard(); board.current = snapshot; changedAt.current = Date.now()
+        }
         setBoardState('Capturing the position…')
       }
     }
