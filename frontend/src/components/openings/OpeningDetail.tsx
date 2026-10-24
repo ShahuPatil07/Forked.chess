@@ -1,253 +1,135 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Chessboard } from 'react-chessboard'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Copy, Check, MessageSquare, BarChart3, Sparkles, Microscope } from 'lucide-react'
-import { openingsApi, type OpeningMove } from '../../api/openings'
+import { BarChart3, Bot, ExternalLink, Microscope, Sparkles } from 'lucide-react'
+import { openingsApi, type OpeningMove, type OpeningPool } from '../../api/openings'
+import { ideasForPath } from '../../data/openingIdeas'
+import { BOARD_DARK, BOARD_LIGHT } from '../../theme'
 
-const DETAIL_BOARD_PX = 220
+const DETAIL_BOARD_PX = 260
 
 interface OpeningDetailProps {
   selected:   { move: OpeningMove; path: string; depth: number } | null
-  eloBucket:  string
+  pool:       OpeningPool
   parentName: string | null
 }
 
-export function OpeningDetail({ selected, eloBucket, parentName }: OpeningDetailProps) {
+export function OpeningDetail({ selected, pool, parentName }: OpeningDetailProps) {
   if (!selected) {
     return (
       <div className="card p-5 flex flex-col items-center justify-center text-center h-full min-h-[360px]">
         <Sparkles size={20} className="text-text-2 mb-3" />
         <p className="text-sm text-text-1 font-medium mb-1">Select a move</p>
         <p className="text-xs text-text-2 leading-relaxed">
-          Click any move in the tree to see the position, engine eval,
-          win-rate from real games, and typical strategic ideas.
+          Click any move in the tree to see the position, the engine's evaluation,
+          how it scores in your games pool, and the plans behind the opening.
         </p>
       </div>
     )
   }
-
-  return <DetailContent selected={selected} eloBucket={eloBucket} parentName={parentName} />
+  return <DetailContent selected={selected} pool={pool} parentName={parentName} />
 }
 
-function DetailContent({
-  selected, eloBucket, parentName,
-}: {
-  selected:   { move: OpeningMove; path: string; depth: number }
-  eloBucket:  string
-  parentName: string | null
-}) {
-  const { move } = selected
-  const fen      = move.fen_after
-  const sideToMove = fen.split(' ')[1] === 'w' ? 'white' : 'black'
+function DetailContent({ selected, pool, parentName }: { selected: NonNullable<OpeningDetailProps['selected']>; pool: OpeningPool; parentName: string | null }) {
+  const { move, path } = selected
+  const fen = move.fen_after
   const navigate = useNavigate()
-
   const displayName = move.name || parentName || 'Position'
+  const curated = ideasForPath(path)
+  const moves = path.split(' ').filter(Boolean)
 
-  function openInAnalysisBoard() {
-    navigate('/analysis', {
-      state: {
-        positions: [{ fen, label: displayName + (move.eco ? ` (${move.eco})` : '') }],
-        index:     0,
-        title:     displayName,
-      },
-    })
-  }
-
-  // Engine eval — cached forever
   const evalQuery = useQuery({
-    queryKey:  ['opening-eval', fen],
-    queryFn:   () => openingsApi.getEval(fen),
-    staleTime: Infinity,
-    retry:     false,
+    queryKey: ['opening-eval', fen],
+    queryFn: () => openingsApi.getEval(fen),
+    staleTime: Infinity, retry: false,
   })
-
-  // Ideas — fire mutation on selection if not pre-cached in tree response
-  const [ideasText,    setIdeasText]    = useState<string | null>(move.ideas)
-  const [ideasFailed,  setIdeasFailed]  = useState(false)
-
-  const ideasMutation = useMutation({
-    mutationFn: () => openingsApi.getIdeas({
-      fen,
-      move:          move.san,
-      opening_name:  displayName,
-      side_to_move:  sideToMove,
-    }),
-    onSuccess: (r) => setIdeasText(r.ideas),
-    onError:   ()  => setIdeasFailed(true),
-  })
-
-  useEffect(() => {
-    setIdeasText(move.ideas)
-    setIdeasFailed(false)
-    if (move.ideas === null && !ideasMutation.isPending) {
-      ideasMutation.mutate()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fen])
-
-  // Copy prompt
-  const [copied, setCopied] = useState(false)
-  function copyPrompt() {
-    const prompt = `Tell me more about ${displayName} — key plans, traps and model games`
-    navigator.clipboard.writeText(prompt).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }
-
   const evalDisplay = evalQuery.data?.eval
+
+  function analyse() {
+    navigate('/analysis', { state: { moves, title: displayName } })
+  }
+  function playMaia() {
+    navigate('/bot-game', { state: { startingMoves: moves, context: { kind: 'opening', name: displayName } } })
+  }
 
   return (
     <div className="card p-4 space-y-4">
-      {/* Board — click to open in Analysis Board */}
+      {/* Board — hover for actions (buttons below for touch) */}
       <div className="flex justify-center">
-        <motion.button
-          onClick={openInAnalysisBoard}
-          whileHover={{ scale: 1.015 }}
-          whileTap={{ scale: 0.99 }}
-          className="relative group cursor-pointer"
-          title="Open in Analysis Board"
-        >
-          <Chessboard
-            position={fen}
-            boardWidth={DETAIL_BOARD_PX}
-            arePiecesDraggable={false}
-            boardOrientation="white"
-            customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
-            customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
-            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.18)' }}
-          />
-          {/* Hover overlay */}
-          <div className="absolute inset-0 rounded-md opacity-0 group-hover:opacity-100
-                          flex items-center justify-center pointer-events-none
-                          bg-black/40 backdrop-blur-[1px] transition-opacity">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent
-                            text-accent-ink text-xs font-medium shadow-lg">
-              <Microscope size={12} />
-              Open in Analysis
-            </div>
+        <div className="relative group rounded-md">
+          <Chessboard position={fen} boardWidth={DETAIL_BOARD_PX} arePiecesDraggable={false} boardOrientation="white"
+            customDarkSquareStyle={{ backgroundColor: BOARD_DARK }} customLightSquareStyle={{ backgroundColor: BOARD_LIGHT }}
+            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.18)' }} />
+          <div className="absolute inset-0 rounded-md opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex flex-col items-center justify-center gap-2 bg-black/55 backdrop-blur-[1px] transition-opacity">
+            <button onClick={analyse} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-accent-ink text-xs font-semibold shadow-lg">
+              <Microscope size={13} />Open in Analysis
+            </button>
+            <button onClick={playMaia} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-bg-1 border border-accent/50 text-accent text-xs font-semibold shadow-lg">
+              <Bot size={13} />Play it vs Maia
+            </button>
           </div>
-        </motion.button>
+        </div>
       </div>
 
-      {/* Move + name */}
       <div>
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-lg font-bold text-text-0">{move.san}</span>
-          {move.eco && (
-            <span className="text-[10px] font-semibold text-text-2 px-1.5 py-0.5 rounded
-                             bg-bg-2 border border-border">
-              {move.eco}
-            </span>
-          )}
-        </div>
+        <span className="font-mono text-lg font-bold text-text-0">{move.san}</span>
         <p className="text-xs text-text-2 mt-0.5 leading-snug">{displayName}</p>
       </div>
 
-      {/* Stats row */}
-      <div className="flex items-center gap-2">
-        <div className="flex-1 card bg-bg-2 border-0 px-2.5 py-1.5">
-          <p className="text-[10px] text-text-2 uppercase tracking-wider">Popularity</p>
-          <p className="text-sm font-bold text-text-0 tabular-nums mt-0.5">
-            {move.popularity.toFixed(1)}%
-          </p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-bg-2 px-2.5 py-1.5">
+          <p className="text-[10px] text-text-2 uppercase tracking-wider">Played</p>
+          <p className="text-sm font-bold text-text-0 tabular-nums mt-0.5">{move.popularity.toFixed(1)}%</p>
         </div>
-        <div className="flex-1 card bg-bg-2 border-0 px-2.5 py-1.5">
-          <p className="text-[10px] text-text-2 uppercase tracking-wider">Eval</p>
+        <div className="rounded-lg bg-bg-2 px-2.5 py-1.5" title="Stockfish, depth 16 — White's point of view, in points">
+          <p className="text-[10px] text-text-2 uppercase tracking-wider">Engine</p>
           {evalQuery.isLoading ? (
-            <div className="h-4 mt-0.5 flex items-center">
-              <div className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" />
-            </div>
+            <div className="h-5 mt-0.5 flex items-center"><div className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" /></div>
           ) : evalDisplay ? (
-            <p className={`text-sm font-bold mt-0.5 tabular-nums font-mono
-              ${evalDisplay.includes('M')
-                ? 'text-accent'
-                : evalDisplay.startsWith('+')
-                  ? 'text-success'
-                  : 'text-danger'}`}>
-              {evalDisplay}
-            </p>
-          ) : (
-            <p className="text-sm text-text-2 mt-0.5">—</p>
-          )}
+            <p className={`text-sm font-bold mt-0.5 tabular-nums font-mono ${evalDisplay.includes('M') ? 'text-accent' : 'text-text-0'}`}>{evalDisplay.replace('-', '−')}</p>
+          ) : <p className="text-sm text-text-2 mt-0.5">—</p>}
         </div>
       </div>
 
-      {/* ELO bucket chip */}
-      <div className="flex items-center gap-1.5 text-[10px]">
-        <BarChart3 size={10} className="text-text-2" />
-        <span className="text-text-2">
-          Stats {eloBucket === 'all' ? '— all levels' : `at your level (${eloBucket})`}
-        </span>
-        <span className="text-text-2 ml-auto tabular-nums">{move.games.toLocaleString()} games</span>
-      </div>
-
-      {/* WDL bar */}
       <div>
-        <div className="flex h-2 rounded overflow-hidden">
-          <div className="bg-accent transition-all"
-               style={{ width: `${move.w}%` }}
-               title={`White wins ${move.w.toFixed(1)}%`} />
-          <div className="bg-bg-3 transition-all"
-               style={{ width: `${move.d}%` }}
-               title={`Draws ${move.d.toFixed(1)}%`} />
-          <div className="bg-[#0C0C0C] transition-all"
-               style={{ width: `${move.l}%` }}
-               title={`Black wins ${move.l.toFixed(1)}%`} />
+        <div className="flex items-center gap-1.5 text-[10px] text-text-2 mb-1.5">
+          <BarChart3 size={10} />
+          <span>{pool.db === 'masters' ? 'Masters games (OTB, FIDE 2200+)' : `Lichess games in your pool`}</span>
+          <span className="ml-auto tabular-nums">{move.games.toLocaleString()} games</span>
+        </div>
+        <div className="flex h-2 rounded overflow-hidden gap-[2px] bg-bg-0">
+          <div className="bg-[#F0F0F0]" style={{ width: `${move.w}%` }} title={`White wins ${move.w.toFixed(1)}%`} />
+          <div className="bg-[#6B6B6B]" style={{ width: `${move.d}%` }} title={`Draws ${move.d.toFixed(1)}%`} />
+          <div className="bg-[#2E2E2E]" style={{ width: `${move.l}%` }} title={`Black wins ${move.l.toFixed(1)}%`} />
         </div>
         <div className="flex justify-between text-[10px] mt-1 tabular-nums">
-          <span className="text-accent font-medium">{move.w.toFixed(1)}% W</span>
-          <span className="text-text-2">{move.d.toFixed(1)}% D</span>
-          <span className="text-text-1 font-medium">{move.l.toFixed(1)}% L</span>
+          <span className="text-text-0">White {move.w.toFixed(1)}%</span>
+          <span className="text-text-2">Draw {move.d.toFixed(1)}%</span>
+          <span className="text-text-1">Black {move.l.toFixed(1)}%</span>
         </div>
       </div>
 
-      {/* Typical ideas */}
       <div>
         <p className="text-[10px] text-text-2 uppercase tracking-wider font-semibold mb-2 flex items-center gap-1.5">
-          <Sparkles size={10} className="text-accent" />
-          Typical ideas
+          <Sparkles size={10} className="text-accent" />Typical ideas
+          {curated && !curated.exact && <span className="normal-case tracking-normal font-normal">· {curated.idea.name}</span>}
         </p>
-        <AnimatePresence mode="wait">
-          {ideasText ? (
-            <motion.p
-              key="ideas-text"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="text-xs text-text-1 leading-relaxed"
-            >
-              {ideasText}
-            </motion.p>
-          ) : ideasFailed ? (
-            <motion.div key="ideas-error"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              className="text-xs text-text-2 italic">
-              AI description unavailable right now —{' '}
-              <button onClick={() => { setIdeasFailed(false); ideasMutation.mutate() }}
-                className="text-accent underline hover:no-underline">retry</button>
-            </motion.div>
-          ) : (
-            <motion.div key="ideas-loading"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="space-y-1.5">
-              {[100, 92, 78].map((w, i) => (
-                <div key={i} className="h-2.5 bg-bg-3 rounded animate-pulse"
-                     style={{ width: `${w}%` }} />
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {curated ? (
+          <>
+            <p className="text-xs text-text-1 leading-relaxed">{curated.idea.ideas}</p>
+            <a href={curated.idea.source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-text-2 hover:text-accent mt-2">
+              Source <ExternalLink size={9} />
+            </a>
+          </>
+        ) : (
+          <p className="text-xs text-text-2 leading-relaxed">No curated notes for this line yet — the main plans are written up for 53 major openings.</p>
+        )}
       </div>
 
-      {/* Copy prompt */}
-      <button onClick={copyPrompt}
-        className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md
-                   border border-border text-xs text-text-1 hover:bg-bg-2 hover:text-text-0 transition-colors">
-        {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
-        {copied ? 'Copied prompt' : 'Copy "ask coach" prompt'}
-        <MessageSquare size={10} className="text-text-2 ml-1" />
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={analyse} className="btn-ghost border border-border text-xs inline-flex items-center justify-center gap-1.5"><Microscope size={13} />Analyse</button>
+        <button onClick={playMaia} className="btn-primary text-xs inline-flex items-center justify-center gap-1.5"><Bot size={13} />Play vs Maia</button>
+      </div>
     </div>
   )
 }

@@ -1,123 +1,49 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
-  Zap, Target, BookOpen, TrendingUp, ChevronRight, AlertCircle, Bot,
-  LayoutDashboard, Clock, Flame, Crosshair, Activity, Gauge,
+  AlertCircle, AlertTriangle, ArrowRight, Bot, BookOpen, ChevronDown, Clock, Crosshair, Flame, Info,
+  LayoutDashboard, Lightbulb, Play, Sparkles, Target, ThumbsUp, Zap,
 } from 'lucide-react'
 import { SectionHeader } from '../components/layout/SectionHeader'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  PieChart, Pie, ScatterChart, Scatter, ZAxis,
-} from 'recharts'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 import { BlindspotAlerts } from '../components/dashboard/BlindspotAlerts'
 import { RatingImpact } from '../components/dashboard/RatingImpact'
-import { insightsApi } from '../api/insights'
-import type { ClusterSummary, AnalyticsData } from '../types'
+import {
+  ConversionCard, EvalArc, PairedBars, ProgressHistogram, SimpleBars, SkillRadar, TrendChart,
+} from '../components/dashboard/charts'
+import { insightsApi, type Insights } from '../api/insights'
+import { platformName } from '../lib/ratings'
+import { lossPts } from '../lib/format'
+import { CHART } from '../theme'
+import type { ClusterSummary } from '../types'
 
-// ── Palette ──────────────────────────────────────────────────────────────────
-
-const ACCENT    = '#C8FF2A'
-const PURPLE400 = '#D7FF5C'
-const PURPLE300 = '#E9FF9E'
-const DANGER    = '#f87171'
-const SUCCESS   = '#4ade80'
-const AMBER      = '#fbbf24'
-const GRID      = '#1F1F1F'
-const TEXT2     = '#A3A3A3'
-
-const THREAT_PALETTE = [ACCENT, PURPLE400, PURPLE300, '#8FD400', '#5E8C00', '#E9FF9E', '#F2FFD0']
-const PHASE_PALETTE: Record<string, string> = { opening: ACCENT, middlegame: PURPLE400, endgame: PURPLE300 }
-
-// ── Small shared pieces ────────────────────────────────────────────────────────
-
-function UrgencyBar({ score, v2 }: { score: number; v2?: boolean }) {
-  // v2 scores are points lost per 10 games (excess over peers + raw cost): ~1.0 is
-  // a severe leak. Legacy scores were freq×recency×severity (~0.04 ceiling).
-  const pct = Math.min(100, Math.round((score / (v2 ? 1.0 : 0.04)) * 100))
-  const color = pct > 66 ? 'bg-danger' : pct > 33 ? 'bg-accent' : 'bg-success'
-  return (
-    <div className="flex-1 h-1.5 bg-bg-3 rounded-full overflow-hidden">
-      <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-    </div>
-  )
-}
-
-function MasteryRing({ mastery }: { mastery: number }) {
-  const r = 12
-  const circ = 2 * Math.PI * r
-  const offset = circ * (1 - mastery)
-  return (
-    <svg width="34" height="34" viewBox="0 0 34 34" className="flex-shrink-0">
-      <circle cx="17" cy="17" r={r} fill="none" stroke="#1F1F1F" strokeWidth="3" />
-      <circle
-        cx="17" cy="17" r={r}
-        fill="none" stroke="#C8FF2A" strokeWidth="3"
-        strokeDasharray={circ}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-        transform="rotate(-90 17 17)"
-        style={{ transition: 'stroke-dashoffset 0.6s ease' }}
-      />
-      <text x="17" y="20.5" textAnchor="middle" fontSize="8" fill="#A3A3A3" fontWeight="600">
-        {Math.round(mastery * 100)}
-      </text>
-    </svg>
-  )
-}
+// ── blindspot cards (ranked by the Stage-2 v2 score) ─────────────────────────
 
 type ChipTone = 'muted' | 'accent' | 'danger' | 'amber' | 'success'
 const TONE_CLASS: Record<ChipTone, string> = {
-  muted:   'text-text-2 bg-bg-3/60 border-border',
-  accent:  'text-accent bg-accent/10 border-accent/25',
-  danger:  'text-danger bg-danger/10 border-danger/25',
-  amber:   'text-amber-300 bg-amber-400/10 border-amber-400/25',
+  muted: 'text-text-2 bg-bg-3/60 border-border',
+  accent: 'text-accent bg-accent/10 border-accent/25',
+  danger: 'text-danger bg-danger/10 border-danger/25',
+  amber: 'text-warn bg-warn/10 border-warn/25',
   success: 'text-success bg-success/10 border-success/25',
 }
 
-function Chip({ icon: Icon, children, tone = 'muted', title }:
-  { icon?: any; children: React.ReactNode; tone?: ChipTone; title?: string }) {
+function Chip({ icon: Icon, children, tone = 'muted', title }: { icon?: typeof Flame; children: ReactNode; tone?: ChipTone; title?: string }) {
   return (
-    <span title={title}
-      className={`inline-flex items-center gap-1 text-[10.5px] font-medium px-1.5 py-0.5
-                  rounded-md border ${TONE_CLASS[tone]} whitespace-nowrap`}>
-      {Icon && <Icon size={10} />}
-      {children}
+    <span title={title} className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md border ${TONE_CLASS[tone]} whitespace-nowrap`}>
+      {Icon && <Icon size={10} />}{children}
     </span>
   )
 }
 
-// ── Detailed blindspot card ─────────────────────────────────────────────────────
-
-function recencyTag(days: number | null | undefined): { label: string; tone: ChipTone } | null {
-  if (days == null) return null
-  if (days < 14) return { label: 'Active', tone: 'danger' }
-  if (days < 30) return { label: 'Recent', tone: 'amber' }
-  return { label: 'Fading', tone: 'muted' }
-}
-
-function PhaseStrip({ breakdown }: { breakdown: Record<string, number> }) {
-  const entries = Object.entries(breakdown)
-  const total = entries.reduce((s, [, c]) => s + c, 0)
-  if (!total) return null
-  return (
-    <div className="flex h-1.5 w-full rounded-full overflow-hidden bg-bg-3">
-      {entries.map(([phase, c]) => (
-        <div key={phase} title={`${phase}: ${c}`}
-          style={{ width: `${(c / total) * 100}%`, background: PHASE_PALETTE[phase] ?? PURPLE300 }} />
-      ))}
-    </div>
-  )
-}
-
 const STATUS_CHIP: Record<string, { label: string; tone: ChipTone; title: string }> = {
-  confirmed:         { label: 'Confirmed', tone: 'danger',  title: 'You make this mistake clearly more often than players at your rating (≥90% sure)' },
-  emerging:          { label: 'Emerging',  tone: 'amber',   title: 'Probably more often than your peers, but not certain yet' },
-  typical:           { label: 'Typical',   tone: 'muted',   title: 'About as often as players at your rating' },
-  strength:          { label: 'Strength',  tone: 'success', title: 'Less often than players at your rating' },
+  confirmed: { label: 'Confirmed', tone: 'danger', title: 'You make this mistake clearly more often than players at your rating (≥90% sure)' },
+  emerging: { label: 'Emerging', tone: 'amber', title: 'Probably more often than your peers, but not certain yet' },
+  typical: { label: 'Typical', tone: 'muted', title: 'About as often as players at your rating' },
+  strength: { label: 'Strength', tone: 'success', title: 'Less often than players at your rating' },
   insufficient_data: { label: 'Not enough data', tone: 'muted', title: 'Too few incidents to judge yet' },
 }
 
@@ -126,452 +52,188 @@ function directionSummary(d: Record<string, number> | undefined): string | null 
   const allowed = (d.allowed ?? 0) + (d.both ?? 0) / 2
   const missed = (d.missed ?? 0) + (d.both ?? 0) / 2
   if (allowed + missed < 0.2) return null
-  return allowed >= missed
-    ? `${Math.round(allowed * 100)}% walked into`
-    : `${Math.round(missed * 100)}% missed shots`
+  return allowed >= missed ? `${Math.round(allowed * 100)}% walked into` : `${Math.round(missed * 100)}% missed shots`
+}
+
+function MasteryRing({ mastery }: { mastery: number }) {
+  const r = 13, circ = 2 * Math.PI * r
+  return (
+    <svg width="36" height="36" viewBox="0 0 36 36" className="flex-shrink-0" aria-label={`Mastery ${Math.round(mastery * 100)}%`}>
+      <circle cx="18" cy="18" r={r} fill="none" stroke={CHART.grid} strokeWidth="3" />
+      <circle cx="18" cy="18" r={r} fill="none" stroke={CHART.you} strokeWidth="3" strokeDasharray={circ}
+        strokeDashoffset={circ * (1 - mastery)} strokeLinecap="round" transform="rotate(-90 18 18)" style={{ transition: 'stroke-dashoffset .6s ease' }} />
+      <text x="18" y="21.5" textAnchor="middle" fontSize="9" fill="#A3A3A3" fontWeight="600">{Math.round(mastery * 100)}</text>
+    </svg>
+  )
 }
 
 function BlindspotCard({ cluster, idx, gain }: { cluster: ClusterSummary; idx: number; gain?: number }) {
   const navigate = useNavigate()
   const e = cluster.enrichment
-  const rec = recencyTag(e?.last_seen_days)
-  const tp = e?.time_pressure_share ?? null
-  const cid = String(cluster.cluster_id)
   const p = cluster.profile
+  const cid = String(cluster.cluster_id)
   const status = p ? STATUS_CHIP[p.status] : undefined
   const rel = p?.relative_rate ?? null
   const dir = directionSummary(p?.direction)
   const hit = p?.hit_rate
-
+  // v2 score = points lost per 10 games (0.75·excess over peers + 0.25·raw impact); ~1.0 is a severe leak
+  const urgency = Math.min(100, Math.round(((cluster.score ?? 0) / 1.0) * 100))
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: idx * 0.05, duration: 0.3 }}
-      className="card p-4 flex flex-col gap-3 hover:border-accent/30 transition-colors group"
-    >
-      {/* Header */}
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }}
+      className="card p-4 flex flex-col gap-3 hover:border-accent/30 transition-colors group">
       <div className="flex items-start gap-3">
-        <div className="flex flex-col items-center gap-1 pt-0.5">
-          <span className="w-6 h-6 rounded-md bg-bg-3 text-xs font-bold text-text-1 grid place-items-center">
-            {cluster.rank ?? idx + 1}
-          </span>
-        </div>
+        <span className="w-7 h-7 rounded-lg bg-bg-3 text-xs font-bold text-text-1 grid place-items-center flex-shrink-0">{cluster.rank ?? idx + 1}</span>
         <button onClick={() => navigate(`/blindspot/${cid}`)} className="flex-1 min-w-0 text-left">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-text-0 truncate group-hover:text-accent transition-colors">
-              {cluster.label}
-            </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-text-0 group-hover:text-accent transition-colors">{cluster.label}</p>
             {gain != null && gain > 0 && (
-              <span className="text-[10px] font-semibold text-success bg-success/10 border border-success/25
-                               px-1.5 py-0.5 rounded-full flex-shrink-0 tabular-nums"
-                    title="Estimated rating points recoverable by fixing this pattern">
-                +{gain} pts
-              </span>
+              <span className="text-[10px] font-semibold text-success bg-success/10 border border-success/25 px-1.5 py-0.5 rounded-full"
+                title="Estimated rating points recoverable by fixing this pattern">+{gain} rating</span>
             )}
           </div>
-          {cluster.skill && <p className="text-[11px] text-text-2 mt-0.5 leading-snug truncate">{cluster.skill}</p>}
+          {cluster.skill && <p className="text-[11px] text-text-2 mt-0.5 leading-snug">{cluster.skill}</p>}
         </button>
         <MasteryRing mastery={cluster.mastery} />
       </div>
-
-      {/* Context chips */}
       <div className="flex flex-wrap items-center gap-1.5">
-        {status && (
-          <Chip tone={status.tone}
-            title={p?.status_reasons?.length ? `${status.title}. Why: ${p.status_reasons.join('; ')}` : status.title}>
-            {status.label}
-          </Chip>
-        )}
+        {status && <Chip tone={status.tone} title={p?.status_reasons?.length ? `${status.title}. Why: ${p.status_reasons.join('; ')}` : status.title}>{status.label}</Chip>}
         {rel != null && (
           <Chip tone={rel >= 1.3 ? 'danger' : rel <= 0.8 ? 'success' : 'muted'}
             title={`You: ${p!.rate_per_100.toFixed(2)} per 100 moves · players you faced: ${(p!.peer_rate_per_100 ?? 0).toFixed(2)}`}>
-            {rel.toFixed(1)}× peers
+            {rel.toFixed(2)}× peers
           </Chip>
         )}
         {dir && <Chip tone="accent" title="Did you walk into the opponent's tactic, or miss your own?">{dir}</Chip>}
-        {cid !== 'king_safety' && (p?.context?.involves_king_share ?? 0) >= 0.3 && (
-          <Chip tone="amber" title="Share of these mistakes where the punishing line also attacks your king (also counted as king safety)">
-            {Math.round((p!.context.involves_king_share ?? 0) * 100)}% hit your king
-          </Chip>
-        )}
         {hit && hit.user != null && hit.opportunities >= 3 && (
           <Chip tone={hit.peer != null && hit.user_shrunk < hit.peer - 0.05 ? 'amber' : 'muted'}
-            title={`Tactics of this kind you found when they were available (peers: ${hit.peer != null ? Math.round(hit.peer * 100) + '%' : 'n/a'})`}>
+            title={`Tactics of this kind you found when available (peers: ${hit.peer != null ? Math.round(hit.peer * 100) + '%' : 'n/a'})`}>
             finds {Math.round(hit.user * 100)}%
           </Chip>
         )}
-        <Chip icon={Crosshair} title="Times this pattern appeared in your games (repeats of one oversight count once)">
-          {cluster.size} mistakes
-        </Chip>
-        {e && (
-          <Chip icon={Flame} tone={e.avg_drop_cp >= 300 ? 'danger' : 'muted'}
-            title="Average evaluation lost when you make this mistake">
-            avg −{e.avg_drop_cp}cp
-          </Chip>
-        )}
-        <Chip icon={BookOpen} tone="accent" title="Game phase where this most often happens">
-          {(e?.dominant_phase ?? cluster.dominant_game_phase)}
-        </Chip>
-        {tp != null && tp > 0 && (
-          <Chip icon={Clock} tone={tp >= 0.4 ? 'amber' : 'muted'}
-            title="Share of these mistakes made with under 30s on the clock">
-            {Math.round(tp * 100)}% time pressure
-          </Chip>
-        )}
-        {e && e.blunder_count > 0 && (
-          <Chip tone="danger" title="Mistakes of 300cp or worse">
-            {e.blunder_count} blunders
-          </Chip>
-        )}
-        {rec && <Chip tone={rec.tone} title="Recency of the most recent occurrence">{rec.label}</Chip>}
+        <Chip icon={Crosshair} title="Incidents in your games (repeats of one oversight count once)">{e?.incidents ?? cluster.size} incidents</Chip>
+        {e && e.blunder_count > 0 && <Chip tone="danger" title="Blunders: lost 15%+ of your winning chances in one move">{e.blunder_count} blunders</Chip>}
+        {e && <Chip icon={Flame} tone={e.avg_drop_cp >= 300 ? 'danger' : 'muted'} title="Average evaluation lost per incident">avg {lossPts(e.avg_drop_cp)}</Chip>}
+        <Chip icon={BookOpen} tone="accent" title="Phase where this most often happens">{e?.dominant_phase ?? cluster.dominant_game_phase}</Chip>
+        {e?.time_pressure_share != null && e.time_pressure_share > 0.15 && <Chip icon={Clock} tone="amber" title="Share made with under 30s on the clock">{Math.round(e.time_pressure_share * 100)}% time trouble</Chip>}
       </div>
-
-      {/* Phase distribution strip */}
-      {e && <PhaseStrip breakdown={e.phase_breakdown} />}
-
-      {/* Footer: urgency + actions */}
       <div className="flex items-center gap-3 pt-0.5">
         <span className="text-[10px] text-text-2 uppercase tracking-wide flex-shrink-0">Urgency</span>
-        <UrgencyBar score={cluster.score} v2={!!p} />
-        <button
-          onClick={() => navigate('/session', { state: { clusterId: cid } })}
-          className="text-[11px] font-medium text-accent hover:text-accent/70 transition-colors whitespace-nowrap flex items-center gap-1 flex-shrink-0"
-          title="Drill puzzles targeting this blindspot">
-          <Zap size={11} /> Drill
-        </button>
-        <button
-          onClick={() => navigate(`/replay/${cid}`)}
-          className="text-[11px] text-text-2 hover:text-accent transition-colors whitespace-nowrap flex-shrink-0"
-          title="Replay every real-game position where you made this mistake">
-          Replay →
-        </button>
+        <div className="flex-1 h-1.5 bg-bg-3 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full ${urgency > 66 ? 'bg-danger' : urgency > 33 ? 'bg-warn' : 'bg-success'}`} style={{ width: `${urgency}%` }} />
+        </div>
+        <button onClick={() => navigate('/session', { state: { clusterId: cid } })}
+          className="text-[11px] font-semibold text-accent hover:text-accent/70 inline-flex items-center gap-1"><Zap size={11} /> Drill</button>
+        <button onClick={() => navigate(`/replay/${cid}`)} className="text-[11px] text-text-2 hover:text-accent">Replay →</button>
       </div>
     </motion.div>
   )
 }
 
-// ── Hero stat band ──────────────────────────────────────────────────────────────
+// ── KPI tiles ────────────────────────────────────────────────────────────────
 
-function HeroTile({ label, icon: Icon, children, delay }:
-  { label: string; icon: any; children: React.ReactNode; delay: number }) {
+function Kpi({ label, value, sub, delta, tone }: { label: string; value: ReactNode; sub?: ReactNode; delta?: ReactNode; tone?: 'good' | 'bad' }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}
-      className="card p-4">
-      <div className="flex items-center gap-1.5 text-text-2 text-[11px] mb-2">
-        <Icon size={12} /> {label}
-      </div>
-      {children}
-    </motion.div>
-  )
-}
-
-// ── Analytics ───────────────────────────────────────────────────────────────────
-
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <div className="card p-5">
-      <p className="text-xs font-semibold text-text-2 uppercase tracking-wider mb-0.5">{title}</p>
-      {subtitle && <p className="text-xs text-text-2 mb-4">{subtitle}</p>}
-      {!subtitle && <div className="mb-4" />}
-      {children}
+    <div className="card p-4 min-w-0">
+      <p className="text-[11px] text-text-2">{label}</p>
+      <p className="text-2xl sm:text-[28px] leading-tight font-semibold text-text-0 mt-1">{value}</p>
+      {delta && <p className={`text-[11px] mt-0.5 ${tone === 'good' ? 'text-success' : tone === 'bad' ? 'text-danger' : 'text-text-2'}`}>{delta}</p>}
+      {sub && <p className="text-[11px] text-text-2 mt-0.5">{sub}</p>}
     </div>
   )
 }
 
-function SignalCards({ data }: { data: AnalyticsData }) {
-  const sev = data.severity
-  const tp  = data.time_pressure
-  const maia = data.maia
-  const hardPct = maia?.has_data && maia.buckets
-    ? Math.round((maia.buckets[2].count / Math.max(1, maia.buckets.reduce((s, b) => s + b.count, 0))) * 100)
-    : null
-
+function HeroRating({ insights }: { insights?: Insights }) {
+  const { elo, platform } = useUserStore()
+  const series = (insights?.trend ?? []).map(t => t.rating).filter((r): r is number => r != null)
+  const W = 260, H = 54
+  const lo = Math.min(...series), hi = Math.max(...series)
+  const path = series.length > 1 ? series.map((r, i) => `${i ? 'L' : 'M'}${(i / (series.length - 1)) * W},${H - 4 - ((r - lo) / Math.max(1, hi - lo)) * (H - 8)}`).join(' ') : ''
+  const change = series.length > 1 ? series[series.length - 1] - series[0] : null
   return (
-    <div className="grid grid-cols-3 gap-4 mb-5">
-      {/* Severity */}
-      <div className="card p-4">
-        <div className="flex items-center gap-1.5 text-text-2 text-[11px] mb-2"><Flame size={12} /> Severity</div>
-        {sev ? (
-          <>
-            <p className="text-2xl font-bold text-text-0">−{sev.avg_drop}<span className="text-sm text-text-2">cp avg</span></p>
-            <div className="flex h-1.5 w-full rounded-full overflow-hidden bg-bg-3 mt-2">
-              <div style={{ width: `${pctOf(sev.inaccuracies, sev)}%`, background: PURPLE300 }} />
-              <div style={{ width: `${pctOf(sev.mistakes, sev)}%`, background: ACCENT }} />
-              <div style={{ width: `${pctOf(sev.blunders, sev)}%`, background: DANGER }} />
-            </div>
-            <p className="text-[10px] text-text-2 mt-1.5">
-              <span className="text-danger font-semibold">{sev.blunders}</span> blunders ·{' '}
-              {sev.mistakes} mistakes
-            </p>
-          </>
-        ) : <p className="text-xs text-text-2">No data</p>}
-      </div>
-
-      {/* Time pressure */}
-      <div className="card p-4">
-        <div className="flex items-center gap-1.5 text-text-2 text-[11px] mb-2"><Clock size={12} /> Time pressure</div>
-        {tp?.has_data && tp.share != null ? (
-          <>
-            <p className="text-2xl font-bold text-text-0">{Math.round(tp.share * 100)}<span className="text-sm text-text-2">% under 30s</span></p>
-            <div className="flex items-end gap-1 h-6 mt-2">
-              {tp.buckets.map(b => {
-                const max = Math.max(1, ...tp.buckets.map(x => x.count))
-                return (
-                  <div key={b.label} className="flex-1 flex flex-col items-center gap-0.5" title={`${b.label}: ${b.count}`}>
-                    <div className="w-full rounded-sm bg-accent/70" style={{ height: `${(b.count / max) * 100}%` }} />
-                  </div>
-                )
-              })}
-            </div>
-            <p className="text-[10px] text-text-2 mt-1">{tp.buckets.map(b => b.label).join(' · ')}</p>
-          </>
-        ) : <p className="text-xs text-text-2">No clock data in these games</p>}
-      </div>
-
-      {/* Maia difficulty */}
-      <div className="card p-4">
-        <div className="flex items-center gap-1.5 text-text-2 text-[11px] mb-2"><Gauge size={12} /> Difficulty</div>
-        {maia?.has_data && hardPct != null ? (
-          <>
-            <p className="text-2xl font-bold text-text-0">{hardPct}<span className="text-sm text-text-2">% truly hard</span></p>
-            <div className="flex h-1.5 w-full rounded-full overflow-hidden bg-bg-3 mt-2">
-              {maia.buckets!.map((b, i) => {
-                const total = Math.max(1, maia.buckets!.reduce((s, x) => s + x.count, 0))
-                return <div key={b.label} title={`${b.label}: ${b.count}`}
-                  style={{ width: `${(b.count / total) * 100}%`, background: [SUCCESS, AMBER, DANGER][i] }} />
-              })}
-            </div>
-            <p className="text-[10px] text-text-2 mt-1.5">vs human (Maia) move likelihood</p>
-          </>
-        ) : <p className="text-xs text-text-2">No Maia data</p>}
-      </div>
+    <div className="card p-5 relative overflow-hidden lg:row-span-2 flex flex-col">
+      <div aria-hidden className="absolute -right-20 -top-20 w-64 h-64 rounded-full bg-accent/[0.06] blur-3xl" />
+      <p className="text-[11px] text-text-2 relative">Your rapid rating · {platformName(platform)}</p>
+      <p className="text-6xl font-semibold text-text-0 mt-2 relative leading-none">{elo || '—'}</p>
+      {change != null && (
+        <p className={`text-xs mt-2 relative ${change >= 0 ? 'text-success' : 'text-danger'}`}>
+          {change >= 0 ? '▲' : '▼'} {Math.abs(change)} over your last {series.length} analysed games
+        </p>
+      )}
+      {path && (
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 mt-auto pt-4 relative" preserveAspectRatio="none" aria-label="Rating across analysed games">
+          <path d={path} fill="none" stroke={CHART.you} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        </svg>
+      )}
+      {insights?.overview.performance && (
+        <p className="text-[11px] text-text-2 mt-2 relative">Performance in these games: <span className="text-text-1">{insights.overview.performance}</span> vs avg opponent {insights.overview.avg_opp_elo}</p>
+      )}
     </div>
   )
 }
 
-function pctOf(n: number, sev: { inaccuracies: number; mistakes: number; blunders: number }): number {
-  const total = sev.inaccuracies + sev.mistakes + sev.blunders
-  return total ? (n / total) * 100 : 0
-}
+const TONE_ICON = { danger: AlertTriangle, warn: AlertCircle, good: ThumbsUp, info: Lightbulb } as const
+const TONE_STYLE = { danger: 'border-danger/30 text-danger', warn: 'border-warn/30 text-warn', good: 'border-success/30 text-success', info: 'border-accent/30 text-accent' } as const
 
-function AnalyticsSection({ data }: { data: AnalyticsData }) {
-  const phaseData = data.phase_breakdown.map(d => ({
-    ...d,
-    fill: PHASE_PALETTE[d.phase] ?? PURPLE300,
-    label: d.phase.charAt(0).toUpperCase() + d.phase.slice(1),
-  }))
-
-  const threatData = data.threat_stats.slice(0, 8).map((t, i) => ({
-    ...t,
-    label: t.threat.replace(/_/g, ' '),
-    fill: THREAT_PALETTE[i % THREAT_PALETTE.length],
-  }))
-
-  const moveBuckets = data.moves_aggregated.slice(0, 14)
-
-  const scatterByPhase: Record<string, { x: number; y: number }[]> = {}
-  for (const pt of data.scatter) {
-    if (!scatterByPhase[pt.game_phase]) scatterByPhase[pt.game_phase] = []
-    scatterByPhase[pt.game_phase].push({ x: pt.move_number, y: pt.eval_drop_cp })
-  }
-
+function Findings({ items }: { items: Insights['findings'] }) {
+  if (!items.length) return null
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2, duration: 0.4 }}
-      className="mt-10"
-    >
-      <h2 className="text-xs font-semibold text-text-2 uppercase tracking-wider mb-5">Profile analytics</h2>
-
-      {/* Signal cards */}
-      <SignalCards data={data} />
-
-      <div className="grid grid-cols-2 gap-5">
-        {/* Mistakes by game phase — donut */}
-        <ChartCard title="Mistakes by phase" subtitle="Distribution across game stages">
-          <div className="flex items-center gap-4">
-            <ResponsiveContainer width={140} height={140}>
-              <PieChart>
-                <Pie data={phaseData} dataKey="count" nameKey="label" cx="50%" cy="50%"
-                  innerRadius={42} outerRadius={62} paddingAngle={3} strokeWidth={0}>
-                  {phaseData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                </Pie>
-                <Tooltip content={({ active, payload }) => {
-                  if (!active || !payload?.length) return null
-                  const d = payload[0].payload
-                  return (
-                    <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
-                      <p style={{ color: d.fill }}>{d.label}</p>
-                      <p className="text-text-0 font-semibold">{d.count} mistakes</p>
-                    </div>
-                  )
-                }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex flex-col gap-2">
-              {phaseData.map(d => (
-                <div key={d.phase} className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: d.fill }} />
-                  <span className="text-xs text-text-2 capitalize">{d.label}</span>
-                  <span className="text-xs font-semibold text-text-0 ml-1">{d.count}</span>
-                </div>
-              ))}
+    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      {items.map((f, i) => {
+        const Icon = TONE_ICON[f.tone]
+        return (
+          <motion.div key={f.title} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 * i }}
+            className="card p-4 flex gap-3">
+            <span className={`w-8 h-8 rounded-lg border grid place-items-center flex-shrink-0 ${TONE_STYLE[f.tone]}`}><Icon size={15} /></span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-text-0 leading-snug">{f.title}</p>
+              <p className="text-xs text-text-2 mt-1 leading-relaxed">{f.body}</p>
             </div>
-          </div>
-        </ChartCard>
-
-        {/* Threat types — avg eval drop */}
-        <ChartCard title="Threat type severity" subtitle="Average centipawn loss per threat">
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={threatData} layout="vertical" margin={{ left: 4, right: 8 }}>
-              <XAxis type="number" tick={{ fill: TEXT2, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis dataKey="label" type="category" width={90} tick={{ fill: TEXT2, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip content={({ active, payload }) => {
-                if (!active || !payload?.length) return null
-                const d = payload[0].payload
-                return (
-                  <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
-                    <p style={{ color: d.fill }} className="capitalize">{d.label}</p>
-                    <p className="text-text-0">avg drop: <span className="font-semibold text-danger">{d.avg_drop}cp</span></p>
-                    <p className="text-text-2">{d.count} mistakes</p>
-                  </div>
-                )
-              }} cursor={{ fill: GRID }} />
-              <Bar dataKey="avg_drop" radius={[0, 3, 3, 0]}>
-                {threatData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        {/* Eval drop by move bucket — bar chart */}
-        <ChartCard title="Mistakes by move number" subtitle="5-move buckets — count and average eval loss">
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={moveBuckets} margin={{ left: -16, right: 4 }}>
-              <XAxis dataKey="label" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="count" orientation="left" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="drop" orientation="right" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false} />
-              <Tooltip content={({ active, payload, label }) => {
-                if (!active || !payload?.length) return null
-                return (
-                  <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
-                    <p className="text-text-2 mb-1">Moves {label}</p>
-                    {payload.map((p: any, i: number) => (
-                      <p key={i} style={{ color: p.color }}>{p.name}: {p.value}{p.name === 'avg drop' ? 'cp' : ''}</p>
-                    ))}
-                  </div>
-                )
-              }} cursor={{ fill: GRID }} />
-              <Bar yAxisId="count" dataKey="count" name="mistakes" fill={ACCENT} opacity={0.85} radius={[3, 3, 0, 0]} />
-              <Bar yAxisId="drop" dataKey="avg_drop" name="avg drop" fill={DANGER} opacity={0.7} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="flex items-center gap-4 mt-2">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ACCENT }} />
-              <span className="text-xs text-text-2">Mistake count</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: DANGER }} />
-              <span className="text-xs text-text-2">Avg eval drop (cp)</span>
-            </div>
-          </div>
-        </ChartCard>
-
-        {/* Scatter: eval drop vs move number */}
-        <ChartCard title="Eval drop vs move number" subtitle="Each dot is one mistake — coloured by game phase">
-          <ResponsiveContainer width="100%" height={180}>
-            <ScatterChart margin={{ left: -16, right: 4, bottom: 0 }}>
-              <XAxis dataKey="x" name="Move" type="number" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false}
-                label={{ value: 'Move #', fill: TEXT2, fontSize: 9, position: 'insideBottom', offset: -2 }} />
-              <YAxis dataKey="y" name="Drop (cp)" type="number" tick={{ fill: TEXT2, fontSize: 9 }} axisLine={false} tickLine={false} />
-              <ZAxis range={[18, 18]} />
-              <Tooltip content={({ active, payload }) => {
-                if (!active || !payload?.length) return null
-                const { x, y } = payload[0].payload
-                return (
-                  <div className="bg-bg-2 border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
-                    <p className="text-text-2">Move <span className="text-text-0 font-semibold">{x}</span></p>
-                    <p className="text-danger font-semibold">−{y}cp</p>
-                  </div>
-                )
-              }} cursor={{ strokeDasharray: '3 3', stroke: GRID }} />
-              {Object.entries(scatterByPhase).map(([phase, pts]) => (
-                <Scatter key={phase} name={phase} data={pts} fill={PHASE_PALETTE[phase] ?? PURPLE300} opacity={0.65} />
-              ))}
-            </ScatterChart>
-          </ResponsiveContainer>
-          <div className="flex items-center gap-4 mt-1">
-            {Object.entries(PHASE_PALETTE).map(([phase, color]) => (
-              <div key={phase} className="flex items-center gap-1.5">
-                <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-                <span className="text-xs text-text-2 capitalize">{phase}</span>
-              </div>
-            ))}
-          </div>
-        </ChartCard>
-      </div>
-    </motion.div>
+          </motion.div>
+        )
+      })}
+    </div>
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+function SectionTitle({ children, sub }: { children: ReactNode; sub?: ReactNode }) {
+  return (
+    <div className="flex items-end justify-between gap-3 mt-10 mb-4">
+      <h2 className="text-lg font-semibold text-text-0">{children}</h2>
+      {sub && <span className="text-[11px] text-text-2">{sub}</span>}
+    </div>
+  )
+}
+
+// ── page ─────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const { username, elo } = useUserStore()
+  const { username, platform } = useUserStore()
   const navigate = useNavigate()
   const [showAll, setShowAll] = useState(false)
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['profile', username],
-    queryFn: () => api.getProfile(username),
-    enabled: !!username,
+    queryKey: ['profile', username], queryFn: () => api.getProfile(username), enabled: !!username,
   })
-
-  const { data: analytics } = useQuery({
-    queryKey: ['analytics', username],
-    queryFn: () => api.getAnalytics(username),
-    enabled: !!username,
-    staleTime: 5 * 60 * 1000,
+  const { data: insights, isLoading: insightsLoading } = useQuery({
+    queryKey: ['insights', username], queryFn: () => insightsApi.insights(username), enabled: !!username,
+    staleTime: 5 * 60_000, retry: false,
   })
-
   const { data: cf } = useQuery({
-    queryKey: ['counterfactual', username],
-    queryFn: () => insightsApi.counterfactual(username),
-    enabled: !!username,
-    staleTime: 5 * 60 * 1000,
-    retry: false,
+    queryKey: ['counterfactual', username], queryFn: () => insightsApi.counterfactual(username), enabled: !!username,
+    staleTime: 5 * 60_000, retry: false,
   })
-  const { data: style } = useQuery({
-    queryKey: ['style', username],
-    queryFn: () => insightsApi.style(username),
-    enabled: !!username,
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  })
-
-  const gainByCluster: Record<string, number> = {}
-  if (cf?.has_result_data) {
-    for (const c of cf.per_cluster) gainByCluster[String(c.cluster_id)] = c.gain
-  }
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <div className="flex items-center justify-center h-64"><div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" /></div>
   }
-
   if (error || !data) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <AlertCircle size={20} className="text-danger" />
-        <p className="text-sm text-text-2">Failed to load profile.</p>
-        <button onClick={() => navigate('/')} className="btn-ghost text-sm">Return to start</button>
+      <div className="max-w-lg mx-auto px-4 py-16 text-center">
+        <AlertCircle size={22} className="text-text-2 mx-auto" />
+        <p className="text-lg font-semibold text-text-0 mt-3">No blindspot profile yet</p>
+        <p className="text-sm text-text-2 mt-1">Import your {platformName(platform)} games to build it — it takes a few minutes.</p>
+        <button onClick={() => void api.startIngest(username, platform, 80).then(r => navigate(`/loading/${r.job_id}`))}
+          className="btn-primary mt-5 inline-flex items-center gap-2"><Play size={14} /> Analyse my games</button>
       </div>
     )
   }
@@ -579,87 +241,133 @@ export default function Dashboard() {
   const { stats, clusters } = data
   const sorted = [...clusters].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
   const visible = showAll ? sorted : sorted.slice(0, 4)
-  const topBlindspot = sorted[0]
+  const gainByCluster: Record<string, number> = {}
+  for (const c of cf?.per_cluster ?? []) gainByCluster[String(c.cluster_id)] = c.gain
+  const o = insights?.overview
+
+  const cmp = (you?: number | null, peer?: number | null, lowerIsBetter = true) => {
+    if (you == null || peer == null) return { text: undefined, tone: undefined as 'good' | 'bad' | undefined }
+    const better = lowerIsBetter ? you < peer : you > peer
+    return { text: `peers ${peer}`, tone: (Math.abs(you - peer) < 0.05 * Math.max(1, Math.abs(peer)) ? undefined : better ? 'good' : 'bad') as 'good' | 'bad' | undefined }
+  }
+  const acc = cmp(o?.accuracy, o?.peer_accuracy, false)
+  const mpg = cmp(o?.you_per_game.mistake, o?.peer_per_game.mistake)
+  const bpg = cmp(o?.you_per_game.blunder, o?.peer_per_game.blunder)
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <SectionHeader
-        icon={LayoutDashboard}
-        title="Dashboard"
-        description={`Your blindspot map ranked by urgency · ${username}${elo ? ` · ${elo} ELO` : ''}`}
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-7xl mx-auto">
+      <SectionHeader icon={LayoutDashboard} title="Dashboard"
+        description={`How you lose, measured on ${stats.total_games} analysed rapid games and compared with the players you faced in them.`}
         right={
           <div className="flex items-center gap-2">
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-              onClick={() => navigate('/bot-game')} className="btn-ghost flex items-center gap-2">
-              <Bot size={14} /> Play vs Maia
-            </motion.button>
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-              onClick={() => navigate('/session')} className="btn-primary flex items-center gap-2">
-              <Zap size={14} /> Start drilling
-            </motion.button>
+            <button onClick={() => navigate('/bot-game')} className="btn-ghost hidden sm:flex items-center gap-2"><Bot size={14} /> Play Maia</button>
+            <button onClick={() => navigate('/session')} className="btn-primary flex items-center gap-2"><Zap size={14} /> Drill</button>
           </div>
-        }
-      />
+        } />
 
-      {/* Live blindspot alerts + sync status */}
       <BlindspotAlerts />
 
-      {/* Hero stat band */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <HeroTile label="Games analysed" icon={BookOpen} delay={0}>
-          <p className="text-3xl font-bold text-text-0">{stats.total_games.toLocaleString()}</p>
-        </HeroTile>
-        <HeroTile label="Mistakes logged" icon={Activity} delay={0.06}>
-          <p className="text-3xl font-bold text-danger">{stats.total_mistakes.toLocaleString()}</p>
-        </HeroTile>
-        <HeroTile label="Blindspots" icon={Target} delay={0.12}>
-          <p className="text-3xl font-bold text-accent">{clusters.length}</p>
-          {topBlindspot && (
-            <p className="text-[11px] text-text-2 mt-1 truncate">top: {topBlindspot.label}</p>
-          )}
-        </HeroTile>
-        <HeroTile label="Rating potential" icon={TrendingUp} delay={0.18}>
-          {cf?.has_result_data && cf.total_gain > 0 ? (
-            <>
-              <p className="text-3xl font-bold text-text-0 tabular-nums flex items-baseline gap-1">
-                {cf.potential_rating}
-                <span className="text-xs font-semibold text-success">+{cf.total_gain}</span>
-              </p>
-              <p className="text-[11px] text-text-2 mt-1">from {cf.actual_rating} · fix all blindspots</p>
-            </>
-          ) : (
-            <>
-              <p className="text-3xl font-bold text-text-0 tabular-nums">{elo || '—'}</p>
-              <p className="text-[11px] text-text-2 mt-1">{style?.archetype ?? 'current rating'}</p>
-            </>
-          )}
-        </HeroTile>
+      {/* headline */}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-[1.25fr_1fr_1fr_1fr]">
+        <div className="col-span-2 lg:col-span-1 lg:row-span-2"><HeroRating insights={insights} /></div>
+        <Kpi label="Games analysed" value={stats.total_games} sub={o ? `${o.wins}W · ${o.draws}D · ${o.losses}L · score ${Math.round((o.score ?? 0) * 100)}%` : undefined} />
+        <Kpi label="Accuracy" value={o?.accuracy != null ? `${o.accuracy}%` : '—'} delta={acc.text} tone={acc.tone} />
+        <Kpi label="Rating if fixed" value={cf?.has_result_data ? cf.potential_rating : '—'}
+          delta={cf?.has_result_data && cf.total_gain > 0 ? `+${cf.total_gain} from turning points` : undefined} tone="good" />
+        <Kpi label="Mistakes per game" value={o?.you_per_game.mistake ?? '—'} delta={mpg.text} tone={mpg.tone} />
+        <Kpi label="Blunders per game" value={o?.you_per_game.blunder ?? '—'} delta={bpg.text} tone={bpg.tone} />
+        <Kpi label="Winning positions converted" value={insights?.conversion.you.conversion_rate != null ? `${Math.round(insights.conversion.you.conversion_rate * 100)}%` : '—'}
+          delta={insights?.conversion.peer.conversion_rate != null ? `peers ${Math.round(insights.conversion.peer.conversion_rate * 100)}%` : undefined}
+          tone={insights && (insights.conversion.you.conversion_rate ?? 0) < (insights.conversion.peer.conversion_rate ?? 0) ? 'bad' : 'good'} />
       </div>
 
-      {/* Counterfactual rating ladder + shareable Chess DNA */}
-      <RatingImpact />
+      {insights && insights.findings.length > 0 && (
+        <>
+          <SectionTitle sub="computed from your games, not generated text"><span className="inline-flex items-center gap-2"><Sparkles size={16} className="text-accent" /> What your games say</span></SectionTitle>
+          <Findings items={insights.findings} />
+        </>
+      )}
 
-      {/* Detailed blindspots */}
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xs font-semibold text-text-2 uppercase tracking-wider">Your blindspots — ranked by urgency</h2>
-        <span className="text-[11px] text-text-2">{sorted.length} found</span>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        {visible.map((cluster, i) => (
-          <BlindspotCard key={cluster.cluster_id} cluster={cluster} idx={i}
-            gain={gainByCluster[String(cluster.cluster_id)]} />
-        ))}
+      <SectionTitle sub={`${sorted.length} families · Stage-2 score: excess vs peers + cost`}>Your blindspots — ranked by urgency</SectionTitle>
+      <div className="grid md:grid-cols-2 gap-3">
+        {visible.map((c, i) => <BlindspotCard key={c.cluster_id} cluster={c} idx={i} gain={gainByCluster[String(c.cluster_id)]} />)}
       </div>
       {sorted.length > 4 && (
-        <button onClick={() => setShowAll(!showAll)}
-          className="text-xs text-accent hover:text-accent/70 mt-3 transition-colors flex items-center gap-1">
-          {showAll ? 'Show less' : `Show all ${sorted.length} blindspots`}
-          <ChevronRight size={12} className={showAll ? '-rotate-90' : 'rotate-90'} />
+        <button onClick={() => setShowAll(s => !s)} className="text-xs text-accent hover:text-accent/70 mt-3 inline-flex items-center gap-1">
+          {showAll ? 'Show fewer' : `Show all ${sorted.length} blindspots`}<ChevronDown size={12} className={showAll ? 'rotate-180' : ''} />
         </button>
       )}
 
-      {/* Analytics charts */}
-      {analytics && <AnalyticsSection data={analytics} />}
+      <div className="grid lg:grid-cols-2 gap-3 mt-6">
+        <RatingImpact />
+        {insights ? <SkillRadar data={insights.radar} /> : <div className="card h-80 animate-pulse" />}
+      </div>
+
+      <SectionTitle sub={insightsLoading ? 'computing…' : o ? `${o.you_moves.toLocaleString()} of your moves · ${o.peer_moves.toLocaleString()} peer moves` : undefined}>The arc of your games</SectionTitle>
+      {insights ? (
+        <div className="grid xl:grid-cols-2 gap-3">
+          <ProgressHistogram data={insights.progress} />
+          <EvalArc data={insights.eval_arc} />
+          <ConversionCard data={insights.conversion} />
+          <PairedBars title="Mistakes by situation" tableHead="Situation" unit="%"
+            subtitle="Share of your moves that are mistakes or blunders when you were ahead, level or behind (expected score ≥65% / between / ≤35%)."
+            rows={insights.situations.map(s => ({ label: s.situation[0].toUpperCase() + s.situation.slice(1),
+              you: s.you_rate != null ? +(s.you_rate * 100).toFixed(1) : null, peer: s.peer_rate != null ? +(s.peer_rate * 100).toFixed(1) : null }))} />
+        </div>
+      ) : <div className="grid xl:grid-cols-2 gap-3">{[0, 1, 2, 3].map(i => <div key={i} className="card h-80 animate-pulse" />)}</div>}
+
+      {insights && (
+        <>
+          <SectionTitle>Habits</SectionTitle>
+          <div className="grid lg:grid-cols-3 gap-3">
+            <PairedBars title="Accuracy through the game" tableHead="Stage" unit="%"
+              subtitle="Your accuracy in each third of the game vs your opponents'."
+              rows={insights.stages.map(s => ({ label: s.stage.split(' ')[0], you: s.you, peer: s.peer }))} />
+            <SimpleBars title="How long you thought before blundering" valueLabel="Blunders"
+              subtitle={insights.clock.fast_blunder_share != null
+                ? <><span className="text-text-0">{Math.round(insights.clock.fast_blunder_share * 100)}%</span> of blunders took under 5 seconds · median {insights.clock.median_blunder_think_s}s.</>
+                : 'No clock data in these games.'}
+              rows={insights.clock.think_buckets.map(b => ({ label: b.label, value: b.count }))} />
+            <SimpleBars title="Which piece makes your mistakes" valueLabel="Mistakes + blunders" horizontal
+              subtitle="The piece you moved on each mistake or blunder."
+              rows={insights.pieces.map(p => ({ label: p.piece, value: p.count, note: `${p.count} (${Math.round(p.share * 100)}%)` }))} />
+          </div>
+          <div className="grid lg:grid-cols-[1.6fr_1fr] gap-3 mt-3">
+            <TrendChart data={insights.trend} />
+            <div className="grid gap-3">
+              <SimpleBars title="How much each mistake cost" valueLabel="Incidents" height="h-40"
+                subtitle="Winning chances lost in one move."
+                rows={insights.severity.map(s => ({ label: s.label, value: s.count }))} />
+              <div className="card p-4">
+                <h3 className="text-sm font-semibold text-text-0">White vs Black</h3>
+                <table className="w-full text-xs mt-3">
+                  <thead><tr className="text-text-2"><th className="text-left font-medium pb-1.5"></th><th className="text-right font-medium">Games</th><th className="text-right font-medium">Score</th><th className="text-right font-medium">Accuracy</th><th className="text-right font-medium">Blunders/g</th></tr></thead>
+                  <tbody>
+                    {insights.colors.map(c => (
+                      <tr key={c.color} className="border-t border-border">
+                        <td className="py-1.5 text-text-1 capitalize">{c.color}</td>
+                        <td className="text-right tabular-nums text-text-0">{c.games}</td>
+                        <td className="text-right tabular-nums text-text-0">{c.score != null ? `${Math.round(c.score * 100)}%` : '—'}</td>
+                        <td className="text-right tabular-nums text-text-0">{c.accuracy ?? '—'}%</td>
+                        <td className="text-right tabular-nums text-text-0">{c.blunders_per_game ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="card p-4 mt-10 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <Info size={16} className="text-text-2 flex-shrink-0" />
+        <p className="text-xs text-text-2 leading-relaxed flex-1">
+          Mistakes are judged by lost winning chances (Lichess's model: inaccuracy ≥5%, mistake ≥10%, blunder ≥15%), not raw centipawns.
+          "Players you faced" are your opponents in the same games — a rating-matched baseline. Evaluations are shown in points (1 point = one pawn).
+        </p>
+        <button onClick={() => navigate('/session')} className="btn-ghost border border-border text-xs inline-flex items-center gap-1.5 flex-shrink-0"><Target size={12} /> Train these <ArrowRight size={12} /></button>
+      </div>
     </div>
   )
 }

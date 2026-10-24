@@ -24,3 +24,27 @@ export const HINT_SQUARE = 'rgba(200,255,42,0.45)'
 
 /** Ordered series palette for charts: neon first, then whites and greys. */
 export const SERIES = ['#C8FF2A', '#F5F5F5', '#8FD400', '#A3A3A3', '#E9FF9E', '#5E8C00', '#6B6B6B']
+
+/** Puzzle feedback squares (Puzzle Themes board). */
+export const PUZZLE_RIGHT = 'rgba(46,230,166,0.42)'
+export const PUZZLE_WRONG_SQ = 'rgba(255,77,94,0.45)'
+export const SUCCESS = '#2EE6A6'
+export const DANGER = '#FF4D5E'
+
+/**
+ * Chart series colours. The brand neon is too bright to sit next to another hue
+ * in a chart, so data marks use an in-band step of it. Pairs validated with the
+ * dataviz palette checker on the #0C0C0C card surface (lightness band, chroma,
+ * colour-blind separation, contrast) — keep legends + dashed peer lines as the
+ * secondary encoding.
+ */
+export const CHART = {
+  you: '#76A503',      // the player
+  peer: '#6F8AD8',     // rating-matched opponents (same games)
+  win: '#6F8AD8',      // diverging pair for outcomes (blue ↔ red, never red ↔ green)
+  loss: '#E5484D',
+  neutral: '#8A8F98',
+  grid: '#1F1F1F',
+  axis: '#6B6B6B',
+  surface: '#0C0C0C',
+} as const

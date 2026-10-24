@@ -1,4 +1,5 @@
 import { Chessboard } from 'react-chessboard'
+import { BOARD_DARK, BOARD_LIGHT } from '../../../theme'
 
 interface Props {
   fen: string
@@ -28,8 +29,8 @@ export function BoardDisplay({
         borderRadius: '8px',
         boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
       }}
-      customDarkSquareStyle={{ backgroundColor: '#3A3A3A' }}
-      customLightSquareStyle={{ backgroundColor: '#b8b8d0' }}
+      customDarkSquareStyle={{ backgroundColor: BOARD_DARK }}
+      customLightSquareStyle={{ backgroundColor: BOARD_LIGHT }}
     />
   )
 }

@@ -12,9 +12,12 @@ import { endgamesApi } from '../../api/endgames'
 import type { EndgameLeaf } from '../../data/endgameTree'
 import { PieceConfigurator, type ConfigPayload } from './PieceConfigurator'
 import { useGameReview } from '../../hooks/useGameReview'
+import { useElementWidth } from '../../hooks/useElementWidth'
 
-const BOARD_SIZE  = 460
-const ELO_OPTIONS = [1100, 1300, 1500, 1700, 1900]
+/** The opponent: full-strength Stockfish (default — the most accurate defence/attack),
+ *  or human-like Maia at a rating on the player's own platform scale. */
+type Opponent = 'stockfish' | number
+const MAIA_LEVELS = [1100, 1400, 1700, 2000, 2300, 2600]
 
 interface Props {
   forcedPosition: EndgameLeaf | null
@@ -41,11 +44,6 @@ interface ActivePosition {
   sideToMove:   'white' | 'black'
   objective:    string
   category:     string
-}
-
-function pickClosestMaiaElo(userElo: number): number {
-  return ELO_OPTIONS.reduce((c, e) =>
-    Math.abs(e - userElo) < Math.abs(c - userElo) ? e : c, ELO_OPTIONS[0])
 }
 
 function uciToFrom(uci: string) {
@@ -76,9 +74,12 @@ function objectiveSummary(objective: string, stm: 'white' | 'black'): string {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
-  const { username, elo: userElo } = useUserStore()
+  const { username, elo: userElo, platform } = useUserStore()
+  const [boardRef, measured] = useElementWidth<HTMLDivElement>(520)
+  const boardWidth = Math.max(260, Math.min(640, measured))
 
-  const [maiaElo,   setMaiaElo]   = useState(pickClosestMaiaElo(userElo || 1500))
+  const [opponent,  setOpponent]  = useState<Opponent>('stockfish')
+  const opponentName = opponent === 'stockfish' ? 'Stockfish' : `Maia ${opponent}`
   const [position,  setPosition]  = useState<ActivePosition | null>(null)
   const [status,    setStatus]    = useState<GameStatus>('configure')
   const [loading,   setLoading]   = useState(false)
@@ -109,7 +110,6 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
         objective:    deriveObjective(r.syzygy_result, r.eval_cp, stm),
         category:     'custom',
       })
-      setMaiaElo(cfg.maiaElo)
       setSeenFens(prev => [...prev, r.fen])
       setStatus('ready')
     } catch (e) {
@@ -184,8 +184,10 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          username, user_color: 'random',
-          starting_fen: position.fen, target_elo: maiaElo,
+          username, user_color: 'random', starting_fen: position.fen,
+          engine: opponent === 'stockfish' ? 'stockfish' : 'maia',
+          target_elo: opponent === 'stockfish' ? undefined : opponent, rating_scale: platform,
+          context: { kind: 'endgame', name: position.material || 'Endgame practice', category: position.category },
         }),
       })
       if (!res.ok) throw new Error(await res.text())
@@ -203,7 +205,7 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
       setStatus('ready')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [position, username, maiaElo])
+  }, [position, username, opponent, platform])
 
   function handleWsMessage(raw: string) {
     let msg: WsMsg
@@ -349,7 +351,7 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
       <div className="card px-4 py-2.5 flex items-center gap-3 flex-wrap">
         <span className="text-sm text-text-0 font-medium">✓ {position?.material}</span>
         <span className="text-text-2 text-xs">·</span>
-        <span className="text-xs text-text-1">Maia {maiaElo}</span>
+        <span className="text-xs text-text-1">vs {opponentName}</span>
         {position?.complexity === 'high' && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/15 text-accent border border-accent/30">
             complex
@@ -360,12 +362,12 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
         </button>
       </div>
 
-      <div className="flex flex-col xl:flex-row items-start gap-6">
-        {/* Board */}
-        <div className="flex-shrink-0 space-y-2">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] gap-6 items-start">
+        {/* Board — big and centred */}
+        <div ref={boardRef} className="min-w-0 w-full max-w-[640px] mx-auto space-y-2">
           <div className="flex items-center gap-2 px-1">
             <Bot size={15} className="text-text-2" />
-            <span className="text-sm font-medium text-text-0">Maia · {maiaElo}</span>
+            <span className="text-sm font-medium text-text-0">{opponentName}</span>
             {isThinking && (
               <span className="text-xs text-accent inline-flex items-center gap-1 ml-auto">
                 thinking <Loader2 size={11} className="animate-spin" />
@@ -392,7 +394,7 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
             onPieceDrop={handleDrop}
             onSquareClick={handleSquareClick}
             arePiecesDraggable={isMyTurn()}
-            boardWidth={BOARD_SIZE}
+            boardWidth={boardWidth}
             customSquareStyles={squareStyles}
             customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
             customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
@@ -427,6 +429,25 @@ export function EndgamePractice({ forcedPosition, onAskCoach }: Props) {
                   <span className="text-success font-medium">Syzygy: {position.syzygyResult}</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {(status === 'ready' || status === 'finished') && (
+            <div className="card p-4">
+              <p className="text-xs text-text-2 uppercase tracking-wider font-semibold mb-2">Opponent</p>
+              <button onClick={() => setOpponent('stockfish')}
+                className={`w-full mb-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${opponent === 'stockfish' ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-1 hover:border-border-hover'}`}>
+                <span className="font-semibold">Stockfish</span> <span className="text-xs text-text-2">· perfect technique, the real test</span>
+              </button>
+              <div className="grid grid-cols-3 gap-1.5">
+                {MAIA_LEVELS.map(l => (
+                  <button key={l} onClick={() => setOpponent(l)}
+                    className={`py-1.5 rounded-md text-xs font-mono border transition-colors ${opponent === l ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-1 hover:border-border-hover'}`}>
+                    Maia {l}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-text-2 mt-2">Maia levels are on your {platform === 'chesscom' ? 'Chess.com' : 'Lichess'} rating scale.</p>
             </div>
           )}
 

@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Lightbulb, Check, X, ChevronRight, ChevronLeft, Zap, RotateCcw, Sword } from 'lucide-react'
+import { Lightbulb, Check, X, ChevronRight, ChevronLeft, Zap, RotateCcw, Sword, Flame, Target, Trophy, CalendarDays } from 'lucide-react'
+import { useElementWidth } from '../hooks/useElementWidth'
+import { BOARD_DARK, BOARD_LIGHT, CHART } from '../theme'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
+import { drillsApi, type DrillStats } from '../api/drills'
 import { ForkedWordmark } from '../components/layout/AppShell'
 import { SectionHeader } from '../components/layout/SectionHeader'
 import type { Square } from 'chess.js'
@@ -75,7 +78,7 @@ function ContextPanel({ item, puzzleIdx, total }: { item: SessionItem; puzzleIdx
         </div>
         <h2 className="text-base font-semibold text-text-0 leading-snug">{item.cluster_label}</h2>
         <p className="text-xs text-text-2 mt-1">
-          Missed <span className="text-accent font-medium">{item.missed_count}</span> times
+          <span className="text-accent font-medium">{item.missed_count}</span> times in your own games
         </p>
       </div>
       {item.puzzle.threat && (
@@ -97,9 +100,76 @@ function ContextPanel({ item, puzzleIdx, total }: { item: SessionItem; puzzleIdx
   )
 }
 
+// ── Progress (stored across sessions: backend/drills.py) ─────────────────────
+
+function StatTile({ icon: Icon, label, value, sub, className = "" }: { icon: typeof Flame; label: string; value: string; sub?: string; className?: string }) {
+  return (
+    <div className={`card px-3 py-2.5 min-w-0 ${className}`}>
+      <p className="text-[11px] text-text-2 flex items-center gap-1.5"><Icon size={12} className="text-accent shrink-0" /><span className="truncate">{label}</span></p>
+      <p className="font-display text-xl font-semibold text-text-0 tabular-nums leading-tight mt-0.5">{value}</p>
+      {sub && <p className="text-[11px] text-text-2 truncate">{sub}</p>}
+    </div>
+  )
+}
+
+function DrillStatsStrip({ stats }: { stats?: DrillStats }) {
+  const s = stats
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-6">
+      <StatTile icon={Check} label="Puzzles solved" value={s ? String(s.solved) : '–'}
+        sub={s?.accuracy != null ? `${Math.round(s.accuracy * 100)}% of ${s.total} tried` : 'none yet'} />
+      <StatTile icon={Zap} label="Solve streak" value={s ? String(s.streak) : '–'} sub={s ? `best ${s.best_streak}` : undefined} />
+      <StatTile icon={Flame} label="Day streak" value={s ? `${s.day_streak} day${s.day_streak === 1 ? '' : 's'}` : '–'}
+        sub={s ? `best ${s.best_day_streak}` : undefined} />
+      <StatTile icon={CalendarDays} label="Today" value={s ? `${s.today.w}/${s.today.n}` : '–'} sub="solved / tried" />
+      <StatTile className="col-span-2 sm:col-span-1" icon={Target} label="Your mistakes drilled" value={s?.mistakes_drilled_share != null ? `${Math.round(s.mistakes_drilled_share * 100)}%` : '–'}
+        sub={s ? `${s.solved} solved vs ${s.mistakes_total} game mistakes` : undefined} />
+    </div>
+  )
+}
+
+function CoveragePanel({ stats, current }: { stats?: DrillStats; current?: string }) {
+  if (!stats) return null
+  const fams = stats.families.filter(f => f.incidents > 0 || f.drilled > 0)
+  const maxN = Math.max(1, ...stats.last14.map(d => d.n))
+  return (
+    <div className="card p-3 space-y-3">
+      <div>
+        <p className="text-xs text-text-2 mb-2 flex items-center gap-1.5"><Trophy size={12} className="text-accent" />Coverage of your game mistakes</p>
+        <div className="space-y-2">
+          {fams.map(f => (
+            <div key={f.cluster_id}>
+              <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                <span className={`truncate ${f.cluster_id === current ? 'text-text-0 font-medium' : 'text-text-1'}`}>{f.label}</span>
+                <span className="text-text-2 tabular-nums shrink-0">{f.solved}/{f.incidents} · {f.coverage != null ? `${Math.round(f.coverage * 100)}%` : '—'}</span>
+              </div>
+              <div className="h-1.5 bg-bg-3 rounded-full overflow-hidden mt-1">
+                <div className="h-full rounded-full" style={{ width: `${Math.round((f.coverage ?? 0) * 100)}%`, background: CHART.you }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-text-2 mt-2">Puzzles solved per family ÷ mistakes of that family in your analysed games.</p>
+      </div>
+      <div>
+        <p className="text-xs text-text-2 mb-1.5">Last 14 days</p>
+        <div className="flex items-end gap-[2px] h-10" role="img"
+          aria-label={stats.last14.map(d => `${d.date}: ${d.w} of ${d.n}`).join(', ')}>
+          {stats.last14.map(d => (
+            <div key={d.date} className="flex-1 h-full flex items-end" title={`${d.date}: ${d.w}/${d.n} solved`}>
+              <div className="w-full rounded-t-[3px]"
+                style={{ height: d.n ? `${Math.max(8, (d.n / maxN) * 100)}%` : '2px', background: d.n ? CHART.you : CHART.grid }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── SessionComplete ───────────────────────────────────────────────────────────
 
-function SessionComplete({ attempts, onRestart }: { attempts: AttemptRecord[]; onRestart: () => void }) {
+function SessionComplete({ attempts, onRestart, stats }: { attempts: AttemptRecord[]; onRestart: () => void; stats?: DrillStats }) {
   const correct = attempts.filter(a => a.correct).length
   const pct = attempts.length ? Math.round((correct / attempts.length) * 100) : 0
   const navigate = useNavigate()
@@ -109,8 +179,13 @@ function SessionComplete({ attempts, onRestart }: { attempts: AttemptRecord[]; o
         <img src="/logo.png" alt="" className="h-14 w-auto mx-auto mb-4 opacity-90" />
         <h2 className="text-2xl font-bold text-text-0"><ForkedWordmark className="text-2xl" /> — Session complete</h2>
         <p className="text-text-2 mt-2">{correct}/{attempts.length} correct · {pct}% accuracy</p>
+        {stats && (
+          <p className="text-xs text-text-2 mt-1">
+            {stats.solved} solved all-time · day streak {stats.day_streak} · best solve streak {stats.best_streak}
+          </p>
+        )}
       </motion.div>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap justify-center gap-3">
         <button onClick={onRestart} className="btn-ghost flex items-center gap-2">
           <RotateCcw size={14} /> Drill again
         </button>
@@ -217,20 +292,30 @@ function PuzzleBoard({ item, onResult }: {
     if (!legal.some(m => m.from === from && m.to === to)) return false
 
     const expected = moves[moveIdx]
-    const isCorrect =
+    let isCorrect =
       from === expected.slice(0, 2) &&
       to   === expected.slice(2, 4) &&
       (!expected[4] || (piece?.toLowerCase().slice(-1) ?? '') === expected[4])
+    // any move that mates is right, even if the puzzle's line mates differently
+    let mateUci: string | null = null
+    if (!isCorrect) {
+      const probe = new Chess(chessRef.current.fen())
+      try {
+        const m = probe.move({ from, to, promotion: 'q' })
+        if (m && probe.isCheckmate()) { isCorrect = true; mateUci = m.from + m.to + (m.promotion ?? '') }
+      } catch { /* illegal */ }
+    }
 
     setSelectedSq(null)
     setOptionSqs({})
 
     if (isCorrect) {
-      applyUci(chessRef.current, expected)
+      const played = mateUci ?? expected
+      applyUci(chessRef.current, played)
       setFen(chessRef.current.fen())
-      setHighlight(makeHighlight(expected))
+      setHighlight(makeHighlight(played))
       setPhase('correct_flash')
-      const nextIdx = moveIdx + 1
+      const nextIdx = mateUci ? moves.length : moveIdx + 1
       if (nextIdx >= moves.length) {
         setTimeout(() => {
           setPhase('solved')
@@ -293,29 +378,41 @@ function PuzzleBoard({ item, onResult }: {
   const attemptsLeft = MAX_WRONG - wrongCount
   const squareStyles = useMemo(() => ({ ...highlight, ...optionSqs }), [highlight, optionSqs])
 
+  const [boardRef, measured] = useElementWidth<HTMLDivElement>(500)
+  const boardWidth = Math.max(260, Math.min(600, measured))
+  const toMove = orient === 'white' ? 'White' : 'Black'
+
   return (
-    <div className="space-y-3">
-      <AnimatePresence mode="wait">
+    <div className="space-y-3" ref={boardRef}>
+      <div className="relative h-10" aria-live="polite">
+      <AnimatePresence initial={false}>
+        {phase === 'waiting' && (
+          <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center gap-2 text-sm text-text-1 px-3 rounded-md border border-border bg-bg-1">
+            <span className={`w-3 h-3 rounded-full border border-border ${orient === 'white' ? 'bg-[#F0F0F0]' : 'bg-bg-0'}`} />
+            {toMove} to move — find the best move
+          </motion.div>
+        )}
         {phase === 'correct_flash' && (
           <motion.div key="correct"
-            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="flex items-center gap-2 text-success text-sm font-medium px-3 py-2 bg-success/10 rounded-md border border-success/20"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center gap-2 text-success text-sm font-medium px-3 bg-success/10 rounded-md border border-success/20"
           >
             <Check size={14} /> Correct!
           </motion.div>
         )}
         {phase === 'wrong_flash' && (
           <motion.div key="wrong"
-            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="flex items-center gap-2 text-danger text-sm font-medium px-3 py-2 bg-danger/10 rounded-md border border-danger/20"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center gap-2 text-danger text-sm font-medium px-3 bg-danger/10 rounded-md border border-danger/20"
           >
             <X size={14} /> Not quite — {attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left
           </motion.div>
         )}
         {phase === 'failed' && (
           <motion.div key="failed"
-            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-            className="px-3 py-2 bg-danger/10 rounded-md border border-danger/20"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center px-3 bg-danger/10 rounded-md border border-danger/20"
           >
             <span className="flex items-center gap-2 text-danger text-sm font-medium">
               <X size={14} /> Missed — playing solution…
@@ -324,13 +421,14 @@ function PuzzleBoard({ item, onResult }: {
         )}
         {phase === 'solved' && (
           <motion.div key="solved"
-            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-2 text-success text-sm font-medium px-3 py-2 bg-success/10 rounded-md border border-success/20"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center gap-2 text-success text-sm font-medium px-3 bg-success/10 rounded-md border border-success/20"
           >
             <Check size={14} /> Solved!
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
 
       <motion.div
         animate={phase === 'wrong_flash' ? { x: [0, -6, 6, -4, 4, 0] } : { x: 0 }}
@@ -344,14 +442,15 @@ function PuzzleBoard({ item, onResult }: {
           customSquareStyles={squareStyles}
           customArrows={solutionArrow}
           arePiecesDraggable={phase === 'waiting'}
-          boardWidth={500}
-          customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
-          customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+          boardWidth={boardWidth}
+          customDarkSquareStyle={{ backgroundColor: BOARD_DARK }}
+          customLightSquareStyle={{ backgroundColor: BOARD_LIGHT }}
           customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
         />
       </motion.div>
 
-      {/* Attempt dots + hint */}
+      {/* Attempt dots + hint (fixed height) */}
+      <div className="h-6">
       {!isDone && (
         <div className="flex items-center gap-3">
           <div className="flex gap-1.5">
@@ -370,6 +469,7 @@ function PuzzleBoard({ item, onResult }: {
           </button>
         </div>
       )}
+      </div>
     </div>
   )
 }
@@ -386,6 +486,13 @@ export default function PuzzleSession() {
   const [attempts,   setAttempts]   = useState<Record<number, AttemptRecord>>({})
   const [puzzleDone, setPuzzleDone] = useState(false)
   const [complete,   setComplete]   = useState(false)
+  const qc = useQueryClient()
+  const { data: stats } = useQuery({
+    queryKey: ['drill-stats', username],
+    queryFn: () => drillsApi.stats(username),
+    enabled: !!username,
+    staleTime: 30_000,
+  })
 
   const { data, isLoading, error, refetch } = useQuery<SessionResponse>({
     queryKey: ['session', username, elo, clusterId ?? null],
@@ -397,11 +504,17 @@ export default function PuzzleSession() {
   function handleResult(correct: boolean, _hintUsed: boolean, time_s: number) {
     if (!data) return
     const item = data.items[puzzleIdx]
+    const first = attempts[puzzleIdx] === undefined
     setAttempts(prev => ({
       ...prev,
       [puzzleIdx]: { correct, time_s, cluster_id: String(item.cluster_id) },
     }))
     setPuzzleDone(true)
+    if (first) {
+      drillsApi.attempt({ username, cluster_id: String(item.cluster_id), correct, time_s, puzzle_id: item.puzzle.puzzle_id })
+        .then(() => qc.invalidateQueries({ queryKey: ['drill-stats', username] }))
+        .catch(() => {})
+    }
   }
 
   function goToPuzzle(i: number) {
@@ -464,7 +577,7 @@ export default function PuzzleSession() {
   }
 
   if (complete) {
-    return <SessionComplete attempts={Object.values(attempts)} onRestart={handleRestart} />
+    return <SessionComplete attempts={Object.values(attempts)} onRestart={handleRestart} stats={stats} />
   }
 
   const item = data.items[puzzleIdx]
@@ -472,7 +585,7 @@ export default function PuzzleSession() {
   const totalAttempted = Object.keys(attempts).length
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="px-4 py-6 sm:p-8 max-w-6xl mx-auto">
       <SectionHeader
         icon={Sword}
         title={clusterId ? 'Targeted Drill' : 'Drill Session'}
@@ -500,9 +613,11 @@ export default function PuzzleSession() {
         }
       />
 
-      <div className="grid grid-cols-5 gap-8 items-start">
+      <DrillStatsStrip stats={stats} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8 items-start">
         {/* Board */}
-        <div className="col-span-3">
+        <div className="lg:col-span-3 min-w-0">
           <PuzzleBoard
             key={`${item.puzzle.puzzle_id}-${puzzleIdx}`}
             item={item}
@@ -511,7 +626,7 @@ export default function PuzzleSession() {
         </div>
 
         {/* Context panel */}
-        <div className="col-span-2 space-y-4 pt-2">
+        <div className="lg:col-span-2 space-y-4 lg:pt-2 min-w-0">
           <ContextPanel item={item} puzzleIdx={puzzleIdx} total={data.items.length} />
 
           {/* Prev / Next — only when current puzzle is done */}
@@ -560,6 +675,8 @@ export default function PuzzleSession() {
               </p>
             </div>
           )}
+
+          <CoveragePanel stats={stats} current={String(item.cluster_id)} />
         </div>
       </div>
     </div>

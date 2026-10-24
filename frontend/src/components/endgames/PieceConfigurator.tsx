@@ -10,7 +10,6 @@ const MAX_PER_SIDE = 7
 const WHITE_GLYPH: Record<string, string> = { Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙' }
 const BLACK_GLYPH: Record<string, string> = { Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' }
 
-const ELO_OPTIONS = [1100, 1300, 1500, 1700, 1900]
 
 const PRESETS: { label: string; white: Partial<PieceCounts>; black: Partial<PieceCounts> }[] = [
   { label: 'K+R vs K+R',          white: { R: 1 },        black: { R: 1 } },
@@ -130,7 +129,7 @@ export function PieceConfigurator({ onFind, loading }: Props) {
   const [white,   setWhite]   = useState<PieceCounts>(full({ R: 1, P: 3 }))
   const [black,   setBlack]   = useState<PieceCounts>(full({ R: 1, P: 2 }))
   const [text,    setText]    = useState('')
-  const [maiaElo, setMaiaElo] = useState(1500)
+  const maiaElo = 1500   // the opponent is chosen in the practice panel
 
   const inc = (setter: typeof setWhite, c: PieceCounts) => (k: keyof PieceCounts) => {
     if (c[k] >= PIECE_MAX[k] || total(c) >= MAX_PER_SIDE) return
@@ -200,22 +199,6 @@ export function PieceConfigurator({ onFind, loading }: Props) {
         <div className="w-px bg-border self-stretch" />
         <SideColumn side="black" counts={black}
           onInc={inc(setBlack, black)} onDec={dec(setBlack, black)} />
-      </div>
-
-      {/* Maia ELO */}
-      <div>
-        <p className="text-xs text-text-2 uppercase tracking-wider font-semibold mb-2">Maia ELO</p>
-        <div className="grid grid-cols-5 gap-1.5">
-          {ELO_OPTIONS.map(e => (
-            <button key={e} onClick={() => setMaiaElo(e)}
-              className={`py-1.5 rounded text-[11px] font-mono transition-colors
-                ${maiaElo === e
-                  ? 'bg-accent/15 text-accent border border-accent/40'
-                  : 'bg-bg-2 text-text-1 border border-border hover:bg-bg-3'}`}>
-              {e}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Summary + actions */}

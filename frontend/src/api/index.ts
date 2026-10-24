@@ -58,7 +58,7 @@ export const api = {
   getSettings: (username: string) =>
     req<UserSettings>(`/api/settings/${username}`),
 
-  updateSettings: (username: string, data: Partial<{ elo: number; platform: string }>) =>
+  updateSettings: (username: string, data: Partial<{ elo: number; platform: string; elo_manual: boolean }>) =>
     req<UserSettings>(`/api/settings/${username}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

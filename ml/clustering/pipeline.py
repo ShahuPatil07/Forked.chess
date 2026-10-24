@@ -245,18 +245,6 @@ def run_clustering(
             pickle.dump(reducer, fh)
         print(f"Saved scaler + reducer to {output_dir}")
 
-        # ── Chess DNA style profile (always ready after a full analysis) ──────
-        try:
-            from ml.style.extractor import compute_style
-            style = compute_style(username, output_dir=output_dir)
-            if style.get("insufficient"):
-                print(f"Style profile: insufficient games "
-                      f"({style['n_games']}/50) — DNA card shows blindspots only")
-            else:
-                print(f"Style profile: {style['archetype']}  "
-                      f"axes={[style[f'axis{i}'] for i in range(1, 6)]}")
-        except Exception as exc:
-            print(f"  (style profile skipped: {exc})")
 
     # ── Summary ──────────────────────────────────────────────────────────────
     print(f"\n{'-'*60}")

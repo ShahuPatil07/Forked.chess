@@ -13,6 +13,9 @@ import type { Arrow } from 'react-chessboard/dist/chessboard/types'
 import { useUserStore } from '../store/userStore'
 import { api } from '../api'
 import { replayApi, type ReplayMistake } from '../api/replay'
+import { lossPts } from '../lib/format'
+import { useElementWidth } from '../hooks/useElementWidth'
+import { BOARD_DARK, BOARD_LIGHT } from '../theme'
 
 const BOARD = 420
 
@@ -97,6 +100,9 @@ export default function MistakeReplay() {
   // ── Exploration state ───────────────────────────────────────────────────────
   const chessRef = useRef(new Chess())
   const [boardFen, setBoardFen]   = useState<string>('')
+  // board fits the screen: 420px on desktop, the row width (minus the eval bar) on phones
+  const [rowRef, rowW] = useElementWidth<HTMLDivElement>(900)
+  const boardW = Math.max(240, Math.min(BOARD, Math.floor(rowW - 30)))
   const [exploreSans, setExplore] = useState<string[]>([])
   const [selectedSq, setSelectedSq] = useState<Square | null>(null)
   const [optionSqs, setOptionSqs]   = useState<Record<string, object>>({})
@@ -217,6 +223,16 @@ export default function MistakeReplay() {
     return out
   }, [exploring, current])
 
+  const bestSan = useMemo(() => {
+    const u = current?.best_move
+    if (!current || !u || u.length < 4) return '—'
+    try {
+      return new Chess(current.fen).move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }).san
+    } catch {
+      return `${u.slice(0, 2)}→${u.slice(2, 4)}`
+    }
+  }, [current])
+
   // ── Loading / empty / done ──────────────────────────────────────────────────
   if (isLoading) {
     return <div className="relative z-10 min-h-screen flex items-center justify-center bg-bg-0"><Loader2 size={22} className="animate-spin text-accent" /></div>
@@ -251,15 +267,15 @@ export default function MistakeReplay() {
 
   // ── Main: two-column layout ─────────────────────────────────────────────────
   return (
-    <div className="relative z-10 min-h-screen bg-bg-0 px-6 py-6">
+    <div className="relative z-10 min-h-screen bg-bg-0 px-4 sm:px-6 py-6">
       {/* Top bar */}
-      <div className="max-w-5xl mx-auto flex items-center gap-3 mb-5">
+      <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-3 mb-5">
         <button onClick={() => navigate('/dashboard')}
           className="flex items-center gap-1.5 text-sm text-text-2 hover:text-text-0 transition-colors">
           <ArrowLeft size={14} /> Exit
         </button>
-        <div className="flex-1">
-          <h1 className="text-base font-bold text-text-0">{label}</h1>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-base font-bold text-text-0 truncate">{label}</h1>
           <p className="text-[11px] text-text-2">Mistake replay · {total} positions · ← / → to navigate</p>
         </div>
         <button onClick={() => navigate('/session', { state: { clusterId: String(clusterId) } })}
@@ -268,12 +284,12 @@ export default function MistakeReplay() {
         </button>
       </div>
 
-      <div className="max-w-5xl mx-auto flex flex-col lg:flex-row items-start gap-6">
+      <div ref={rowRef} className="max-w-5xl mx-auto flex flex-col lg:flex-row items-start gap-6">
         {/* LEFT — board + eval + explore */}
         <div className="flex-shrink-0">
           <div className="flex items-stretch gap-2">
             <EvalBar cp={analysis?.eval_cp ?? null} mate={analysis?.eval_mate ?? null}
-              orient={orient} h={BOARD} loading={evalLoading} />
+              orient={orient} h={boardW} loading={evalLoading} />
             <Chessboard
               position={boardFen || current.fen}
               onPieceDrop={onDrop}
@@ -281,13 +297,13 @@ export default function MistakeReplay() {
               boardOrientation={orient}
               customArrows={arrows}
               customSquareStyles={optionSqs}
-              boardWidth={BOARD}
-              customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
-              customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+              boardWidth={boardW}
+              customDarkSquareStyle={{ backgroundColor: BOARD_DARK }}
+              customLightSquareStyle={{ backgroundColor: BOARD_LIGHT }}
               customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
             />
           </div>
-          <div className="flex items-center gap-2 justify-center mt-2" style={{ width: BOARD + 28 }}>
+          <div className="flex items-center gap-2 justify-center mt-2" style={{ width: boardW + 28 }}>
             {exploring ? (
               <>
                 <span className="text-[11px] text-accent font-mono truncate max-w-[55%]">{exploreSans.join(' ')}</span>
@@ -316,15 +332,13 @@ export default function MistakeReplay() {
 
           {/* Played vs best */}
           <div className="card p-4 space-y-2">
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
               <span className="text-danger">
                 You played <span className="font-mono font-semibold">{current.move_played_san}</span>
-                <span className="text-text-2"> (−{current.eval_drop}cp)</span>
+                <span className="text-text-2"> ({lossPts(current.eval_drop)})</span>
               </span>
               <span className="text-success">
-                Best <span className="font-mono font-semibold">
-                  {(current.best_move || '').slice(0, 2)}→{(current.best_move || '').slice(2, 4)}
-                </span>
+                Best <span className="font-mono font-semibold">{bestSan}</span>
               </span>
             </div>
             <p className="text-xs text-text-2">

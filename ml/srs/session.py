@@ -59,6 +59,7 @@ def build_session(
     user_elo:  int = 1500,
     n_puzzles: int = 12,
     due_only:  bool = True,        # False = ignore SRS schedule, always include top families
+    all_clusters: list | None = None,  # full ranked profile, so a targeted drill keeps its real rank
 ) -> list[SessionItem]:
     """
     Build a drill session over the user's blindspot FAMILIES (Stage 2/3).
@@ -90,8 +91,9 @@ def build_session(
     if not plan:
         return []
 
-    cluster_rank = {str(c.cluster_id): i + 1 for i, c in enumerate(clusters)}
-    cluster_size = {str(c.cluster_id): c.size for c in clusters}
+    ranked = sorted(all_clusters or clusters, key=lambda c: c.score, reverse=True)
+    cluster_rank = {str(c.cluster_id): i + 1 for i, c in enumerate(ranked)}
+    cluster_size = {str(c.cluster_id): c.size for c in ranked}
 
     seen = _load_seen(username)
     index = get_index()

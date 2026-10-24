@@ -10,9 +10,13 @@ export interface RepresentativeEvent {
 
 export interface ClusterEnrichment {
   frequency: number
+  incidents?: number
   avg_drop_cp: number
   max_drop_cp: number
+  avg_es_loss?: number | null
   blunder_count: number
+  mistake_count?: number
+  inaccuracy_count?: number
   phase_breakdown: Record<string, number>
   threat_breakdown: Record<string, number>
   dominant_phase: string
@@ -64,6 +68,9 @@ export interface ClusterSummary {
 export interface ProfileStats {
   total_games: number
   total_mistakes: number
+  inaccuracies?: number
+  mistakes?: number
+  blunders?: number
   top_threat: string
   threat_breakdown: Record<string, number>
   phase_breakdown: Record<string, number>
@@ -204,13 +211,34 @@ export interface UserSettings {
   username: string
   platform: 'lichess' | 'chesscom'
   elo: number
+  elo_manual?: boolean
+  elo_source?: string
   has_profile: boolean
+}
+
+export type Platform = 'lichess' | 'chesscom'
+
+/** A Forked account (backend/auth.py). Per-user data stays keyed by `chess_username`. */
+export interface Account {
+  user_id: string
+  name: string
+  email: string
+  phone: string | null
+  platform: Platform
+  chess_username: string
+  created_at?: string
+  updated_at?: string
+  is_dev?: boolean
+  chess_verified?: boolean
 }
 
 // Local user state (stored in Zustand + localStorage)
 export interface UserState {
+  /** the linked chess username — every per-user API is keyed by it */
   username: string
-  platform: 'lichess' | 'chesscom'
+  platform: Platform
   elo: number
   activeJobId: string | null
+  token: string | null
+  account: Account | null
 }

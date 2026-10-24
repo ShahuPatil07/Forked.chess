@@ -40,9 +40,10 @@ class Session:
     arrows: list[dict] = field(default_factory=list)   # {"fen","uci","san","kind"} candidates for board arrows
     puzzle_rating: int = 1400                          # default puzzle difficulty (from the profile)
     seen_puzzles: set[str] = field(default_factory=set)
-    maia_elo: int = 1900                               # play-along strength (Maia2 max = strongest)
+    maia_elo: int = 1900                               # play-along strength (Lichess scale, 600-2800)
     created: bool = False                              # a create tool put something on the board
     events_log: list[dict] = field(default_factory=list)   # every UI event of this turn (events is drained)
+    username: str = ""                                 # for per-user tools (warm-up plan / stats)
 
     def emit(self, event: dict):
         self.events.append(event)
@@ -850,6 +851,36 @@ def show_line(s: Session, moves: list[str] | None = None, label: str = "") -> di
     return explore_line(s, moves=moves, fen=chess.STARTING_FEN, show=True, label=label or "Line")
 
 
+def _user_settings(username: str) -> dict:
+    from ml.config import DATA_DIR
+    try:
+        return json.loads((DATA_DIR / "output" / f"{username}_settings.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def get_warmup_plan(s: Session, time_control: str = "blitz", minutes: int = 5) -> dict:
+    """Today's composed warm-up for this player (Warm-Up section), compact."""
+    from backend.warmup.composer import compose, plan_summary
+    if not s.username or s.username == "Guest":
+        return {"error": "no player loaded -- the warm-up needs a username"}
+    settings = _user_settings(s.username)
+    tc = time_control if time_control in ("bullet", "blitz", "rapid", "classical") else "blitz"
+    plan = compose(username=s.username, platform=settings.get("platform", "chesscom"), time_control=tc,
+                   minutes=min((3, 5, 10), key=lambda m: abs(m - int(minutes or 5))), fallback_rating=settings.get("elo"))
+    return {**plan_summary(plan), "where": "Practice -> Warm-Up (/warmup)"}
+
+
+def get_warmup_stats(s: Session, period: int = 30) -> dict:
+    """Warm-up drill accuracy / speed trends and the games played after warm-ups."""
+    from backend.warmup.router import user_stats
+    if not s.username or s.username == "Guest":
+        return {"error": "no player loaded"}
+    st = user_stats(s.username, max(1, min(365, int(period or 30))))
+    st["note"] = ("games_after compares warm-up vs no-warm-up games; only claim a difference when enough_data is true")
+    return st
+
+
 HANDLERS = {
     "analyze_position": analyze_position, "evaluate_moves": evaluate_moves,
     "opponent_threats": opponent_threats, "position_features": position_features,
@@ -858,6 +889,7 @@ HANDLERS = {
     "opening_theory": opening_theory, "endgame_theory": endgame_theory,
     "get_puzzle": get_puzzle, "start_game": start_game, "setup_position": setup_position,
     "material_setup": material_setup, "show_line": show_line, "wiki_lookup": wiki_lookup,
+    "get_warmup_plan": get_warmup_plan, "get_warmup_stats": get_warmup_stats,
 }
 
 LABELS = {
@@ -869,6 +901,7 @@ LABELS = {
     "endgame_theory": "Checking endgame theory", "get_puzzle": "Finding a puzzle", "start_game": "Setting up a game vs Maia",
     "setup_position": "Setting up the position", "material_setup": "Opening the position editor",
     "show_line": "Showing the line", "wiki_lookup": "Checking Wikipedia",
+    "get_warmup_plan": "Building today's warm-up", "get_warmup_stats": "Reading your warm-up history",
 }
 
 
@@ -914,6 +947,18 @@ SCHEMAS = {
                        {"query": {"type": "string", "description": "e.g. 'Vidit Gujrathi' or '1972 World Chess Championship'"}},
                        ["query"]),
 }
+SCHEMAS["get_warmup_plan"] = _fn(
+    "get_warmup_plan", "The player's pre-game warm-up for today (Practice -> Warm-Up): drills chosen for their rating band, "
+    "time control and the blunder patterns found in their own games, with why. Use when they ask how to warm up / "
+    "prepare before playing.",
+    {"time_control": {"type": "string", "enum": ["bullet", "blitz", "rapid", "classical"]},
+     "minutes": {"type": "integer", "description": "3, 5 or 10"}})
+SCHEMAS["get_warmup_stats"] = _fn(
+    "get_warmup_stats", "The player's warm-up history: drill accuracy and speed trends, and blunders per 40 moves in games "
+    "after a warm-up vs without. Never claim warm-ups work unless enough_data is true.",
+    {"period": {"type": "integer", "description": "days, default 30"}})
+WARMUP_RE = re.compile(r"warm.?up|before (my|a|the|playing)|pre-?game|routine|tilt|drills? (score|accuracy)", re.I)
+
 CORE = ["analyze_position", "evaluate_moves", "opponent_threats", "position_features", "explore_line"]
 
 
@@ -937,6 +982,8 @@ def select_tools(message: str, session: Session, intent: str = "position") -> li
             names.append("review_game")
         if len(board.piece_map()) <= 7 or "endgame" in m or "tablebase" in m:
             names += ["tablebase", "endgame_theory"]
+    if WARMUP_RE.search(m):
+        names += ["get_warmup_plan", "get_warmup_stats"]
     return [SCHEMAS[n] for n in dict.fromkeys(names)]
 
 

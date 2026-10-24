@@ -73,7 +73,7 @@ const LeafRow = memo(LeafRow_)
 function Group({
   title, leaves, selectedId, onSelect,
 }: { title: string; leaves: EndgameLeaf[]; selectedId: string | null; onSelect: (l: EndgameLeaf) => void }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   return (
     <div>
       <button
@@ -109,7 +109,8 @@ function Group({
 // ── Section (top-level category) ─────────────────────────────────────────────
 
 export function EndgameTree({ selectedId, onSelect }: Props) {
-  const [openSection, setOpenSection] = useState<string | null>(ENDGAME_TREE[0]?.id ?? null)
+  // every ending starts collapsed — the player opens the one they want to study
+  const [openSection, setOpenSection] = useState<string | null>(null)
 
   return (
     <div className="space-y-3">

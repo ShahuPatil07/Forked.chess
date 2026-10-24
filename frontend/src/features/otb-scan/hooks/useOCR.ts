@@ -1,70 +1,54 @@
 import { useCallback, useState } from 'react'
-import { ocrScoresheet, type OCRResult } from '../api/ocr'
+import { redecode, scanScoresheet, type ScanResult } from '../api/ocr'
+import { useUserStore } from '../../../store/userStore'
 
 export type OCRState = 'idle' | 'processing' | 'review' | 'error'
 
 export interface UseOCR {
   state: OCRState
-  result: OCRResult | null
+  result: ScanResult | null
   error: string | null
-  analyseScoresheet: (image: File) => Promise<void>
+  /** object URLs of the uploaded pages, for the side-by-side review */
+  pages: string[]
+  analyseScoresheet: (images: File[]) => Promise<void>
+  /** re-decode with the user's pinned moves; resolves when the new game is in */
+  pin: (pins: Record<number, string>) => Promise<void>
   reset: () => void
-  /** Dev-only: jump straight to the review screen with sample data. */
-  loadSample: () => void
 }
 
-// A sample OCR response (with two deliberately bad reads) so the review screen
-// can be previewed without a running backend.
-const SAMPLE: OCRResult = {
-  moves: [
-    { number: 1, white: 'e4', black: 'e5', white_valid: true, black_valid: true },
-    { number: 2, white: 'Nf3', black: 'Nc6', white_valid: true, black_valid: true },
-    { number: 3, white: 'Bb5', black: 'a6', white_valid: true, black_valid: true },
-    { number: 4, white: 'Ba4', black: 'Nf6', white_valid: true, black_valid: true },
-    { number: 5, white: 'O-O', black: '', white_valid: true, black_valid: false, black_raw: 'B-c3' },
-    { number: 6, white: 'Re1', black: 'b5', white_valid: false, black_valid: false },
-  ],
-  total_moves: 12,
-  valid_moves: 4,
-  pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6',
-  raw_ocr: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O B-c3 6. Re1 b5',
-  warning: undefined,
-}
-
-// Drives the scoresheet OCR flow: idle → processing → review (or error).
+// Drives the scoresheet flow: idle -> processing -> review (or error).
 export function useOCR(): UseOCR {
+  // the decoder's human-move prior is rating-aware: a 1200 and a 2000 make different natural moves
+  const elo = useUserStore(s => s.elo) || undefined
   const [state, setState] = useState<OCRState>('idle')
-  const [result, setResult] = useState<OCRResult | null>(null)
+  const [result, setResult] = useState<ScanResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pages, setPages] = useState<string[]>([])
 
-  const analyseScoresheet = useCallback(async (image: File) => {
+  const analyseScoresheet = useCallback(async (images: File[]) => {
     setState('processing')
     setError(null)
+    setPages(prev => { prev.forEach(u => URL.revokeObjectURL(u)); return images.map(f => URL.createObjectURL(f)) })
     try {
-      const data = await ocrScoresheet(image)
-      setResult(data)
+      setResult(await scanScoresheet(images, elo))
       setState('review')
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : 'OCR failed — try a clearer, well-lit photo',
-      )
+      setError(e instanceof Error ? e.message : 'Could not read the scoresheet. Try a sharper, well-lit photo.')
       setState('error')
     }
-  }, [])
+  }, [elo])
+
+  const pin = useCallback(async (pins: Record<number, string>) => {
+    if (!result) return
+    setResult(await redecode(result.reads, pins, result.meta, elo))
+  }, [result, elo])
 
   const reset = useCallback(() => {
     setState('idle')
     setResult(null)
     setError(null)
+    setPages(prev => { prev.forEach(u => URL.revokeObjectURL(u)); return [] })
   }, [])
 
-  const loadSample = useCallback(() => {
-    setResult(SAMPLE)
-    setError(null)
-    setState('review')
-  }, [])
-
-  return { state, result, error, analyseScoresheet, reset, loadSample }
+  return { state, result, error, pages, analyseScoresheet, pin, reset }
 }

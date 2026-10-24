@@ -63,6 +63,18 @@ function DetailContent({ leaf, onPracticeRequest, onAskCoach }: Props & { leaf: 
   })
 
   const sideToMove = leaf.fen.split(' ')[1] === 'w' ? 'White' : 'Black'
+  // The tablebase is the authority for <= 7 pieces: show ITS verdict for the side to move.
+  const tbResult: EndgameResult | null = (() => {
+    const cat = syzygy.data?.available ? syzygy.data.category : null
+    if (!cat) return null
+    const stm = sideToMove === 'White' ? 'white' : 'black'
+    const other = stm === 'white' ? 'black' : 'white'
+    if (cat === 'draw') return 'draw'
+    if (cat === 'win' || cat === 'cursed-win') return `${stm}_wins` as EndgameResult
+    if (cat === 'loss' || cat === 'blessed-loss') return `${other}_wins` as EndgameResult
+    return null
+  })()
+  const shownResult: EndgameResult = tbResult ?? leaf.result
 
   return (
     <div className="card p-4 space-y-4">
@@ -96,8 +108,9 @@ function DetailContent({ leaf, onPracticeRequest, onAskCoach }: Props & { leaf: 
       <div className="card bg-bg-2 border-0 p-3 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-text-2 uppercase tracking-wider">Theoretical result</span>
-          <span className={`text-sm font-bold ${RESULT_COLOR[leaf.result]}`}>
-            {ENDGAME_RESULT_LABELS[leaf.result]}
+          <span className={`text-sm font-bold ${RESULT_COLOR[shownResult]}`}>
+            {ENDGAME_RESULT_LABELS[shownResult]}
+            {tbResult && <span className="text-[10px] font-normal text-text-2 ml-1.5">{sideToMove} to move</span>}
           </span>
         </div>
 

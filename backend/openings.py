@@ -2,9 +2,14 @@
 Opening Explorer router.
 
 Endpoints (all under /api/openings):
-  GET  /explore  — fetch top moves from Lichess for a position (with ELO filter)
+  GET  /explore  — top moves for a position from a chosen game pool:
+                     db=lichess  (Lichess rated games; `ratings` = rating brackets of the
+                                  AVERAGE rating of both players, `speeds` = time controls)
+                     db=masters  (over-the-board games between 2200+ FIDE players)
   GET  /eval     — Stockfish depth-16 evaluation (cached forever)
-  POST /ideas    — Groq-generated "typical ideas" paragraph (cached forever)
+  POST /evals    — the same for many positions at once (tree rows)
+  POST /ideas    — legacy LLM "typical ideas" (the UI now shows the curated, sourced
+                   notes in data/opening_ideas.json instead)
 
 Caching: SQLite at data/opening_cache.db
   eval_cache    — fen -> eval string (permanent)
@@ -36,6 +41,10 @@ router = APIRouter(prefix="/api/openings")
 
 DB_PATH       = DATA_DIR / "opening_cache.db"
 LICHESS_URL   = "https://explorer.lichess.org/lichess"
+MASTERS_URL   = "https://explorer.lichess.org/masters"
+RATING_BUCKETS = ("0", "1000", "1200", "1400", "1600", "1800", "2000", "2200", "2500")
+SPEEDS        = ("ultraBullet", "bullet", "blitz", "rapid", "classical", "correspondence")
+DEFAULT_SPEEDS = "blitz,rapid,classical"
 LICHESS_TTL_H = 24
 START_FEN     = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 SF_DEPTH      = 16
@@ -186,27 +195,35 @@ def _normalise_explorer_position(fen: str, moves: str) -> tuple[chess.Board, str
     return board, ""
 
 
-def _fetch_lichess(fen: str, moves: str, elo: Optional[int]) -> dict:
+def _clean_csv(value: Optional[str], allowed: tuple[str, ...]) -> str:
+    if not value:
+        return ""
+    parts = [v.strip() for v in value.split(",") if v.strip() in allowed]
+    return ",".join(sorted(set(parts), key=allowed.index))
+
+
+def _fetch_lichess(fen: str, moves: str, elo: Optional[int], *, ratings: Optional[str] = None,
+                   speeds: Optional[str] = None, db: str = "lichess") -> dict:
     board, lichess_play = _normalise_explorer_position(fen, moves)
     lichess_fen = board.fen() if lichess_play else fen
-    ratings   = _elo_to_ratings(elo)
-    cache_key = f"{lichess_fen}|{lichess_play}|{_elo_bucket_label(elo)}"
+    if db == "masters":
+        ratings, speeds = "", ""
+    else:
+        ratings = _clean_csv(ratings, RATING_BUCKETS) if ratings else _elo_to_ratings(elo)
+        speeds = _clean_csv(speeds, SPEEDS) or DEFAULT_SPEEDS
+    cache_key = f"{db}|{lichess_fen}|{lichess_play}|{ratings or _elo_bucket_label(elo)}|{speeds}"
 
     cached = _lichess_cache_get(cache_key)
     if cached is not None:
         return cached
 
-    params = {
-        "fen":          lichess_fen,
-        "topGames":     0,
-        "recentGames":  0,
-        "variant":      "standard",
-        "speeds":       "blitz,rapid,classical",
-    }
+    params = {"fen": lichess_fen, "topGames": 0}
+    if db != "masters":
+        params.update({"recentGames": 0, "variant": "standard", "speeds": speeds})
+        if ratings:
+            params["ratings"] = ratings
     if lichess_play:
         params["play"] = lichess_play
-    if ratings:
-        params["ratings"] = ratings
 
     # Optional Lichess Bearer token (some networks/regions require it for
     # the explorer endpoint).  Free to create at https://lichess.org/account/oauth/token
@@ -216,7 +233,7 @@ def _fetch_lichess(fen: str, moves: str, elo: Optional[int]) -> dict:
         headers["Authorization"] = f"Bearer {token}"
 
     try:
-        resp = requests.get(LICHESS_URL, params=params, headers=headers, timeout=8)
+        resp = requests.get(MASTERS_URL if db == "masters" else LICHESS_URL, params=params, headers=headers, timeout=8)
         if resp.status_code == 401:
             msg = (
                 "Lichess opening explorer returned 401 (unauthorized). "
@@ -241,12 +258,16 @@ def _fetch_lichess(fen: str, moves: str, elo: Optional[int]) -> dict:
 
 @router.get("/explore")
 async def explore(
-    fen:   str            = START_FEN,
-    moves: str            = "",
-    elo:   Optional[int]  = None,
+    fen:     str            = START_FEN,
+    moves:   str            = "",
+    elo:     Optional[int]  = None,
+    ratings: Optional[str]  = None,      # e.g. "1600,1800" (Lichess average-rating brackets)
+    speeds:  Optional[str]  = None,      # e.g. "blitz,rapid,classical"
+    db:      str            = "lichess",  # "lichess" | "masters"
 ):
+    db = "masters" if db == "masters" else "lichess"
     loop = asyncio.get_event_loop()
-    data = await loop.run_in_executor(None, lambda: _fetch_lichess(fen, moves, elo))
+    data = await loop.run_in_executor(None, lambda: _fetch_lichess(fen, moves, elo, ratings=ratings, speeds=speeds, db=db))
 
     raw_moves = data.get("moves", []) or []
 
@@ -335,10 +356,16 @@ async def explore(
             "eco":  parent_opening_obj.get("eco", ""),
         }
 
+    total_games = sum(int(m.get("white", 0)) + int(m.get("draws", 0)) + int(m.get("black", 0)) for m in raw_moves)
     return {
         "opening":     parent_opening,
         "moves":       results,
         "elo_bucket":  _elo_bucket_label(elo),
+        "pool":        {"db": db,
+                        "ratings": [] if db == "masters" else
+                                   [r for r in (_clean_csv(ratings, RATING_BUCKETS) if ratings else _elo_to_ratings(elo)).split(",") if r],
+                        "speeds": [] if db == "masters" else (_clean_csv(speeds, SPEEDS) or DEFAULT_SPEEDS).split(","),
+                        "games": total_games},
     }
 
 
@@ -402,6 +429,48 @@ async def get_eval(fen: str):
             con.close()
 
     return {"eval": eval_str, "depth": SF_DEPTH, "cached": False}
+
+
+class EvalsRequest(BaseModel):
+    fens: list[str]
+
+
+@router.post("/evals")
+async def get_evals(req: EvalsRequest):
+    """Engine evaluation (White's view, depth 16) for up to 12 tree positions.
+    Cached forever; uncached ones are computed in order so the tree fills in."""
+    fens = list(dict.fromkeys(f for f in req.fens if f))[:12]
+    out: dict[str, str] = {}
+    if not fens:
+        return {"evals": out}
+    placeholders = ",".join("?" * len(fens))
+    with _db_lock:
+        con = _db()
+        try:
+            rows = con.execute(f"SELECT fen, eval FROM eval_cache WHERE fen IN ({placeholders})", fens).fetchall()
+        finally:
+            con.close()
+    out.update({r["fen"]: r["eval"] for r in rows})
+    loop = asyncio.get_event_loop()
+    for fen in fens:
+        if fen in out:
+            continue
+        try:
+            chess.Board(fen)
+            ev = await loop.run_in_executor(None, lambda f=fen: _run_stockfish(f))
+        except Exception as exc:
+            log.warning("eval failed for %s: %s", fen, exc)
+            continue
+        out[fen] = ev
+        with _db_lock:
+            con = _db()
+            try:
+                con.execute("INSERT OR REPLACE INTO eval_cache (fen, eval, depth, created_at) VALUES (?, ?, ?, ?)",
+                            (fen, ev, SF_DEPTH, dt.datetime.utcnow().isoformat()))
+                con.commit()
+            finally:
+                con.close()
+    return {"evals": out}
 
 
 # ── /ideas ────────────────────────────────────────────────────────────────────

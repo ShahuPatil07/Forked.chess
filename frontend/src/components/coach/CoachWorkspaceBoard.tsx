@@ -13,15 +13,15 @@ import { useBoardPublisher } from '../../features/share-screen/boardLink'
 
 export const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 export const MAIA_MIN = 1100
-export const MAIA_MAX = 1900   // Maia2's strongest setting
+export const MAIA_MAX = 2800   // Maia-2 to 2000, Maia+ (Stockfish-checked human moves) above
 const MAIA_KEY = 'forked-maia-elo'
 const MAX_TABS = 7
 
 export function loadMaiaElo(): number {
   try {
     const v = Number(localStorage.getItem(MAIA_KEY))
-    return v >= MAIA_MIN && v <= MAIA_MAX ? v : MAIA_MAX
-  } catch { return MAIA_MAX }
+    return v >= MAIA_MIN && v <= MAIA_MAX ? v : 1900
+  } catch { return 1900 }
 }
 function saveMaiaElo(v: number) { try { localStorage.setItem(MAIA_KEY, String(v)) } catch { /* private mode */ } }
 
@@ -295,10 +295,23 @@ export function useCoachBoard(initialFen = START_FEN) {
     return { ...st, ply: 0, puzzle: { ...pz, next: pz.line.length, status: 'solved', revealed: true, hint: false } }
   }), [setState])
 
+  /** Serializable copy of every tab (saved with a chat so reopening it restores the boards). */
+  const snapshot = useCallback((): { tabs: BoardTab[]; activeId: string } => {
+    // a live game vs Maia can't be resumed from history: keep the position, drop the play session
+    const tabsCopy = tabsRef.current.map(t => ({ ...t, state: { ...t.state, play: undefined } }))
+    return { tabs: JSON.parse(JSON.stringify(tabsCopy)) as BoardTab[], activeId: activeRef.current }
+  }, [])
+  const restore = useCallback((snap: { tabs: BoardTab[]; activeId: string } | null | undefined) => {
+    const next = snap?.tabs?.length ? snap.tabs : [{ id: 'main', title: 'My board', kind: 'board' as TabKind, state: fresh(initialFen) }]
+    setTabs(() => next)
+    setActive(next.some(t => t.id === snap?.activeId) ? snap!.activeId : next[0].id)
+  }, [setTabs, setActive, initialFen])
+
   return {
     state, fen, movesContext, tabs, activeId, activeKind: active.kind,
     setPosition, showLine, back, undo, goTo, move, loadText, startPlay, stopPlay, setPlayElo, setMoments, setState,
     setArrows, openTab, closeTab, switchTab, openPuzzle, openPosition, puzzleMove, puzzleHint, puzzleRetry, puzzleReveal,
+    snapshot, restore,
   }
 }
 
@@ -646,7 +659,7 @@ export function CoachWorkspaceBoard({ board, busy, onAsk, liveSession }: {
 
 function MaiaSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
-    <label className="flex items-center gap-1.5 text-[11px] text-text-2" title="Maia's strength (1900 = strongest)">
+    <label className="flex items-center gap-1.5 text-[11px] text-text-2" title="Maia's strength (Lichess scale; above 2000 = Maia+, human moves checked by Stockfish)">
       <input type="range" min={MAIA_MIN} max={MAIA_MAX} step={100} value={value}
         onChange={e => onChange(Number(e.target.value))} className="w-20 accent-accent" aria-label="Maia strength" />
       <span className="tabular-nums text-text-1 w-14">{value === MAIA_MAX ? `${value} max` : value}</span>

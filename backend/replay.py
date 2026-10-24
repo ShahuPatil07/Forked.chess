@@ -151,7 +151,7 @@ def _compute_insight(username: str, cluster_id: str) -> str:
         side = "White" if m["fen"].split()[1] == "w" else "Black"
         lines.append(
             f"{i}. FEN: {m['fen']} | {side} to move played {m['move_played_san']} "
-            f"(best {m['best_move']}, lost {m['eval_drop']}cp, motif: {m['threat_type'].replace('_', ' ')})"
+            f"(best {m['best_move']}, lost {min(abs(m['eval_drop'] or 0), 2000) / 100:.1f} pts, motif: {m['threat_type'].replace('_', ' ')})"
         )
 
     prompt = (

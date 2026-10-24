@@ -93,4 +93,28 @@
     pointer-events: none;
   }
   .hub-tile:hover::after { opacity: 1; }
+
+  /* neon glow for the knight-and-fork logo */
+  .logo-glow {
+    filter: drop-shadow(0 0 4px rgba(200,255,42,0.65)) drop-shadow(0 0 12px rgba(200,255,42,0.28));
+  }
+
+  /* fixed-height status rows: feedback banners never push the board around */
+  .status-row { @apply h-10 flex items-center; }
+
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*="animate-[marquee"] { animation: none !important; }
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
 }

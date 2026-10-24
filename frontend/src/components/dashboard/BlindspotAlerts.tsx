@@ -9,6 +9,19 @@ import type { Arrow } from 'react-chessboard/dist/chessboard/types'
 import { useUserStore } from '../../store/userStore'
 import { api } from '../../api'
 import { liveApi, type BlindspotAlert } from '../../api/live'
+import { lossPts } from '../../lib/format'
+import { useElementWidth } from '../../hooks/useElementWidth'
+import { BOARD_DARK, BOARD_LIGHT } from '../../theme'
+import { Chess } from 'chess.js'
+
+function sanOf(fen: string, uci: string | null | undefined): string {
+  if (!uci) return '—'
+  try {
+    return new Chess(fen).move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }).san
+  } catch {
+    return `${uci.slice(0, 2)}→${uci.slice(2, 4)}`
+  }
+}
 
 function relativeTime(iso: string): string {
   const then = new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).getTime()
@@ -31,6 +44,8 @@ export function BlindspotAlerts() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [openAlert, setOpenAlert] = useState<BlindspotAlert | null>(null)
+  const [modalRef, modalW] = useElementWidth<HTMLDivElement>(360)
+  const modalBoard = Math.max(220, Math.min(360, modalW))
 
   // Fire a sync on mount (login / dashboard visit)
   useEffect(() => {
@@ -101,17 +116,17 @@ export function BlindspotAlerts() {
         {top && (
           <motion.div
             initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 flex items-center gap-3"
+            className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2"
           >
             <AlertTriangle size={18} className="text-danger flex-shrink-0" />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-[12rem]">
               <p className="text-sm text-text-0">
                 You repeated a known weakness on move {top.move_number}
                 {top.opponent ? ` vs ${top.opponent}` : ''}
                 <span className="text-text-2"> · {relativeTime(top.timestamp)}</span>
               </p>
               <p className="text-xs text-text-2 mt-0.5">
-                {labelFor(top)} · pattern confidence {Math.round(top.similarity * 100)}%
+                {labelFor(top)} · one of your costliest patterns
                 {alerts.length > 1 && (
                   <button onClick={() => setOpenAlert(alerts[1])} className="text-accent hover:underline ml-1">
                     and {alerts.length - 1} more
@@ -119,6 +134,7 @@ export function BlindspotAlerts() {
                 )}
               </p>
             </div>
+            <div className="flex items-center gap-2 ml-auto">
             <button onClick={() => setOpenAlert(top)} className="btn-ghost text-xs flex items-center gap-1 flex-shrink-0">
               <Microscope size={12} /> View
             </button>
@@ -129,6 +145,7 @@ export function BlindspotAlerts() {
               className="p-1 rounded text-text-2 hover:text-text-0 hover:bg-bg-2 flex-shrink-0" title="Dismiss">
               <X size={14} />
             </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -148,7 +165,7 @@ export function BlindspotAlerts() {
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-text-0">{labelFor(openAlert)}</p>
                   <p className="text-xs text-text-2">
-                    Cluster #{openAlert.cluster_rank}
+                    Your #{openAlert.cluster_rank} family by cost
                     {openAlert.opponent ? ` · vs ${openAlert.opponent}` : ''} · move {openAlert.move_number}
                   </p>
                 </div>
@@ -157,32 +174,28 @@ export function BlindspotAlerts() {
                 </button>
               </div>
 
+              <div ref={modalRef} className="w-full">
               <Chessboard
                 position={openAlert.fen}
                 arePiecesDraggable={false}
                 customArrows={moveArrows(openAlert.played_move, openAlert.best_move)}
-                boardWidth={360}
-                customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
-                customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
+                boardWidth={modalBoard}
+                customDarkSquareStyle={{ backgroundColor: BOARD_DARK }}
+                customLightSquareStyle={{ backgroundColor: BOARD_LIGHT }}
                 customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.18)' }}
               />
+              </div>
 
               <div className="flex items-center justify-between text-xs">
                 <span className="font-mono text-danger">
-                  you played {openAlert.played_move.slice(0, 2)}→{openAlert.played_move.slice(2, 4)} (−{openAlert.eval_drop}cp)
+                  you played {sanOf(openAlert.fen, openAlert.played_move)} ({lossPts(openAlert.eval_drop)})
                 </span>
                 <span className="font-mono text-success">
-                  best {openAlert.best_move.slice(0, 2)}→{openAlert.best_move.slice(2, 4)}
+                  best {sanOf(openAlert.fen, openAlert.best_move)}
                 </span>
               </div>
 
-              {/* Pattern confidence bar */}
-              <div>
-                <p className="text-[10px] text-text-2 mb-1">Pattern confidence: {Math.round(openAlert.similarity * 100)}%</p>
-                <div className="h-1.5 bg-bg-3 rounded-full overflow-hidden">
-                  <div className="h-full bg-accent rounded-full" style={{ width: `${Math.round(openAlert.similarity * 100)}%` }} />
-                </div>
-              </div>
+
 
               <button onClick={() => startDrill(openAlert)}
                 className="btn-primary w-full flex items-center justify-center gap-1.5 text-sm">

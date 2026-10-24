@@ -1,1182 +1,578 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { wsUrl } from '../api/ws'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
-import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Bot, User, RotateCcw, Flag, ChevronLeft, ChevronRight,
-  Wifi, WifiOff, Microscope, Circle,
-} from 'lucide-react'
-import { api } from '../api'
-import { BotGameDebrief } from '../components/BotGameDebrief'
-import { SectionHeader, SectionHeaderStat } from '../components/layout/SectionHeader'
-import { useUserStore } from '../store/userStore'
 import type { Square } from 'chess.js'
 import type { Arrow } from 'react-chessboard/dist/chessboard/types'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  Activity, Bot, ChevronLeft, ChevronRight, Cpu, Flag, Loader2, Microscope, RotateCcw, ScanSearch, Sparkles,
+  Target, User, Wifi, WifiOff, X,
+} from 'lucide-react'
+import { wsUrl } from '../api/ws'
+import { BotGameDebrief } from '../components/BotGameDebrief'
+import { SectionHeader } from '../components/layout/SectionHeader'
+import { useUserStore } from '../store/userStore'
+import { useElementWidth } from '../hooks/useElementWidth'
+import { evalText, whiteShare } from '../lib/format'
+import { bothScales, chesscomToLichess, lichessToChesscom, platformName, toLichess } from '../lib/ratings'
+import { useOpenReview } from '../lib/review'
+import { libraryApi } from '../api/library'
+import { CLASSIFICATION } from './GameReview'
+import type { MoveClass } from '../api/gameReview'
+import type { Platform } from '../types'
+import { BOARD_DARK, BOARD_LIGHT } from '../theme'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+type Engine = 'maia' | 'stockfish'
+type Color = 'white' | 'black' | 'random'
+
+interface Prefill {
+  startingMoves?: string[]
+  startingFen?: string
+  context?: { kind: string; name?: string; [k: string]: unknown }
+  engine?: Engine
+  annotate?: boolean
+  targetElo?: number
+}
 
 type WsMsg =
-  | { type: 'game_start'; fen: string; user_color: 'white' | 'black'; target_elo: number }
-  | { type: 'move_made';  move: string; fen: string; by: 'user' | 'bot' }
+  | { type: 'game_start'; fen: string; starting_fen?: string; moves?: string[]; user_color: 'white' | 'black'; target_elo: number | null
+      engine?: Engine; bot_name?: string; annotate?: boolean; status?: string; result?: string | null; library_id?: string | null }
+  | { type: 'move_made'; move: string; fen: string; by: 'user' | 'bot' }
   | { type: 'thinking' }
-  | { type: 'game_over';  result: string; reason: string }
-  | { type: 'error';      message: string }
+  | { type: 'game_over'; result: string; reason: string; library_id?: string | null }
+  | { type: 'error'; message: string }
 
-type GameStatus = 'connecting' | 'active' | 'finished'
-type ConnStatus = 'connecting' | 'connected' | 'disconnected'
-type Phase      = 'setup' | 'game' | 'analyze'
+interface Annotation { classification: MoveClass; san: string; best_san: string | null; best_uci: string | null; white_cp: number | null; white_mate: number | null; loss: number }
 
-// ── Pure helpers ──────────────────────────────────────────────────────────────
-
-function uciToFrom(uci: string) {
-  return { from: uci.slice(0, 2), to: uci.slice(2, 4), promo: uci[4] as string | undefined }
+const RESULT_REASON: Record<string, string> = {
+  checkmate: 'by checkmate', resignation: 'by resignation', stalemate: 'draw by stalemate',
+  insufficient_material: 'draw — insufficient material', seventy_five_moves: 'draw — 75-move rule',
+  threefold_repetition: 'draw — repetition', fivefold_repetition: 'draw — repetition', fifty_moves: 'draw — 50-move rule',
 }
 
-function resultLabel(result: string, userColor: 'white' | 'black') {
-  if (result === '1/2-1/2') return 'Draw'
-  const whiteWon = result === '1-0'
-  return (whiteWon && userColor === 'white') || (!whiteWon && userColor === 'black')
-    ? 'You won!' : 'Maia won'
+function levelLabel(engine: Engine, lichess: number): { name: string; detail: string } {
+  if (engine === 'stockfish') return { name: 'Stockfish', detail: 'Full strength — the most accurate chess there is.' }
+  if (lichess < 2000) return { name: 'Maia', detail: 'Human-like: trained on millions of real games, it makes the moves people at this level make — including their mistakes.' }
+  return { name: 'Maia+', detail: "Maia's most human moves, each checked by Stockfish so it holds up at this level." }
 }
 
-function resultSub(reason: string) {
-  const map: Record<string, string> = {
-    checkmate: 'by checkmate', resignation: 'by resignation',
-    stalemate: 'draw by stalemate', insufficient_material: 'draw — insufficient material',
-    seventy_five_moves: 'draw — 75-move rule', fivefold_repetition: 'draw — repetition',
+// ── setup ─────────────────────────────────────────────────────────────────────
+
+function SetupScreen({ prefill }: { prefill: Prefill }) {
+  const navigate = useNavigate()
+  const { username, elo, platform } = useUserStore()
+  const [scale, setScale] = useState<Platform>(platform)
+  const [rating, setRatingRaw] = useState(() => Math.round(((prefill.targetElo ?? elo ?? 1500) + 50) / 50) * 50)
+  const touched = useRef(false)
+  const setRating = (v: number) => { touched.current = true; setRatingRaw(v) }
+  // follow the live rating (it arrives after sign-in) until the player picks a level
+  useEffect(() => {
+    if (!touched.current && !prefill.targetElo) setRatingRaw(Math.round(((scale === platform ? elo : scale === 'lichess' ? chesscomToLichess(elo) : lichessToChesscom(elo)) + 50) / 50) * 50)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elo])
+  const [engine, setEngine] = useState<Engine>(prefill.engine ?? 'maia')
+  const [annotate, setAnnotate] = useState(!!prefill.annotate)
+  const [creating, setCreating] = useState<Color | null>(null)
+  const [error, setError] = useState('')
+  const lichess = toLichess(rating, scale)
+  const lvl = levelLabel(engine, lichess)
+  const startLine = useMemo(() => {
+    if (!prefill.startingMoves?.length) return null
+    const c = new Chess()
+    try { for (const u of prefill.startingMoves) c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }) } catch { /* shown as far as legal */ }
+    return c.pgn().replace(/\[.*?\]\s*/g, '').replace(/\s*\*\s*$/, '').trim()
+  }, [prefill.startingMoves])
+  // who moves first in the starting position (standard start, an opening line, or a custom FEN)
+  const firstToMove: 'white' | 'black' = useMemo(() => {
+    try {
+      const c = new Chess(prefill.startingFen || undefined)
+      for (const u of prefill.startingMoves ?? []) c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] })
+      return c.turn() === 'w' ? 'white' : 'black'
+    } catch { return 'white' }
+  }, [prefill.startingMoves, prefill.startingFen])
+  const colorOptions: [Color, string, string, string][] = [
+    ['white', 'White', '♔', firstToMove === 'white' ? 'You move first' : 'The bot moves first'],
+    ['random', firstToMove === 'white' && !prefill.startingMoves?.length && !prefill.startingFen ? 'Random' : 'Side to move',
+     '⚄', firstToMove === 'white' && !prefill.startingMoves?.length && !prefill.startingFen ? 'Surprise me' : `You play ${firstToMove}`],
+    ['black', 'Black', '♚', firstToMove === 'black' ? 'You move first' : 'The bot moves first'],
+  ]
+
+  function switchScale(p: Platform) {
+    if (p === scale) return
+    setRatingRaw(Math.round((p === 'lichess' ? chesscomToLichess(rating) : lichessToChesscom(rating)) / 50) * 50)
+    setScale(p)
   }
-  return map[reason] ?? reason
+
+  async function start(color: Color) {
+    setCreating(color); setError('')
+    try {
+      const res = await fetch('/api/bot-game/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username, user_color: color, target_elo: rating, rating_scale: scale, engine, annotate,
+          starting_moves: prefill.startingMoves, starting_fen: prefill.startingFen, context: prefill.context,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? 'Could not start the game.')
+      const { game_id } = await res.json() as { game_id: string }
+      navigate(`/bot-game/${game_id}`)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not start the game.'); setCreating(null) }
+  }
+
+  const pct = ((rating - 600) / (2800 - 600)) * 100
+  // the player's own rating expressed on the slider's scale
+  const mine = Math.round((scale === platform ? elo : scale === 'lichess' ? chesscomToLichess(elo) : lichessToChesscom(elo)) / 50) * 50
+  const quickPicks: [string, number][] = ([['Easier', mine - 200], ['My level', mine], ['Stretch', mine + 150], ['Tough', mine + 350]] as [string, number][])
+    .filter(([, v]) => v >= 600 && v <= 2800)
+  return (
+    <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-4xl mx-auto">
+      <SectionHeader icon={Bot} title="Play vs Maia"
+        description="A human-like opponent at the exact rating you choose — or full-strength Stockfish." />
+
+      {(prefill.context?.name || startLine || prefill.startingFen) && (
+        <div className="card p-4 mb-4 border-accent/30 flex items-start gap-3">
+          <span className="w-9 h-9 rounded-lg bg-accent/10 text-accent grid place-items-center flex-shrink-0"><Target size={16} /></span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-text-0">{prefill.context?.name ?? 'Custom position'}</p>
+            <p className="text-xs text-text-2 mt-0.5 font-mono truncate">{startLine ?? 'Starts from the position you chose'}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-[1.3fr_1fr] gap-4">
+        <div className="card p-5 space-y-5">
+          <div>
+            <p className="text-xs text-text-2 mb-2">Opponent</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([['maia', 'Maia', 'Human-like', Sparkles], ['stockfish', 'Stockfish', 'Strongest', Cpu]] as const).map(([id, name, sub, Icon]) => (
+                <button key={id} onClick={() => setEngine(id)}
+                  className={`rounded-xl border p-3 text-left transition-colors ${engine === id ? 'border-accent bg-accent/10' : 'border-border hover:border-border-hover'}`}>
+                  <Icon size={16} className={engine === id ? 'text-accent' : 'text-text-2'} />
+                  <p className="text-sm font-semibold text-text-0 mt-2">{name}</p>
+                  <p className="text-[11px] text-text-2">{sub}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {engine === 'maia' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-text-2">Opponent rating</p>
+                <div className="flex p-0.5 rounded-lg bg-bg-2 border border-border">
+                  {(['chesscom', 'lichess'] as Platform[]).map(p => (
+                    <button key={p} onClick={() => switchScale(p)} className={`px-2 py-1 rounded-md text-[11px] font-semibold ${scale === p ? 'bg-bg-3 text-accent' : 'text-text-2'}`}>{platformName(p)}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-end gap-3">
+                <p className="text-5xl font-semibold text-text-0 leading-none">{rating}</p>
+                <p className="text-xs text-text-2 pb-1">{bothScales(rating, scale).split('≈')[1]?.trim() ? `≈ ${bothScales(rating, scale).split('≈')[1].trim()}` : ''}</p>
+              </div>
+              <input type="range" min={600} max={2800} step={50} value={rating} onChange={e => setRating(Number(e.target.value))}
+                className="w-full mt-4 accent-[#C8FF2A]" aria-label="Opponent rating"
+                style={{ background: `linear-gradient(to right, #C8FF2A ${pct}%, #1F1F1F ${pct}%)`, height: 4, borderRadius: 4 }} />
+              <div className="flex justify-between text-[10px] text-text-2 mt-1"><span>600</span><span>1200</span><span>1800</span><span>2400</span><span>2800</span></div>
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {quickPicks.map(([label, val]) => (
+                  <button key={label} onClick={() => setRating(val)}
+                    className={`text-[11px] px-2 py-1 rounded-full border ${rating === val ? 'border-accent text-accent' : 'border-border text-text-1 hover:border-accent/40'}`}>{label} · {val}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-border bg-bg-2/50 p-3">
+            <p className="text-sm font-semibold text-text-0 flex items-center gap-2">{lvl.name}{engine === 'maia' && <span className="text-[10px] font-normal text-text-2">plays at ≈{lichess} Lichess</span>}</p>
+            <p className="text-xs text-text-2 mt-1 leading-relaxed">{lvl.detail}</p>
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-border p-3 hover:border-accent/30">
+            <input type="checkbox" className="mt-0.5 accent-[#C8FF2A]" checked={annotate} onChange={e => setAnnotate(e.target.checked)} />
+            <span>
+              <span className="text-sm text-text-0 font-medium flex items-center gap-1.5"><Activity size={14} className="text-accent" />Analysed mode</span>
+              <span className="block text-xs text-text-2 mt-0.5">Every move — yours and the bot's — is labelled (best, inaccuracy, blunder…) and the eval bar updates live.</span>
+            </span>
+          </label>
+        </div>
+
+        <div className="card p-5 flex flex-col">
+          <p className="text-xs text-text-2 mb-3">Play as</p>
+          <div className="grid gap-2">
+            {colorOptions.map(([id, label, icon, sub]) => (
+              <button key={id} onClick={() => void start(id)} disabled={creating !== null}
+                className="flex items-center gap-3 rounded-xl border border-border bg-bg-1 hover:border-accent/50 hover:bg-bg-2 px-4 py-3 text-left transition-colors disabled:opacity-50">
+                <span className="text-2xl w-8 text-center">{icon}</span>
+                <span className="flex-1"><span className="block text-sm font-semibold text-text-0">{label}</span><span className="block text-[11px] text-text-2">{sub}</span></span>
+                {creating === id ? <Loader2 size={16} className="animate-spin text-accent" /> : <ChevronRight size={16} className="text-text-2" />}
+              </button>
+            ))}
+          </div>
+          {error && <p className="text-xs text-danger mt-3">{error}</p>}
+          <p className="text-[11px] text-text-2 mt-auto pt-4">Finished games are saved to Game History → Forked games, ready for a full review.</p>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function getMoveOptions(chess: Chess, square: Square): Record<string, object> {
-  const styles: Record<string, object> = {}
-  chess.moves({ square, verbose: true }).forEach((m) => {
+// ── game ─────────────────────────────────────────────────────────────────────
+
+function optionStyles(chess: Chess, square: Square): Record<string, React.CSSProperties> {
+  const styles: Record<string, React.CSSProperties> = {}
+  for (const m of chess.moves({ square, verbose: true })) {
     styles[m.to] = {
-      background: chess.get(m.to)
-        ? 'radial-gradient(circle, rgba(255,77,77,0.35) 85%, transparent 85%)'
-        : 'radial-gradient(circle, rgba(200,255,42,0.30) 40%, transparent 40%)',
-      borderRadius: '50%',
+      background: chess.get(m.to as Square) ? 'radial-gradient(circle, rgba(255,77,77,0.35) 85%, transparent 85%)'
+        : 'radial-gradient(circle, rgba(200,255,42,0.30) 40%, transparent 40%)', borderRadius: '50%',
     }
-  })
+  }
   styles[square] = { backgroundColor: 'rgba(200,255,42,0.22)' }
   return styles
 }
 
-function buildGamePositions(uciMoves: string[]): { fens: string[]; sans: string[] } {
-  const chess = new Chess()
-  const fens  = [chess.fen()]
-  const sans: string[] = []
-  for (const uci of uciMoves) {
-    const { from, to, promo } = uciToFrom(uci)
-    try {
-      const r = chess.move({ from, to, promotion: promo ?? 'q' })
-      if (r) { fens.push(chess.fen()); sans.push(r.san) }
-    } catch { break }
-  }
-  return { fens, sans }
-}
-
-function fenKingSq(fen: string, color: 'w' | 'b'): string | null {
-  const chess = new Chess(fen)
-  const allSqs = chess.board().flat()
-  const idx = allSqs.findIndex(sq => sq && sq.type === 'k' && sq.color === color)
-  if (idx === -1) return null
-  return 'abcdefgh'[idx % 8] + String(8 - Math.floor(idx / 8))
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function ThinkingDots() {
-  return (
-    <span className="inline-flex gap-1 items-center ml-1">
-      {[0, 1, 2].map((i) => (
-        <motion.span key={i} className="w-1.5 h-1.5 rounded-full bg-accent"
-          animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
-          transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.2 }} />
-      ))}
-    </span>
-  )
-}
-
-function EvalBar({ evalCp, evalMate, loading, h }: {
-  evalCp: number | null; evalMate: number | null; loading: boolean; h: number
-}) {
-  let whitePct = 50, label = '0.0'
-  if (!loading) {
-    if (evalMate !== null) {
-      whitePct = evalMate > 0 ? 97 : 3
-      label = `M${Math.abs(evalMate)}`
-    } else if (evalCp !== null) {
-      whitePct = Math.max(2, Math.min(98, 50 + 50 * Math.tanh(evalCp / 400)))
-      const p = Math.abs(evalCp / 100)
-      label = (evalCp >= 0 ? '+' : '') + (p >= 10 ? (evalCp > 0 ? '+' : '-') + '10' : (evalCp / 100).toFixed(1))
-    }
-  }
-  const blackPct = 100 - whitePct
-  return (
-    <div className="flex flex-col items-center gap-1 flex-shrink-0">
-      <div className="w-5 rounded overflow-hidden flex flex-col relative" style={{ height: h }}>
-        <div className="w-full bg-bg-3 flex items-start justify-center transition-[flex] duration-500"
-          style={{ flex: blackPct }}>
-          {whitePct <= 30 && <span className="text-[9px] font-bold text-text-0 mt-1">{label}</span>}
-        </div>
-        <div className="w-full bg-[#F0F0F0] flex items-end justify-center transition-[flex] duration-500"
-          style={{ flex: whitePct }}>
-          {whitePct > 30 && <span className="text-[9px] font-bold text-bg-0 mb-1">{label}</span>}
-        </div>
-      </div>
-      {loading && <div className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" />}
-    </div>
-  )
-}
-
-/** Compact clickable move-list (san pairs). currentIdx: index into moves array (-1 = start). */
-function ClickMoveList({ moves, currentIdx, onNavigate, label, emptyText }: {
-  moves: string[]; currentIdx: number; onNavigate: (idx: number) => void
-  label?: string; emptyText?: string
-}) {
-  const endRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [currentIdx])
-
-  if (moves.length === 0) {
-    return <p className="text-xs text-text-2 italic px-1">{emptyText ?? 'No moves yet'}</p>
-  }
-  const pairs: { no: number; wi: number | null; bi: number | null }[] = []
-  let i = 0
-  while (i < moves.length) {
-    pairs.push({ no: Math.floor(i / 2) + 1, wi: i, bi: i + 1 < moves.length ? i + 1 : null })
-    i += 2
-  }
-  return (
-    <div>
-      {label && <p className="text-xs text-text-2 uppercase tracking-wider font-semibold mb-1.5">{label}</p>}
-      <div className="font-mono text-xs max-h-48 overflow-y-auto space-y-0.5 pr-1">
-        {pairs.map((p) => (
-          <div key={p.no} className="flex items-stretch gap-0.5">
-            <span className="text-text-2 w-6 flex-shrink-0 pt-0.5">{p.no}.</span>
-            {[p.wi, p.bi].map((idx, j) => idx === null ? (
-              <div key={j} className="flex-1" />
-            ) : (
-              <button key={j} onClick={() => onNavigate(idx)}
-                className={`flex-1 text-left px-1.5 py-0.5 rounded transition-colors
-                  ${currentIdx === idx ? 'bg-accent/25 text-accent font-semibold' : 'hover:bg-bg-2 text-text-0'}`}>
-                {moves[idx]}
-              </button>
-            ))}
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-    </div>
-  )
-}
-
-function ResignDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-      className="rounded-lg border border-danger/30 bg-danger/10 p-4 space-y-3">
-      <p className="text-sm text-text-0 font-medium">Resign this game?</p>
-      <div className="flex gap-2">
-        <button onClick={onConfirm}
-          className="flex-1 py-1.5 rounded-md bg-danger/20 text-danger text-sm font-medium hover:bg-danger/30 transition-colors">
-          Yes, resign
-        </button>
-        <button onClick={onCancel}
-          className="flex-1 py-1.5 rounded-md bg-bg-2 text-text-1 text-sm hover:bg-bg-3 transition-colors">
-          Cancel
-        </button>
-      </div>
-    </motion.div>
-  )
-}
-
-// ── ResultModal ───────────────────────────────────────────────────────────────
-
-function ResultModal({ result, reason, userColor, onAnalyze, onPlayAgain, onDismiss }: {
-  result: string; reason: string; userColor: 'white' | 'black'
-  onAnalyze: () => void; onPlayAgain: () => void; onDismiss: () => void
-}) {
-  const label  = resultLabel(result, userColor)
-  const sub    = resultSub(reason)
-  const isWin  = label === 'You won!'
-  const isDraw = result === '1/2-1/2'
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-      onClick={onDismiss}>
-      <motion.div initial={{ scale: 0.88, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 320, damping: 24 }}
-        onClick={(e) => e.stopPropagation()}
-        className="bg-bg-1 border border-border rounded-2xl p-8 max-w-xs w-full mx-4 shadow-2xl text-center space-y-5">
-        <div>
-          <p className={`text-3xl font-bold mb-1.5
-            ${isDraw ? 'text-text-0' : isWin ? 'text-success' : 'text-danger'}`}>
-            {label}
-          </p>
-          <p className="text-sm text-text-2 capitalize">{sub}</p>
-        </div>
-        <div className="flex flex-col gap-2">
-          <button onClick={onAnalyze}
-            className="btn-primary w-full flex items-center justify-center gap-2">
-            <Microscope size={14} /> Analyze game
-          </button>
-          <button onClick={onPlayAgain} className="btn-ghost w-full">
-            <RotateCcw size={13} className="inline mr-1.5" /> Play again
-          </button>
-          <button onClick={onDismiss}
-            className="text-xs text-text-2 hover:text-text-1 transition-colors mt-1">
-            View final position
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  )
-}
-
-// ── SetupScreen ───────────────────────────────────────────────────────────────
-
-function SetupScreen({ username, elo }: { username: string; elo: number | null }) {
+function GameScreen({ gameId }: { gameId: string }) {
   const navigate = useNavigate()
-  const [creating, setCreating] = useState(false)
+  const openReview = useOpenReview()
+  const { username, elo } = useUserStore()
+  const chessRef = useRef(new Chess())
+  const [fens, setFens] = useState<string[]>([new Chess().fen()])
+  const [ucis, setUcis] = useState<string[]>([])
+  const [sans, setSans] = useState<string[]>([])
+  const [prefillPlies, setPrefillPlies] = useState(0)
+  const [userColor, setUserColor] = useState<'white' | 'black'>('white')
+  const [botName, setBotName] = useState('Maia')
+  const [engine, setEngine] = useState<Engine>('maia')
+  const [annotate, setAnnotate] = useState(false)
+  const [status, setStatus] = useState<'connecting' | 'active' | 'finished'>('connecting')
+  const [conn, setConn] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+  const [thinking, setThinking] = useState(false)
+  const [result, setResult] = useState<{ result: string; reason: string } | null>(null)
+  const [libraryId, setLibraryId] = useState<string | null>(null)
+  const [view, setView] = useState<number | null>(null)          // ply index being reviewed, null = live
+  const [selectedSq, setSelectedSq] = useState<Square | null>(null)
+  const [annotations, setAnnotations] = useState<Record<number, Annotation>>({})
+  const [startEval, setStartEval] = useState<{ cp: number | null; mate: number | null } | null>(null)
+  const [showResult, setShowResult] = useState(false)
+  const [confirmResign, setConfirmResign] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
+  const [showDebrief, setShowDebrief] = useState(false)
+  const wsRef = useRef<WebSocket | null>(null)
+  const retries = useRef(0)
+  const annotateRef = useRef(false)
+  annotateRef.current = annotate
+  const [boardRef, measured] = useElementWidth<HTMLDivElement>(560)
+  const width = Math.max(240, Math.min(680, measured - (annotate ? 30 : 0)))
 
-  async function startGame(color: 'white' | 'black' | 'random') {
-    setCreating(true)
-    try {
-      const res = await fetch('/api/bot-game/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, user_color: color }),
-      })
-      if (!res.ok) throw new Error()
-      const { game_id } = await res.json() as { game_id: string }
-      navigate(`/bot-game/${game_id}`)
-    } catch {
-      setCreating(false)
-    }
-  }
+  const annotateMove = useCallback((ply: number, fenBefore: string, uci: string) => {
+    fetch('/api/bot-game/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fen: fenBefore, uci }) })
+      .then(r => (r.ok ? r.json() : null))
+      .then(a => { if (a) setAnnotations(prev => ({ ...prev, [ply]: a })) })
+      .catch(() => undefined)
+  }, [])
 
-  const colors = [
-    { id: 'white' as const, label: 'White', icon: '♔', sub: 'You move first' },
-    { id: 'random' as const, label: 'Random', icon: '⚄', sub: 'Surprise me' },
-    { id: 'black' as const, label: 'Black', icon: '♚', sub: 'Maia moves first' },
-  ]
-
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <SectionHeader
-        icon={Bot}
-        title="Play vs Maia"
-        description={`Human-like AI opponent at ${(elo ?? 1500) + 50} ELO · pick a colour to start a fresh game`}
-        right={<SectionHeaderStat label="Your rating" value={elo ? `${elo} ELO` : 'unknown'} />}
-      />
-
-      <div className="flex flex-col items-center justify-center min-h-[55vh] gap-8 mt-6">
-        <div className="flex gap-4">
-        {colors.map(({ id, label, icon, sub }) => (
-          <motion.button key={id}
-            whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-            disabled={creating}
-            onClick={() => startGame(id)}
-            className="w-36 py-6 flex flex-col items-center gap-2 rounded-xl border border-border
-                       bg-bg-1 hover:border-accent/40 hover:bg-bg-2 transition-all disabled:opacity-50">
-            <span className="text-3xl">{icon}</span>
-            <span className="text-sm font-semibold text-text-0">{label}</span>
-            <span className="text-xs text-text-2">{sub}</span>
-          </motion.button>
-        ))}
-      </div>
-
-      {creating && (
-        <div className="flex items-center gap-2 text-sm text-text-2">
-          <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-          Creating game…
-        </div>
-      )}
-
-        <button onClick={() => navigate('/dashboard')}
-          className="btn-ghost flex items-center gap-1.5 text-sm">
-          <ChevronLeft size={14} /> Back to dashboard
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── AccuracyCard ──────────────────────────────────────────────────────────────
-
-function AccuracyBar({ label, pct }: { label: string; pct: number | null }) {
-  const v     = pct ?? 0
-  const color = v >= 90 ? '#4ade80' : v >= 80 ? '#86efac' : v >= 70 ? '#facc15' : v >= 60 ? '#fb923c' : '#f87171'
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between items-center">
-        <span className="text-xs text-text-1 font-medium">{label}</span>
-        {pct !== null
-          ? <span className="text-xs font-bold tabular-nums" style={{ color }}>{pct.toFixed(1)}%</span>
-          : <span className="text-xs text-text-2">—</span>}
-      </div>
-      <div className="h-1.5 bg-bg-3 rounded-full overflow-hidden">
-        <motion.div className="h-full rounded-full" style={{ backgroundColor: color }}
-          initial={{ width: 0 }} animate={{ width: `${v}%` }}
-          transition={{ duration: 0.7, ease: 'easeOut' }} />
-      </div>
-    </div>
-  )
-}
-
-function AccuracyCard({ moves, userColor }: { moves: string[]; userColor: 'white' | 'black' }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['botgame-accuracy', moves.join(',')],
-    queryFn:  () => api.computeAccuracy(moves),
-    enabled:  moves.length > 0,
-    staleTime: Infinity,
-    retry: false,
-  })
-
-  const whiteLabel = userColor === 'white' ? 'White (You)'  : 'White (Maia)'
-  const blackLabel = userColor === 'black' ? 'Black (You)'  : 'Black (Maia)'
-
-  return (
-    <div className="card p-3 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-text-2 uppercase tracking-wider font-semibold">Accuracy</p>
-        {isLoading && (
-          <div className="flex items-center gap-1.5 text-xs text-text-2">
-            <div className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" />
-            Computing…
-          </div>
-        )}
-      </div>
-      {isError ? (
-        <p className="text-xs text-danger">Could not compute accuracy</p>
-      ) : (
-        <>
-          <AccuracyBar label={whiteLabel} pct={data?.white_accuracy ?? null} />
-          <AccuracyBar label={blackLabel} pct={data?.black_accuracy ?? null} />
-        </>
-      )}
-    </div>
-  )
-}
-
-// ── AnalyzeView ───────────────────────────────────────────────────────────────
-
-const ANALYZE_BOARD = 480
-
-function AnalyzeView({ gameFens, gameSans, gameUci, userColor, onBack, gameId, username }: {
-  gameFens: string[]; gameSans: string[]; gameUci: string[]
-  userColor: 'white' | 'black'; onBack: () => void
-  gameId: string; username: string
-}) {
-  const [analyzeTab, setAnalyzeTab] = useState<'accuracy' | 'debrief'>('accuracy')
-  const [tab, setTab] = useState<'game' | 'explore'>('game')
-
-  // ── Game tab state ────────────────────────────────────────────────────────
-  // gameViewIdx: 0 = start pos, k = after k-th move
-  const [gameViewIdx, setGameViewIdx] = useState(gameFens.length - 1)  // start at end
-
-  // ── Explore tab state ─────────────────────────────────────────────────────
-  // exploreBranchIdx: index into gameFens[] we branched from (0 = start)
-  const [exploreBranchIdx, setExploreBranchIdx]   = useState(0)
-  const [exploreUci,        setExploreUci]         = useState<string[]>([])
-  const [exploreSan,        setExploreSan]         = useState<string[]>([])
-  const [exploreViewIdx,    setExploreViewIdx]     = useState(-1)  // -1 = at branch point
-  const exploreChessRef                            = useRef(new Chess())
-
-  // Board interaction (shared between tabs)
-  const [selectedSq,  setSelectedSq]  = useState<Square | null>(null)
-  const [optionSqs,   setOptionSqs]   = useState<Record<string, object>>({})
-  const [lastMoveSqs, setLastMoveSqs] = useState<Record<string, object>>({})
-
-  // ── Current display FEN ───────────────────────────────────────────────────
-  const displayFen = useMemo(() => {
-    if (tab === 'game') return gameFens[gameViewIdx] ?? gameFens[0]
-    // Explore: reconstruct from branch + explore moves up to viewIdx
-    const base = gameFens[exploreBranchIdx] ?? gameFens[0]
-    if (exploreViewIdx === -1) return base
-    const chess = new Chess(base)
-    const limit = exploreViewIdx + 1
-    for (let i = 0; i < limit && i < exploreUci.length; i++) {
-      const { from, to, promo } = uciToFrom(exploreUci[i])
-      try { chess.move({ from, to, promotion: promo ?? 'q' }) } catch { break }
-    }
-    return chess.fen()
-  }, [tab, gameViewIdx, exploreBranchIdx, exploreViewIdx, exploreUci, gameFens])
-
-  // ── Last move highlight ───────────────────────────────────────────────────
-  const lastMoveUci = useMemo(() => {
-    if (tab === 'game') {
-      if (gameViewIdx === 0) return null
-      // reconstruct UCI from prev FEN → current FEN: we stored san, not uci
-      // so just highlight nothing (we don't have UCI per se, use san)
-      return null
-    }
-    if (exploreViewIdx >= 0 && exploreViewIdx < exploreUci.length) {
-      return exploreUci[exploreViewIdx]
-    }
-    return null
-  }, [tab, gameViewIdx, exploreViewIdx, exploreUci])
-
-  useEffect(() => {
-    if (!lastMoveUci) { setLastMoveSqs({}); return }
-    setLastMoveSqs({
-      [lastMoveUci.slice(0, 2)]: { backgroundColor: 'rgba(200,255,42,0.22)' },
-      [lastMoveUci.slice(2, 4)]: { backgroundColor: 'rgba(200,255,42,0.32)' },
-    })
-  }, [lastMoveUci])
-
-  // Check highlight
-  const checkSq = useMemo(() => {
-    try {
-      const chess = new Chess(displayFen)
-      if (!chess.isCheck()) return null
-      return fenKingSq(displayFen, chess.turn())
-    } catch { return null }
-  }, [displayFen])
-
-  // ── Stockfish analysis ────────────────────────────────────────────────────
-  const { data: analysis, isFetching: analysisLoading } = useQuery({
-    queryKey: ['bot-analysis', displayFen],
-    queryFn: () => fetch(`/api/analyse?fen=${encodeURIComponent(displayFen)}&depth=14`).then(r => r.json()) as
-      Promise<{ best_move: string | null; eval_cp: number | null; eval_mate: number | null }>,
-    staleTime: Infinity,
-    retry: false,
-  })
-
-  const bestArrow: Arrow[] = useMemo(() => {
-    const bm = analysis?.best_move
-    if (!bm || bm.length < 4) return []
-    return [[bm.slice(0, 2) as Square, bm.slice(2, 4) as Square, '#C8FF2A']]
-  }, [analysis?.best_move])
-
-  // ── Square styles ─────────────────────────────────────────────────────────
-  const squareStyles = useMemo(() => {
-    const s: Record<string, object> = { ...lastMoveSqs, ...optionSqs }
-    if (checkSq) s[checkSq] = { ...s[checkSq], backgroundColor: 'rgba(239,68,68,0.4)' }
-    return s
-  }, [lastMoveSqs, optionSqs, checkSq])
-
-  // ── Is explore board interactive? ─────────────────────────────────────────
-  // Interactive only when at the end of the current explore line
-  const exploreInteractive = tab === 'explore' && exploreViewIdx === exploreUci.length - 1
-
-  // ── Game tab navigation ───────────────────────────────────────────────────
-  function goToGamePos(idx: number) {
-    setGameViewIdx(Math.max(0, Math.min(gameFens.length - 1, idx)))
-    setSelectedSq(null); setOptionSqs({})
-  }
-  function handleGameMoveClick(moveIdx: number) {
-    // moveIdx is the index in gameSans — position after that move = gameFens[moveIdx+1]
-    goToGamePos(moveIdx + 1)
-  }
-
-  // ── Explore tab: set branch from game move ─────────────────────────────────
-  function setExploreBranch(gameIdx: number) {
-    // gameIdx: 0 = start, k = after k-th game move
-    const clampedIdx = Math.max(0, Math.min(gameFens.length - 1, gameIdx))
-    setExploreBranchIdx(clampedIdx)
-    exploreChessRef.current = new Chess(gameFens[clampedIdx] ?? gameFens[0])
-    setExploreUci([])
-    setExploreSan([])
-    setExploreViewIdx(-1)
-    setSelectedSq(null); setOptionSqs({})
-  }
-
-  function handleExploreMoveClick(moveIdx: number) {
-    // Navigate within explore branch (-1 = branch, 0..N-1)
-    setExploreViewIdx(moveIdx)
-    setSelectedSq(null); setOptionSqs({})
-  }
-
-  // ── Explore board interaction ─────────────────────────────────────────────
-  function handleExploreDrop(from: string, to: string): boolean {
-    if (!exploreInteractive) return false
-    return tryExploreMove(from, to)
-  }
-
-  function handleExploreSquareClick(sq: Square) {
-    if (!exploreInteractive) return
-    if (selectedSq && optionSqs[sq] !== undefined) {
-      tryExploreMove(selectedSq, sq)
+  const handle = useCallback((evt: MessageEvent) => {
+    let msg: WsMsg
+    try { msg = JSON.parse(evt.data) } catch { return }
+    if (msg.type === 'game_start') {
+      const c = new Chess(msg.starting_fen ?? undefined)
+      const f = [c.fen()], s: string[] = [], u: string[] = []
+      for (const mv of msg.moves ?? []) {
+        try { const r = c.move({ from: mv.slice(0, 2), to: mv.slice(2, 4), promotion: mv[4] }); s.push(r.san); u.push(mv); f.push(c.fen()) } catch { break }
+      }
+      chessRef.current = c
+      setFens(f); setSans(s); setUcis(u); setUserColor(msg.user_color); setBotName(msg.bot_name ?? 'Maia')
+      setEngine(msg.engine ?? 'maia'); setAnnotate(!!msg.annotate); setLibraryId(msg.library_id ?? null)
+      setPrefillPlies(prev => (prev || u.length))
+      if (msg.status === 'finished' && msg.result) { setStatus('finished'); setResult({ result: msg.result, reason: '' }) }
+      else setStatus('active')
+      if (msg.annotate) {
+        fetch(`/api/analyse?fen=${encodeURIComponent(c.fen())}&depth=14`).then(r => r.json()).then(a => setStartEval({ cp: a.eval_cp, mate: a.eval_mate })).catch(() => undefined)
+      }
       return
     }
-    const chess = exploreChessRef.current
-    const piece = chess.get(sq)
-    if (piece && piece.color === chess.turn()) {
-      setSelectedSq(sq); setOptionSqs(getMoveOptions(chess, sq))
-    } else {
-      setSelectedSq(null); setOptionSqs({})
+    if (msg.type === 'move_made') {
+      const c = chessRef.current
+      const before = c.fen()
+      try {
+        const r = c.move({ from: msg.move.slice(0, 2), to: msg.move.slice(2, 4), promotion: msg.move[4] })
+        setSans(prev => { const ply = prev.length; if (annotateRef.current) annotateMove(ply, before, msg.move); return [...prev, r.san] })
+        setUcis(prev => [...prev, msg.move]); setFens(prev => [...prev, c.fen()])
+      } catch { /* out of sync — server is the source of truth on reconnect */ }
+      if (msg.by === 'bot') setThinking(false)
+      setSelectedSq(null)
+      return
     }
-  }
+    if (msg.type === 'thinking') { setThinking(true); return }
+    if (msg.type === 'game_over') {
+      setStatus('finished'); setThinking(false); setResult({ result: msg.result, reason: msg.reason })
+      if (msg.library_id) setLibraryId(msg.library_id)
+      setTimeout(() => setShowResult(true), 500)
+    }
+  }, [annotateMove])
 
-  function tryExploreMove(from: string, to: string): boolean {
-    const chess = exploreChessRef.current
-    const isPawnPromo = (() => {
-      const p = chess.get(from as Square)
-      if (!p || p.type !== 'p') return false
-      return (p.color === 'w' && to[1] === '8') || (p.color === 'b' && to[1] === '1')
-    })()
-    try {
-      const result = chess.move({ from, to, promotion: isPawnPromo ? 'q' : undefined })
-      if (!result) return false
-      const uci = from + to + (isPawnPromo ? 'q' : '')
-      setExploreUci(prev => [...prev, uci])
-      setExploreSan(prev => [...prev, result.san])
-      setExploreViewIdx(exploreUci.length)  // now at the new last move
-      setSelectedSq(null); setOptionSqs({})
-      return true
-    } catch { return false }
-  }
-
-  // keyboard navigation
+  const connect = useCallback(() => {
+    const ws = new WebSocket(wsUrl(`/ws/bot-game/${gameId}`))
+    wsRef.current = ws
+    setConn('connecting')
+    ws.onopen = () => { setConn('connected'); retries.current = 0 }
+    ws.onmessage = handle
+    ws.onclose = e => {
+      if (e.code === 4004) { navigate('/bot-game', { replace: true }); return }
+      setConn('disconnected')
+      if (retries.current < 5) { retries.current += 1; setTimeout(() => { if (wsRef.current === ws) connect() }, 2500) }
+    }
+  }, [gameId, handle, navigate])
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (tab === 'game') {
-        if (e.key === 'ArrowLeft')  goToGamePos(gameViewIdx - 1)
-        if (e.key === 'ArrowRight') goToGamePos(gameViewIdx + 1)
-      } else {
-        const cur = exploreViewIdx
-        if (e.key === 'ArrowLeft') {
-          setExploreViewIdx(Math.max(-1, cur - 1))
-          setSelectedSq(null); setOptionSqs({})
-        }
-        if (e.key === 'ArrowRight') {
-          setExploreViewIdx(Math.min(exploreUci.length - 1, cur + 1))
-          setSelectedSq(null); setOptionSqs({})
-        }
-      }
+    connect()
+    return () => { const ws = wsRef.current; wsRef.current = null; if (ws) { ws.onclose = null; ws.close() } }
+  }, [connect])
+
+  const myTurn = status === 'active' && !thinking && view === null && (chessRef.current.turn() === 'w') === (userColor === 'white')
+  const send = (uci: string) => { if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'move', move: uci })) }
+  function tryMove(from: Square, to: Square): boolean {
+    if (!myTurn) return false
+    const m = chessRef.current.moves({ square: from, verbose: true }).find(x => x.to === to)
+    if (!m) return false
+    send(from + to + (m.promotion ? 'q' : ''))
+    return false   // the server echoes the move
+  }
+  function onSquareClick(sq: Square) {
+    if (!myTurn) return
+    if (selectedSq) {
+      const m = chessRef.current.moves({ square: selectedSq, verbose: true }).find(x => x.to === sq)
+      if (m) { send(selectedSq + sq + (m.promotion ? 'q' : '')); setSelectedSq(null); return }
+    }
+    const p = chessRef.current.get(sq)
+    setSelectedSq(p && p.color === chessRef.current.turn() ? sq : null)
+  }
+
+  // keyboard review
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.closest('input,textarea')) return
+      if (e.key === 'ArrowLeft') { e.preventDefault(); setView(v => Math.max(0, (v ?? sans.length) - 1)) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); setView(v => (v === null ? null : v + 1 >= sans.length ? null : v + 1)) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, gameViewIdx, exploreViewIdx, exploreUci.length, gameFens.length])
+  }, [sans.length])
 
-  const gameMoveCurrentIdx = tab === 'game' ? gameViewIdx - 1 : exploreBranchIdx - 1
+  const shownPly = view ?? sans.length               // position after `shownPly` plies
+  const fen = fens[shownPly] ?? fens[fens.length - 1]
+  const lastUci = shownPly > 0 ? ucis[shownPly - 1] : null
+  const ann = shownPly > 0 ? annotations[shownPly - 1] : null
+  const evalNow = ann ? { cp: ann.white_cp, mate: ann.white_mate } : shownPly === prefillPlies ? startEval : null
+  const styles: Record<string, React.CSSProperties> = {}
+  if (lastUci) { styles[lastUci.slice(0, 2)] = { backgroundColor: 'rgba(200,255,42,0.22)' }; styles[lastUci.slice(2, 4)] = { backgroundColor: 'rgba(200,255,42,0.32)' } }
+  if (selectedSq && view === null) Object.assign(styles, optionStyles(chessRef.current, selectedSq))
+  const viewChess = useMemo(() => new Chess(fen), [fen])
+  if (viewChess.inCheck()) {
+    const k = viewChess.findPiece({ type: 'k', color: viewChess.turn() })[0]
+    if (k) styles[k] = { ...styles[k], background: 'radial-gradient(circle, rgba(255,77,94,0.65) 30%, transparent 75%)' }
+  }
+  const arrows: Arrow[] = annotate && ann && ann.best_uci && ann.best_uci !== ucis[shownPly - 1] && ['inaccuracy', 'mistake', 'blunder', 'miss'].includes(ann.classification)
+    ? [[ann.best_uci.slice(0, 2) as Square, ann.best_uci.slice(2, 4) as Square, 'rgba(158,203,118,0.85)']] : []
+
+  const userWon = result && ((result.result === '1-0' && userColor === 'white') || (result.result === '0-1' && userColor === 'black'))
+  const drew = result?.result === '1/2-1/2'
+
+  async function reviewGame() {
+    setReviewing(true)
+    try {
+      if (libraryId) {
+        const { game } = await libraryApi.game(username, libraryId)
+        await openReview({ pgn: game.pgn!, source: game.source, user_color: userColor })
+      } else {
+        const c = new Chess(fens[0])
+        for (const s of sans) c.move(s)
+        c.setHeader('White', userColor === 'white' ? username : botName); c.setHeader('Black', userColor === 'black' ? username : botName)
+        if (result) c.setHeader('Result', result.result)
+        await openReview({ pgn: c.pgn(), source: 'maia', user_color: userColor })
+      }
+    } finally { setReviewing(false) }
+  }
+  function analyseGame() {
+    const c = new Chess(fens[0])
+    for (const s of sans) c.move(s)
+    navigate('/analysis', { state: { pgn: c.pgn(), title: `You vs ${botName}`, ply: view ?? undefined } })
+  }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="btn-ghost flex items-center gap-1.5 text-sm">
-          <ChevronLeft size={14} /> Back to game
-        </button>
-        <div className="h-4 w-px bg-border" />
-        <h1 className="text-lg font-bold text-text-0">Game Analysis</h1>
-        <span className="text-xs text-text-2 ml-1">{gameSans.length} moves</span>
-        <span className="text-xs text-text-2 ml-auto hidden sm:block">← → to navigate</span>
-      </div>
+    <div className="px-3 sm:px-4 lg:px-6 py-4 sm:py-6 max-w-[1400px] mx-auto">
+      <SectionHeader icon={Bot} title="Play vs Maia" description={`${botName}${annotate ? ' · analysed mode' : ''} · arrows ← → to look back`}
+        right={<span className="inline-flex items-center gap-1.5 text-xs text-text-2">{conn === 'connected' ? <Wifi size={13} className="text-success" /> : <WifiOff size={13} className="text-danger" />}{conn === 'connected' ? 'Connected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span>} />
 
-      <div className="flex items-start gap-4">
-        {/* Eval bar */}
-        <EvalBar
-          evalCp={analysis?.eval_cp ?? null}
-          evalMate={analysis?.eval_mate ?? null}
-          loading={analysisLoading}
-          h={ANALYZE_BOARD}
-        />
-
-        {/* Board */}
-        <div className="flex-shrink-0">
-          <Chessboard
-            position={displayFen}
-            boardOrientation={userColor}
-            onPieceDrop={handleExploreDrop}
-            onSquareClick={tab === 'explore' ? handleExploreSquareClick : undefined}
-            arePiecesDraggable={exploreInteractive}
-            boardWidth={ANALYZE_BOARD}
-            customSquareStyles={squareStyles}
-            customArrows={bestArrow}
-            customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
-            customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
-            customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
-          />
-          {/* Nav arrows */}
-          <div className="flex gap-2 mt-2 justify-center">
-            <button
-              onClick={() => tab === 'game' ? goToGamePos(gameViewIdx - 1)
-                : setExploreViewIdx(v => Math.max(-1, v - 1))}
-              className="p-1.5 rounded hover:bg-bg-2 disabled:opacity-30 transition-colors"
-              disabled={tab === 'game' ? gameViewIdx === 0 : exploreViewIdx === -1}>
-              <ChevronLeft size={16} className="text-text-1" />
-            </button>
-            <button
-              onClick={() => tab === 'game' ? goToGamePos(gameViewIdx + 1)
-                : setExploreViewIdx(v => Math.min(exploreUci.length - 1, v + 1))}
-              className="p-1.5 rounded hover:bg-bg-2 disabled:opacity-30 transition-colors"
-              disabled={tab === 'game'
-                ? gameViewIdx === gameFens.length - 1
-                : exploreViewIdx === exploreUci.length - 1}>
-              <ChevronRight size={16} className="text-text-1" />
-            </button>
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] gap-5 lg:gap-6">
+        <section className="min-w-0">
+          <div ref={boardRef} className="mx-auto w-full" style={{ maxWidth: 720 }}>
+            <PlayerStrip icon={engine === 'stockfish' ? Cpu : Bot} name={botName} right={thinking ? <span className="text-xs text-accent inline-flex items-center gap-1.5">thinking <Loader2 size={12} className="animate-spin" /></span> : null} />
+            <div className="flex gap-2 items-stretch my-2">
+              {annotate && (
+                <div className={`w-5 rounded overflow-hidden flex flex-shrink-0 relative ${userColor === 'black' ? 'flex-col' : 'flex-col-reverse'}`} style={{ height: width }}>
+                  <div className="bg-[#F0F0F0] transition-all duration-500" style={{ height: `${evalNow ? whiteShare(evalNow.cp, evalNow.mate) : 50}%` }} />
+                  <div className="bg-bg-3 flex-1" />
+                  <span className="absolute inset-x-0 bottom-1 text-center text-[9px] font-bold text-bg-0 mix-blend-difference">{evalNow ? evalText(evalNow.cp, evalNow.mate) : '…'}</span>
+                </div>
+              )}
+              <motion.div animate={{ boxShadow: myTurn ? '0 0 0 2px rgba(200,255,42,0.45)' : '0 0 0 0 rgba(0,0,0,0)' }} style={{ borderRadius: 8 }}>
+                <Chessboard id="bot-board" position={fen} boardOrientation={userColor} boardWidth={width}
+                  arePiecesDraggable={myTurn} onPieceDrop={(f, t) => tryMove(f as Square, t as Square)} onSquareClick={onSquareClick}
+                  customSquareStyles={styles} customArrows={arrows}
+                  customDarkSquareStyle={{ backgroundColor: BOARD_DARK }} customLightSquareStyle={{ backgroundColor: BOARD_LIGHT }}
+                  customBoardStyle={{ borderRadius: 8, boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }} />
+              </motion.div>
+            </div>
+            <PlayerStrip icon={User} name={`${username}${elo ? ` · ${elo}` : ''}`} right={myTurn ? <span className="text-xs text-success font-medium">Your move</span> : null} />
+            {view !== null && (
+              <div className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/20 text-xs">
+                <span className="text-accent">Viewing {shownPly ? `after ${moveLabel(fens[shownPly - 1])} ${sans[shownPly - 1]}` : 'the start'}</span>
+                <button onClick={() => setView(null)} className="ml-auto text-accent underline">Back to live</button>
+              </div>
+            )}
           </div>
-        </div>
+        </section>
 
-        {/* Right panel */}
-        <div className="flex-1 min-w-0 space-y-3" style={{ paddingTop: 4 }}>
-
-          {/* Accuracy + Blindspot debrief tabs */}
-          <div className="flex gap-1 mb-3 border-b border-border">
-            {(['accuracy', 'debrief'] as const).map(t => (
-              <button key={t} onClick={() => setAnalyzeTab(t)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors relative
-                  ${analyzeTab === t ? 'text-text-0' : 'text-text-2 hover:text-text-1'}`}>
-                {t === 'accuracy' ? 'Accuracy' : 'Blindspot debrief'}
-                {analyzeTab === t && <span className="absolute -bottom-px left-0 right-0 h-0.5 bg-accent" />}
-              </button>
-            ))}
-          </div>
-          {analyzeTab === 'accuracy'
-            ? <AccuracyCard moves={gameUci} userColor={userColor} />
-            : (gameId
-                ? <BotGameDebrief gameId={gameId} username={username} />
-                : <p className="text-xs text-text-2 italic p-4">Debrief unavailable for this game.</p>)}
-
-          {/* Eval */}
-          <div className="card p-3 flex items-center justify-between">
-            <span className="text-xs text-text-2">Evaluation</span>
-            {analysisLoading ? (
-              <span className="text-xs text-text-2">…</span>
-            ) : analysis?.eval_mate != null ? (
-              <span className="text-sm font-bold text-accent">M{Math.abs(analysis.eval_mate)}</span>
-            ) : analysis?.eval_cp != null ? (
-              <span className={`text-sm font-bold ${analysis.eval_cp >= 0 ? 'text-text-0' : 'text-text-2'}`}>
-                {analysis.eval_cp >= 0 ? '+' : ''}{(analysis.eval_cp / 100).toFixed(2)}
-              </span>
-            ) : <span className="text-xs text-text-2">—</span>}
-          </div>
-
-          {/* Best move */}
-          {analysis?.best_move && (
-            <div className="card p-3 flex items-center justify-between">
-              <span className="text-xs text-text-2">Best move</span>
-              <span className="font-mono text-xs text-accent font-semibold">
-                {analysis.best_move.slice(0, 2)} → {analysis.best_move.slice(2, 4)}
-                {analysis.best_move[4] ? `=${analysis.best_move[4].toUpperCase()}` : ''}
-              </span>
+        <section className="min-w-0 space-y-3">
+          {annotate && (
+            <div className="card p-4 min-h-[92px]">
+              {ann ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-base font-semibold">{moveLabel(fens[shownPly - 1])} {ann.san}</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold" style={{ color: CLASSIFICATION[ann.classification].color }}>
+                      <span className="w-5 h-5 rounded-full grid place-items-center text-[10px] font-bold" style={{ background: CLASSIFICATION[ann.classification].color + '22' }}>{CLASSIFICATION[ann.classification].symbol}</span>
+                      {CLASSIFICATION[ann.classification].label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-text-2 mt-2">
+                    {ann.best_san && ann.best_san !== ann.san ? <>Best was <span className="font-mono text-success">{ann.best_san}</span> · </> : null}
+                    eval {evalText(ann.white_cp, ann.white_mate)} (White's view)
+                  </p>
+                </>
+              ) : <p className="text-xs text-text-2">{shownPly > prefillPlies ? 'Labelling the move…' : 'Every move will be labelled here as you play.'}</p>}
             </div>
           )}
 
-          {/* Tab switcher */}
-          <div className="flex rounded-lg border border-border overflow-hidden">
-            {(['game', 'explore'] as const).map((t) => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`flex-1 py-2 text-xs font-semibold transition-colors capitalize
-                  ${tab === t ? 'bg-accent/15 text-accent' : 'text-text-2 hover:text-text-1 hover:bg-bg-2'}`}>
-                {t === 'game' ? 'Moves Played' : 'Explore'}
-              </button>
-            ))}
+          <div className="card p-4">
+            <p className="text-xs text-text-2 uppercase tracking-wider font-semibold mb-2">Moves</p>
+            <MoveGrid sans={sans} annotations={annotate ? annotations : {}} current={shownPly - 1} prefill={prefillPlies}
+              startFen={fens[0]} onSelect={i => setView(i + 1 >= sans.length ? null : i + 1)} />
+            <div className="flex justify-center gap-1 mt-2">
+              <button className="btn-ghost px-2" onClick={() => setView(v => Math.max(0, (v ?? sans.length) - 1))} aria-label="Back"><ChevronLeft size={16} /></button>
+              <button className="btn-ghost px-2" onClick={() => setView(v => (v === null ? null : v + 1 >= sans.length ? null : v + 1))} aria-label="Forward"><ChevronRight size={16} /></button>
+            </div>
           </div>
 
-          {/* Tab content */}
-          <div className="card p-3 space-y-3">
-            {tab === 'game' ? (
-              <>
-                <p className="text-xs text-text-2">Click a move to navigate. Board is read-only.</p>
-                <ClickMoveList
-                  moves={gameSans}
-                  currentIdx={gameViewIdx - 1}
-                  onNavigate={handleGameMoveClick}
-                  emptyText="No moves in this game"
-                />
-                {gameViewIdx === 0 && (
-                  <p className="text-xs text-accent">Starting position</p>
-                )}
-              </>
+          {status === 'active' && (
+            confirmResign ? (
+              <div className="card p-3 border-danger/30 flex items-center gap-2">
+                <span className="text-sm flex-1">Resign this game?</span>
+                <button className="btn-danger text-xs" onClick={() => { wsRef.current?.send(JSON.stringify({ type: 'resign' })); setConfirmResign(false) }}>Resign</button>
+                <button className="btn-ghost text-xs" onClick={() => setConfirmResign(false)}>Cancel</button>
+              </div>
             ) : (
-              <>
-                {/* Game moves up to branch */}
-                <div>
-                  <p className="text-xs text-text-2 mb-1">
-                    Click any move to set branch point
-                    <span className="text-accent ml-1">(move {exploreBranchIdx})</span>
-                  </p>
-                  <ClickMoveList
-                    moves={gameSans}
-                    currentIdx={gameMoveCurrentIdx}
-                    onNavigate={(idx) => setExploreBranch(idx + 1)}
-                    emptyText="No game moves"
-                  />
-                </div>
+              <button onClick={() => setConfirmResign(true)} className="text-sm text-text-2 hover:text-danger inline-flex items-center gap-1.5"><Flag size={13} />Resign</button>
+            )
+          )}
 
-                {/* Explore branch */}
-                {exploreSan.length > 0 ? (
-                  <div className="border-t border-border pt-2">
-                    <ClickMoveList
-                      moves={exploreSan}
-                      currentIdx={exploreViewIdx}
-                      onNavigate={handleExploreMoveClick}
-                      label="Your exploration"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-xs text-text-2 border-t border-border pt-2">
-                    {exploreInteractive
-                      ? 'Play a move on the board to explore…'
-                      : 'Navigate to a position to explore from'}
-                  </p>
-                )}
-
-                {/* Explore status */}
-                {exploreViewIdx < exploreUci.length - 1 && exploreUci.length > 0 && (
-                  <p className="text-xs text-text-2">
-                    Viewing move {exploreViewIdx + 1}/{exploreUci.length} — navigate to end to play
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+          {status === 'finished' && result && (
+            <div className="card p-4 space-y-3">
+              <p className={`text-lg font-semibold ${drew ? 'text-text-0' : userWon ? 'text-success' : 'text-danger'}`}>{drew ? 'Draw' : userWon ? 'You won' : `${botName} won`} <span className="text-xs font-normal text-text-2">{RESULT_REASON[result.reason] ?? ''}</span></p>
+              <button onClick={() => void reviewGame()} disabled={reviewing} className="btn-primary w-full inline-flex items-center justify-center gap-2">
+                {reviewing ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />}Game review
+              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={analyseGame} className="btn-ghost border border-border text-sm inline-flex items-center justify-center gap-1.5"><Microscope size={14} />Analyse</button>
+                <button onClick={() => navigate('/bot-game')} className="btn-ghost border border-border text-sm inline-flex items-center justify-center gap-1.5"><RotateCcw size={14} />New game</button>
+              </div>
+              <button onClick={() => setShowDebrief(d => !d)} className="text-xs text-accent">{showDebrief ? 'Hide' : 'Show'} blindspot debrief</button>
+              {showDebrief && <BotGameDebrief gameId={gameId} username={username} />}
+            </div>
+          )}
+        </section>
       </div>
+
+      <AnimatePresence>
+        {showResult && result && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 z-50 grid place-items-center p-4" onClick={() => setShowResult(false)}>
+            <motion.div initial={{ scale: .92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()}
+              className="card p-7 w-full max-w-sm text-center relative">
+              <button onClick={() => setShowResult(false)} className="absolute right-3 top-3 text-text-2 hover:text-text-0" aria-label="Close"><X size={16} /></button>
+              <p className={`text-3xl font-semibold ${drew ? 'text-text-0' : userWon ? 'text-success' : 'text-danger'}`}>{drew ? 'Draw' : userWon ? 'You won!' : `${botName} won`}</p>
+              <p className="text-sm text-text-2 mt-1">{RESULT_REASON[result.reason] ?? ''}</p>
+              <div className="grid gap-2 mt-6">
+                <button onClick={() => void reviewGame()} disabled={reviewing} className="btn-primary inline-flex items-center justify-center gap-2 py-2.5">
+                  {reviewing ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />}Game review
+                </button>
+                <button onClick={() => { setShowResult(false); analyseGame() }} className="btn-ghost border border-border inline-flex items-center justify-center gap-2"><Microscope size={14} />Analysis board</button>
+                <button onClick={() => navigate('/bot-game')} className="btn-ghost inline-flex items-center justify-center gap-2"><RotateCcw size={14} />Play again</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
-// ── Main BotGame component ────────────────────────────────────────────────────
-
-const BOARD_SIZE  = 500
-const START_FEN   = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-
-export default function BotGame() {
-  const { gameId }         = useParams<{ gameId?: string }>()
-  const navigate           = useNavigate()
-  const { username, elo }  = useUserStore()
-
-  const [phase, setPhase] = useState<Phase>(gameId ? 'game' : 'setup')
-
-  // ── Game state ──────────────────────────────────────────────────────────────
-  const chessRef   = useRef(new Chess())
-  const uciHistRef = useRef<string[]>([])   // for analyze mode
-
-  const [fen,        setFen]        = useState(START_FEN)
-  const [userColor,  setUserColor]  = useState<'white' | 'black'>('white')
-  const [targetElo,  setTargetElo]  = useState(1550)
-  const [gameStatus, setGameStatus] = useState<GameStatus>('connecting')
-  const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
-  const [isThinking, setIsThinking] = useState(false)
-  const [gameResult, setGameResult] = useState<string | null>(null)
-  const [gameReason, setGameReason] = useState<string | null>(null)
-  const [sanMoves,   setSanMoves]   = useState<string[]>([])
-  const [showResult, setShowResult] = useState(false)
-
-  // History view (null = live pos, number = index after that move)
-  const [histViewIdx, setHistViewIdx] = useState<number | null>(null)
-  const [histFens,    setHistFens]    = useState<string[]>([START_FEN])
-
-  // Board interaction
-  const [selectedSq,  setSelectedSq]  = useState<Square | null>(null)
-  const [optionSqs,   setOptionSqs]   = useState<Record<string, object>>({})
-  const [lastMoveSqs, setLastMoveSqs] = useState<Record<string, object>>({})
-  const [checkSq,     setCheckSq]     = useState<string | null>(null)
-
-  const [showResign,   setShowResign]   = useState(false)
-  const [reconnectNum, setReconnectNum] = useState(0)
-  const [reconnBanner, setReconnBanner] = useState(false)
-
-  const wsRef          = useRef<WebSocket | null>(null)
-  const reconnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const userColorRef   = useRef<'white' | 'black'>('white')
-
-  useEffect(() => { userColorRef.current = userColor }, [userColor])
-
-  // ── Arrow-key move review (← / → step through history) ─────────────────────
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (sanMoves.length === 0) return
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        setHistViewIdx(prev => {
-          const cur = prev === null ? sanMoves.length - 1 : prev
-          return Math.max(0, cur - 1)
-        })
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        setHistViewIdx(prev => {
-          if (prev === null) return null
-          const next = prev + 1
-          return next >= sanMoves.length - 1 ? null : next
-        })
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [sanMoves.length])
-
-  // ── Computed FEN to display (live or historical view) ─────────────────────
-  const displayFen = histViewIdx !== null ? (histFens[histViewIdx + 1] ?? START_FEN) : fen
-
-  // ── Update board after applying a move ────────────────────────────────────
-  const commitMove = useCallback((newFen: string, uci: string) => {
-    setFen(newFen)
-    setHistFens(prev => [...prev, newFen])
-    setLastMoveSqs({
-      [uci.slice(0, 2)]: { backgroundColor: 'rgba(200,255,42,0.22)' },
-      [uci.slice(2, 4)]: { backgroundColor: 'rgba(200,255,42,0.32)' },
-    })
-    try {
-      const chess = new Chess(newFen)
-      if (chess.isCheck()) {
-        setCheckSq(fenKingSq(newFen, chess.turn()))
-      } else {
-        setCheckSq(null)
-      }
-    } catch { setCheckSq(null) }
-    setSelectedSq(null); setOptionSqs({})
-  }, [])
-
-  // ── WebSocket message handler ─────────────────────────────────────────────
-  const handleMessage = useCallback((evt: MessageEvent) => {
-    let msg: WsMsg
-    try { msg = JSON.parse(evt.data) } catch { return }
-    switch (msg.type) {
-      case 'game_start': {
-        chessRef.current = new Chess()
-        uciHistRef.current = []
-        setUserColor(msg.user_color)
-        setTargetElo(msg.target_elo)
-        setFen(START_FEN)
-        setHistFens([START_FEN])
-        setSanMoves([])
-        setLastMoveSqs({}); setCheckSq(null)
-        setGameStatus('active')
-        setGameResult(null); setGameReason(null)
-        setIsThinking(false); setHistViewIdx(null)
-        setPhase('game')
-        break
-      }
-      case 'move_made': {
-        const { from, to, promo } = uciToFrom(msg.move)
-        let san: string | null = null
-        try {
-          const r = chessRef.current.move({ from, to, promotion: promo ?? 'q' })
-          san = r?.san ?? null
-        } catch { /* ignore */ }
-        if (san) setSanMoves(prev => [...prev, san!])
-        uciHistRef.current.push(msg.move)
-        commitMove(msg.fen, msg.move)
-        if (msg.by === 'bot') setIsThinking(false)
-        break
-      }
-      case 'thinking':    setIsThinking(true); break
-      case 'game_over': {
-        setGameStatus('finished')
-        setGameResult(msg.result)
-        setGameReason(msg.reason)
-        setIsThinking(false)
-        setTimeout(() => setShowResult(true), 600)
-        break
-      }
-      case 'error': console.warn('[BotGame]', msg.message); break
-    }
-  }, [commitMove])
-
-  // ── WebSocket connect / reconnect ─────────────────────────────────────────
-  const connect = useCallback((gid: string) => {
-    if (wsRef.current) {
-      wsRef.current.onmessage = null; wsRef.current.onclose = null; wsRef.current.onerror = null
-      wsRef.current.close()
-    }
-    setConnStatus('connecting')
-    const ws = new WebSocket(wsUrl(`/ws/bot-game/${gid}`))
-    wsRef.current = ws
-    ws.onopen    = () => { setConnStatus('connected'); setReconnBanner(false); setReconnectNum(0) }
-    ws.onmessage = handleMessage
-    ws.onerror   = () => { /* onclose fires after onerror */ }
-    ws.onclose   = (e) => {
-      if (e.code === 4004) { navigate('/bot-game'); return }
-      setConnStatus('disconnected'); setReconnBanner(true)
-      setReconnectNum(n => {
-        const next = n + 1
-        if (next <= 5) reconnTimerRef.current = setTimeout(() => connect(gid), 3000)
-        return next
-      })
-    }
-  }, [handleMessage, navigate])
-
-  useEffect(() => {
-    if (!gameId) { setPhase('setup'); return }
-    setPhase('game')
-    connect(gameId)
-    return () => {
-      if (reconnTimerRef.current) clearTimeout(reconnTimerRef.current)
-      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close() }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId])
-
-  // ── User move ─────────────────────────────────────────────────────────────
-  const sendMove = useCallback((uci: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN)
-      wsRef.current.send(JSON.stringify({ type: 'move', move: uci }))
-  }, [])
-
-  const isMyTurn = useCallback(() => {
-    if (gameStatus !== 'active' || isThinking || histViewIdx !== null) return false
-    return (chessRef.current.turn() === 'w') === (userColorRef.current === 'white')
-  }, [gameStatus, isThinking, histViewIdx])
-
-  // ── Board interaction ─────────────────────────────────────────────────────
-  function handleDrop(from: string, to: string): boolean {
-    if (!isMyTurn()) return false
-    const p = chessRef.current.get(from as Square)
-    const isPawnPromo = p?.type === 'p'
-      && ((p.color === 'w' && to[1] === '8') || (p.color === 'b' && to[1] === '1'))
-    const uci = from + to + (isPawnPromo ? 'q' : '')
-    if (!chessRef.current.moves({ verbose: true }).some(m => m.from === from && m.to === to)) return false
-    sendMove(uci)
-    return false
-  }
-
-  function handleSquareClick(sq: Square) {
-    if (!isMyTurn()) return
-    if (selectedSq && optionSqs[sq] !== undefined) {
-      const p = chessRef.current.get(selectedSq)
-      const isPawnPromo = p?.type === 'p'
-        && ((p.color === 'w' && sq[1] === '8') || (p.color === 'b' && sq[1] === '1'))
-      sendMove(selectedSq + sq + (isPawnPromo ? 'q' : ''))
-      setSelectedSq(null); setOptionSqs({})
-      return
-    }
-    const piece = chessRef.current.get(sq)
-    if (piece && piece.color === chessRef.current.turn()) {
-      setSelectedSq(sq); setOptionSqs(getMoveOptions(chessRef.current, sq))
-    } else {
-      setSelectedSq(null); setOptionSqs({})
-    }
-  }
-
-  // ── History navigation ────────────────────────────────────────────────────
-  function handleHistMoveClick(moveIdx: number) {
-    // moveIdx = index in sanMoves; go to position AFTER that move
-    setHistViewIdx(moveIdx)
-    setSelectedSq(null); setOptionSqs({})
-  }
-
-  function returnToLive() {
-    setHistViewIdx(null)
-    setSelectedSq(null); setOptionSqs({})
-  }
-
-  // ── Resign ────────────────────────────────────────────────────────────────
-  function handleResign() {
-    if (wsRef.current?.readyState === WebSocket.OPEN)
-      wsRef.current.send(JSON.stringify({ type: 'resign' }))
-    setShowResign(false)
-  }
-
-  // ── Enter analyze mode ────────────────────────────────────────────────────
-  function enterAnalyze() {
-    setShowResult(false)
-    setPhase('analyze')
-  }
-
-  // ── Play again ────────────────────────────────────────────────────────────
-  function handlePlayAgain() {
-    setShowResult(false)
-    navigate('/bot-game')
-  }
-
-  // ── Square styles ─────────────────────────────────────────────────────────
-  const liveSquareStyles = useMemo(() => {
-    const s: Record<string, object> = histViewIdx !== null ? {} : { ...lastMoveSqs, ...optionSqs }
-    if (checkSq && histViewIdx === null) s[checkSq] = { ...s[checkSq], backgroundColor: 'rgba(239,68,68,0.4)' }
-    return s
-  }, [lastMoveSqs, optionSqs, checkSq, histViewIdx])
-
-  // ── Guard: setup screen ───────────────────────────────────────────────────
-  if (phase === 'setup') return <SetupScreen username={username} elo={elo ?? null} />
-
-  // ── Guard: analyze mode ───────────────────────────────────────────────────
-  if (phase === 'analyze') {
-    const uciSnapshot         = [...uciHistRef.current]
-    const { fens, sans }      = buildGamePositions(uciSnapshot)
-    return (
-      <AnalyzeView
-        gameFens={fens}
-        gameSans={sans}
-        gameUci={uciSnapshot}
-        userColor={userColor}
-        gameId={gameId ?? ''}
-        username={username}
-        onBack={() => setPhase('game')}
-      />
-    )
-  }
-
-  // ── Game phase ────────────────────────────────────────────────────────────
-  const myTurn  = isMyTurn()
-  const botName = `Maia · ${targetElo}`
-
-  // Which move index is "current" for the history list highlight
-  const histCurrentIdx = histViewIdx !== null ? histViewIdx : sanMoves.length - 1
-
+function PlayerStrip({ icon: Icon, name, right }: { icon: typeof Bot; name: string; right?: React.ReactNode }) {
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* Result modal */}
-      <AnimatePresence>
-        {showResult && gameResult && gameReason && (
-          <ResultModal
-            result={gameResult} reason={gameReason} userColor={userColor}
-            onAnalyze={enterAnalyze}
-            onPlayAgain={handlePlayAgain}
-            onDismiss={() => setShowResult(false)}
-          />
-        )}
-      </AnimatePresence>
-
-      <SectionHeader
-        icon={Bot}
-        title="Play vs Maia"
-        description={`Human-like AI tuned to ${targetElo} ELO · drag pieces to move · press Analyse after the game`}
-        right={
-          <div className="flex items-center gap-1.5">
-            {connStatus === 'connected'
-              ? <Wifi size={13} className="text-success" />
-              : <WifiOff size={13} className="text-danger animate-pulse" />}
-            <span className="text-xs text-text-2">
-              {connStatus === 'connected' ? 'Connected'
-                : connStatus === 'connecting' ? 'Connecting…'
-                : `Reconnecting (${reconnectNum}/5)…`}
-            </span>
-          </div>
-        }
-      />
-
-      <AnimatePresence>
-        {reconnBanner && connStatus !== 'connected' && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="mb-4 px-4 py-2 bg-danger/10 border border-danger/30 rounded-lg text-sm text-danger">
-            Connection lost — reconnecting…
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="flex items-start gap-6">
-        {/* Board section */}
-        <div className="flex-shrink-0 space-y-2">
-          {/* Top player */}
-          <div className="flex items-center gap-2 px-1">
-            <Bot size={15} className="text-text-2 flex-shrink-0" />
-            <span className="text-sm font-medium text-text-0">{botName}</span>
-            {isThinking && (
-              <span className="flex items-center gap-1 text-xs text-accent ml-auto">
-                thinking <ThinkingDots />
-              </span>
-            )}
-          </div>
-
-          {/* History view banner */}
-          <AnimatePresence>
-            {histViewIdx !== null && (
-              <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-md text-xs">
-                <Circle size={7} className="text-accent fill-accent flex-shrink-0" />
-                <span className="text-accent">Viewing move {histViewIdx + 1}</span>
-                <button onClick={returnToLive}
-                  className="ml-auto text-accent underline hover:no-underline">
-                  Back to live
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <motion.div
-            animate={gameStatus === 'active' && myTurn && histViewIdx === null
-              ? { boxShadow: '0 0 0 2px rgba(200,255,42,0.4)' }
-              : { boxShadow: '0 0 0 0px transparent' }}
-            transition={{ duration: 0.3 }} style={{ borderRadius: 8 }}>
-            <Chessboard
-              position={displayFen}
-              boardOrientation={userColor}
-              onPieceDrop={handleDrop}
-              onSquareClick={handleSquareClick}
-              arePiecesDraggable={myTurn && histViewIdx === null}
-              boardWidth={BOARD_SIZE}
-              customSquareStyles={liveSquareStyles}
-              customDarkSquareStyle={{ backgroundColor: '#5C5C5C' }}
-              customLightSquareStyle={{ backgroundColor: '#A9A9A9' }}
-              customBoardStyle={{ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(200,255,42,0.15)' }}
-            />
-          </motion.div>
-
-          {/* Bottom player */}
-          <div className="flex items-center gap-2 px-1">
-            <User size={15} className="text-accent flex-shrink-0" />
-            <span className="text-sm font-medium text-text-0">{username} · {elo ?? '?'}</span>
-            {myTurn && histViewIdx === null && (
-              <span className="ml-auto text-xs text-success font-medium">Your turn</span>
-            )}
-          </div>
-        </div>
-
-        {/* Right panel */}
-        <div className="flex-1 min-w-0 space-y-4" style={{ paddingTop: 32 }}>
-
-          {/* Post-game actions (shown after modal is dismissed) */}
-          {gameStatus === 'finished' && !showResult && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              className="flex gap-2 flex-wrap">
-              <button onClick={enterAnalyze}
-                className="btn-primary flex items-center gap-1.5 text-sm">
-                <Microscope size={14} /> Analyze game
-              </button>
-              <button onClick={handlePlayAgain}
-                className="btn-ghost flex items-center gap-1.5 text-sm">
-                <RotateCcw size={13} /> Play again
-              </button>
-            </motion.div>
-          )}
-
-          {/* Resign */}
-          <AnimatePresence>
-            {showResign && (
-              <ResignDialog onConfirm={handleResign} onCancel={() => setShowResign(false)} />
-            )}
-          </AnimatePresence>
-          {gameStatus === 'active' && !showResign && (
-            <button onClick={() => setShowResign(true)}
-              className="flex items-center gap-1.5 text-sm text-text-2 hover:text-danger transition-colors">
-              <Flag size={13} /> Resign
-            </button>
-          )}
-
-          {/* Clickable move history */}
-          <div className="card p-4">
-            <p className="text-xs text-text-2 uppercase tracking-wider font-semibold mb-3">
-              Moves played
-              <span className="ml-2 font-normal normal-case">
-                {sanMoves.length > 0 ? '— click to view' : ''}
-              </span>
-            </p>
-            <ClickMoveList
-              moves={sanMoves}
-              currentIdx={histCurrentIdx}
-              onNavigate={handleHistMoveClick}
-              emptyText="Game not started"
-            />
-          </div>
-
-          {/* Game info */}
-          <div className="card p-4 space-y-2">
-            <p className="text-xs text-text-2 uppercase tracking-wider font-semibold mb-1">Game info</p>
-            {[
-              ['You play', userColor, 'capitalize'],
-              ['Maia ELO', targetElo, ''],
-              ['Your ELO', elo ?? '?', ''],
-              ['Moves', sanMoves.length, ''],
-            ].map(([k, v, cls]) => (
-              <div key={String(k)} className="flex justify-between text-xs">
-                <span className="text-text-2">{k}</span>
-                <span className={`text-text-0 font-medium ${cls}`}>{String(v)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+    <div className="flex items-center gap-2 px-1">
+      <Icon size={15} className="text-text-2" />
+      <span className="text-sm font-medium text-text-0 truncate">{name}</span>
+      <span className="ml-auto">{right}</span>
     </div>
   )
+}
+
+/** "12." for White's move from this position, "12…" for Black's. */
+function moveLabel(fenBefore?: string): string {
+  if (!fenBefore) return ''
+  const [, turn, , , , full] = fenBefore.split(' ')
+  return `${full}${turn === 'w' ? '.' : '…'}`
+}
+
+function MoveGrid({ sans, annotations, current, prefill, startFen, onSelect }: {
+  sans: string[]; annotations: Record<number, Annotation>; current: number; prefill: number; startFen: string; onSelect: (i: number) => void
+}) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { const b = boxRef.current; if (b) b.scrollTop = b.scrollHeight }, [sans.length])
+  if (!sans.length) return <p className="text-xs text-text-2 italic">No moves yet.</p>
+  const [, turn, , , , full] = startFen.split(' ')
+  const offset = turn === 'b' ? 1 : 0           // Black to move first: leave White's cell empty
+  const firstNo = Number(full) || 1
+  const rows: number[] = []
+  for (let i = -offset; i < sans.length; i += 2) rows.push(i)
+  const cell = (i: number) => {
+    if (i < 0 || i >= sans.length) return <span />
+    const a = annotations[i]
+    const spec = a ? CLASSIFICATION[a.classification] : null
+    return (
+      <button onClick={() => onSelect(i)}
+        className={`flex items-center justify-between px-2 py-1 rounded text-sm font-mono ${current === i ? 'bg-accent/20 text-text-0' : 'hover:bg-bg-2'} ${i < prefill ? 'text-text-2' : 'text-text-0'}`}>
+        <span>{sans[i]}</span>
+        {spec && <span className="text-[10px] font-bold" style={{ color: spec.color }} title={spec.label}>{spec.symbol}</span>}
+      </button>
+    )
+  }
+  return (
+    <div ref={boxRef} className="max-h-72 overflow-y-auto">
+      {rows.map((i, r) => (
+        <div key={i} className="grid grid-cols-[2rem_1fr_1fr] gap-1 items-center">
+          <span className="text-[11px] text-text-2 tabular-nums">{firstNo + r}.</span>{cell(i)}{cell(i + 1)}
+        </div>
+      ))}
+      {prefill > 0 && <p className="text-[10px] text-text-2 mt-1">Grey moves were set up before the game started.</p>}
+    </div>
+  )
+}
+
+export default function BotGame() {
+  const { gameId } = useParams<{ gameId?: string }>()
+  const location = useLocation()
+  const prefill = (location.state ?? {}) as Prefill
+  if (gameId) return <GameScreen key={gameId} gameId={gameId} />
+  return <SetupScreen prefill={prefill} />
 }

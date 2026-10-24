@@ -43,7 +43,7 @@ export default function Endgames() {
       <SectionHeader
         icon={Crown}
         title="Endgames"
-        description={`Theoretical positions and practice vs Maia · ${positionsCount} positions across ${sectionCount} categories`}
+        description={`Tablebase-verified theory, then practise against Stockfish or Maia · ${positionsCount} positions across ${sectionCount} categories`}
         right={
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-text-2 uppercase tracking-wider">Tablebase</span>

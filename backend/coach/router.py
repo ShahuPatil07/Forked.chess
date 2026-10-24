@@ -233,7 +233,8 @@ def _agent_stream(req: CoachChatRequest) -> Iterator[str]:
         for event in run_agent(message=req.message, history=[m.model_dump() for m in req.conversation_history],
                                fen=req.position_fen, moves_context=req.board_moves, game_pgn=req.game_pgn,
                                level=level, style=req.style, review=req.review, profile=req.profile,
-                               board_info=req.board_info, seen_puzzles=req.seen_puzzles, maia_elo=req.maia_elo):
+                               board_info=req.board_info, seen_puzzles=req.seen_puzzles, maia_elo=req.maia_elo,
+                               username=req.username):
             yield _sse(event)
     except Exception as exc:
         log.error("coach agent failed: %s", exc, exc_info=True)
@@ -358,12 +359,12 @@ def coach_engine_move(req: EngineMoveRequest):
 
 class MaiaMoveRequest(BaseModel):
     fen: str = Field(max_length=200)
-    elo: int = Field(default=1900, ge=1100, le=1900)
+    elo: int = Field(default=1900, ge=600, le=2800)
 
 
 @router.post("/maia-move")
 def coach_maia_move(req: MaiaMoveRequest):
-    """Play-along opponent: Maia2 (human-like) at the requested Elo; 1900 is its strongest.
+    """Play-along opponent: human-like Maia at the requested Elo (600-2800, Lichess scale).
     Falls back to a strong Stockfish move only if Maia2 is unavailable."""
     import chess
     from backend.bot import maia_engine
@@ -374,10 +375,12 @@ def coach_maia_move(req: MaiaMoveRequest):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     if maia_engine._ensure_loaded():
-        uci = maia_engine.get_move(board.fen(), req.elo, req.elo)
+        # Maia-2 below 2000, "Maia+" (human candidates checked by Stockfish) up to 2800
+        from backend.bot import engines as bot_engines
+        uci, info = bot_engines.choose_move(board, "maia", req.elo, req.elo)
         move = chess.Move.from_uci(uci)
         if move in board.legal_moves:
-            return {"move_uci": uci, "move_san": board.san(move), "engine": "maia", "elo": req.elo}
+            return {"move_uci": uci, "move_san": board.san(move), "engine": info.get("mode", "maia"), "elo": req.elo}
     from backend.coach.agent.engine import pick_move_for_strength
     res = pick_move_for_strength(board.fen(), "strong")
     return {"move_uci": res["move_uci"], "move_san": res["move_san"], "engine": "stockfish-fallback", "elo": req.elo}

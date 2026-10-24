@@ -1,0 +1,511 @@
+{
+  "version": 1,
+  "_note": "Warm-Up configuration. The band -> drill emphasis and every number here is a DESIGN HYPOTHESIS to be tested with the warm-up experiment, not a research finding.",
+  "bands": [
+    {
+      "id": "u800",
+      "label": "Under 800",
+      "min": 0,
+      "max": 799,
+      "start_level": 1,
+      "emphasis": [
+        "check_flash",
+        "loose_pieces",
+        "easy_sprint"
+      ],
+      "thinking": [
+        "opponent_threat"
+      ],
+      "multiplier": 1.5,
+      "tilt_losses": 2,
+      "sprint": {
+        "offset": -500,
+        "max_plies": 1,
+        "theme": "mateIn1"
+      },
+      "cue": "Before every move: is every piece safe?"
+    },
+    {
+      "id": "800-1200",
+      "label": "800-1200",
+      "min": 800,
+      "max": 1199,
+      "start_level": 2,
+      "emphasis": [
+        "threat_count",
+        "loose_pieces",
+        "check_flash"
+      ],
+      "thinking": [
+        "opponent_threat"
+      ],
+      "multiplier": 1.3,
+      "tilt_losses": 2,
+      "sprint": {
+        "offset": -450,
+        "max_plies": 3
+      },
+      "cue": "Before every move: what did their last move attack?"
+    },
+    {
+      "id": "1200-1600",
+      "label": "1200-1600",
+      "min": 1200,
+      "max": 1599,
+      "start_level": 3,
+      "emphasis": [
+        "what_changed",
+        "threat_count",
+        "loose_pieces"
+      ],
+      "thinking": [
+        "opponent_threat",
+        "two_candidates"
+      ],
+      "multiplier": 1.0,
+      "tilt_losses": 3,
+      "sprint": {
+        "offset": -400,
+        "max_plies": 5
+      },
+      "cue": "Before each move: what did their last move change?"
+    },
+    {
+      "id": "1600-2000",
+      "label": "1600-2000",
+      "min": 1600,
+      "max": 1999,
+      "start_level": 4,
+      "emphasis": [
+        "what_changed",
+        "double_check_hunt",
+        "threat_count"
+      ],
+      "thinking": [
+        "two_candidates",
+        "opponent_threat"
+      ],
+      "multiplier": 0.9,
+      "tilt_losses": 3,
+      "sprint": {
+        "offset": -350,
+        "max_plies": 5
+      },
+      "cue": "Found a good move? Look for a better one before you play it."
+    },
+    {
+      "id": "2000+",
+      "label": "2000+",
+      "min": 2000,
+      "max": 9999,
+      "start_level": 5,
+      "emphasis": [
+        "what_changed",
+        "double_check_hunt"
+      ],
+      "thinking": [
+        "two_candidates"
+      ],
+      "multiplier": 0.8,
+      "tilt_losses": 5,
+      "sprint": {
+        "offset": -250,
+        "max_plies": 7
+      },
+      "cue": "Two candidates, every critical move. Then blunder-check the one you pick."
+    }
+  ],
+  "time_controls": {
+    "bullet": {
+      "multiplier": 0.6,
+      "label": "Bullet",
+      "lichess_pool": "1+0",
+      "chesscom_minutes": 1
+    },
+    "blitz": {
+      "multiplier": 0.8,
+      "label": "Blitz",
+      "lichess_pool": "5+0",
+      "chesscom_minutes": 5
+    },
+    "rapid": {
+      "multiplier": 1.0,
+      "label": "Rapid",
+      "lichess_pool": "10+0",
+      "chesscom_minutes": 10
+    },
+    "classical": {
+      "multiplier": 1.2,
+      "label": "Classical",
+      "lichess_pool": "30+0",
+      "chesscom_minutes": 30
+    }
+  },
+  "drills": {
+    "check_flash": {
+      "kind": "perception",
+      "title": "Check or Not?",
+      "items": 12,
+      "cap_ms": 3000,
+      "est_s": 45,
+      "levels": {
+        "region": [
+          3,
+          4,
+          4,
+          5,
+          5
+        ],
+        "attackers": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            3,
+            3
+          ]
+        ],
+        "blockers": [
+          0,
+          0,
+          1,
+          1,
+          2
+        ],
+        "flash_ms": [
+          1500,
+          1200,
+          1000,
+          800,
+          650
+        ]
+      }
+    },
+    "double_check_hunt": {
+      "kind": "perception",
+      "title": "Double-Check Hunt",
+      "items": 5,
+      "cap_ms": 12000,
+      "est_s": 50,
+      "levels": {
+        "blockers": [
+          0,
+          0,
+          1,
+          1,
+          2
+        ]
+      }
+    },
+    "loose_pieces": {
+      "kind": "perception",
+      "title": "Loose Pieces",
+      "items": 6,
+      "cap_ms": 14000,
+      "est_s": 70,
+      "levels": {
+        "pieces": [
+          [
+            6,
+            14
+          ],
+          [
+            8,
+            18
+          ],
+          [
+            12,
+            24
+          ],
+          [
+            16,
+            28
+          ],
+          [
+            18,
+            32
+          ]
+        ],
+        "loose": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            4
+          ],
+          [
+            2,
+            4
+          ]
+        ],
+        "pawns": [
+          false,
+          false,
+          false,
+          true,
+          true
+        ]
+      }
+    },
+    "threat_count": {
+      "kind": "perception",
+      "title": "Threat Count",
+      "items": 7,
+      "cap_ms": 10000,
+      "est_s": 60,
+      "levels": {
+        "pieces": [
+          [
+            6,
+            14
+          ],
+          [
+            8,
+            18
+          ],
+          [
+            12,
+            24
+          ],
+          [
+            16,
+            28
+          ],
+          [
+            18,
+            32
+          ]
+        ],
+        "undefended_variant": [
+          false,
+          false,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    "what_changed": {
+      "kind": "perception",
+      "title": "What Changed?",
+      "items": 7,
+      "cap_ms": 15000,
+      "est_s": 70,
+      "levels": {
+        "pieces": [
+          [
+            6,
+            14
+          ],
+          [
+            10,
+            20
+          ],
+          [
+            14,
+            26
+          ],
+          [
+            18,
+            30
+          ],
+          [
+            20,
+            32
+          ]
+        ],
+        "show_ms": [
+          900,
+          750,
+          600,
+          500,
+          420
+        ],
+        "pawn_moves": [
+          false,
+          false,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    "opponent_threat": {
+      "kind": "thinking",
+      "title": "What Does It Threaten?",
+      "items": 6,
+      "cap_ms": 20000,
+      "est_s": 90,
+      "levels": {
+        "rating": [
+          [
+            600,
+            1200
+          ],
+          [
+            900,
+            1500
+          ],
+          [
+            1200,
+            1800
+          ],
+          [
+            1500,
+            2100
+          ],
+          [
+            1800,
+            2600
+          ]
+        ]
+      }
+    },
+    "two_candidates": {
+      "kind": "thinking",
+      "title": "Two Candidates",
+      "items": 3,
+      "cap_ms": 60000,
+      "est_s": 120,
+      "levels": {
+        "rating": [
+          [
+            800,
+            1400
+          ],
+          [
+            1000,
+            1600
+          ],
+          [
+            1300,
+            1900
+          ],
+          [
+            1600,
+            2200
+          ],
+          [
+            1900,
+            2700
+          ]
+        ]
+      }
+    },
+    "easy_sprint": {
+      "kind": "thinking",
+      "title": "Easy Tactic Sprint",
+      "items": 10,
+      "cap_ms": 12000,
+      "est_s": 100,
+      "levels": {
+        "offset_shift": [
+          -150,
+          -75,
+          0,
+          50,
+          100
+        ]
+      }
+    },
+    "setup_check": {
+      "kind": "state",
+      "title": "Setup Check",
+      "est_s": 20
+    },
+    "breathing_reset": {
+      "kind": "state",
+      "title": "Reset Breathing",
+      "est_s": 90
+    },
+    "worry_dump": {
+      "kind": "state",
+      "title": "Clear Your Head",
+      "est_s": 180
+    },
+    "move_nudge": {
+      "kind": "state",
+      "title": "Move First",
+      "est_s": 180
+    }
+  },
+  "session": {
+    "budgets": {
+      "3": {
+        "perception": 1,
+        "thinking": 0,
+        "sprint_items": 6,
+        "item_scale": 0.6
+      },
+      "5": {
+        "perception": 2,
+        "thinking": 1,
+        "sprint_items": 8,
+        "item_scale": 0.8
+      },
+      "10": {
+        "perception": 3,
+        "thinking": 2,
+        "sprint_items": 12,
+        "item_scale": 1.0
+      }
+    },
+    "own_game_boost": 1.6
+  },
+  "adaptive": {
+    "ease_below": 0.7,
+    "harden_above": 0.95,
+    "window": 4
+  },
+  "tilt": {
+    "window_hours": 6,
+    "break_minutes": 30
+  },
+  "outcomes": {
+    "window_minutes": 30,
+    "max_games": 2,
+    "quality": "quick"
+  },
+  "experiment": {
+    "warmup_probability": 0.5,
+    "min_games_per_arm": 30
+  },
+  "flags": {
+    "warmup_puzzles_update_srs": false,
+    "warmup_puzzles_update_theme_ratings": false
+  },
+  "copy": {
+    "honesty": "Built on research into how chess players see the board and how athletes prepare. No study has yet tested pre-game chess warm-ups, so Forked measures your own games before and after to find out what helps you.",
+    "tilt": "You've lost {streak} in a row. Players often blunder more right after a losing streak; a 30-minute break is worth considering.",
+    "lichess_bands": "Bands are calibrated for chess.com ratings; your Lichess rating is used as-is."
+  },
+  "timer": {
+    "_note": "Each drill starts with a relaxed clock (cap x start_factor) that tightens by per_item after every question, down to cap x min_factor.",
+    "start_factor": 1.6,
+    "per_item": 0.1,
+    "min_factor": 1.0
+  }
+}

@@ -5,8 +5,8 @@
  */
 import type { LucideIcon } from 'lucide-react'
 import {
-  BookOpen, Bot, Clock, Crown, LayoutDashboard, MessageSquare, Microscope, MonitorUp,
-  ScanLine, ScanSearch, Sparkles, Swords, Target,
+  BookOpen, Bot, Clock, Crown, Flame, LayoutDashboard, MessageSquare, Microscope, MonitorUp,
+  Puzzle, ScanLine, ScanSearch, Sparkles, Swords, Target,
 } from 'lucide-react'
 
 export interface NavLeaf {
@@ -47,10 +47,14 @@ export const SECTIONS: NavSection[] = [
   },
   {
     id: 'practice', title: 'Practice', icon: Swords,
-    blurb: 'Drill your weak patterns and play a human-like opponent.',
+    blurb: 'Warm up before a game, drill your weak patterns, train any puzzle theme, and play a human-like opponent.',
     children: [
+      { id: 'warmup', title: 'Warm-Up', icon: Flame, to: '/warmup', match: ['/warmup/'],
+        blurb: 'Five minutes before you play: quick board-vision drills on real positions, then straight to your game.' },
       { id: 'drills', title: 'Drills', icon: Target, to: '/session',
         blurb: 'Puzzles aimed at your blindspots, spaced so they stick.' },
+      { id: 'themes', title: 'Puzzle Themes', icon: Puzzle, to: '/puzzles',
+        blurb: 'Every Lichess theme and finer sub-types, rated per theme, with Rush and Streak runs and puzzles from your own games.' },
       { id: 'maia', title: 'Play vs Maia', icon: Bot, to: '/bot-game', match: ['/bot-game/'],
         blurb: 'A human-like opponent at your rating, with a debrief after every game.' },
     ],
@@ -79,7 +83,7 @@ export const SECTIONS: NavSection[] = [
   },
   {
     id: 'scan', title: 'OTB Scan', icon: ScanLine, to: '/otb-scan',
-    blurb: 'Turn an over-the-board game into a game you can review: camera, video or scoresheet.',
+    blurb: 'Photograph your scoresheet and get the game back, checked move by move, ready to review. Camera and video coming soon.',
   },
 ]
 

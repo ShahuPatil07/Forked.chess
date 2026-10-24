@@ -86,7 +86,7 @@ def label_cluster(cluster: BlindspotCluster, client, model: str) -> str:
             f"{i}. FEN: {ev['fen']}\n"
             f"   Move {ev.get('move_number', '?')} ({ev.get('game_phase', '?')})"
             f"  |  Played: {ev['move_played']}  |  Engine best: {ev['best_move']}\n"
-            f"   Eval drop: {ev['eval_drop_cp']}cp"
+            f"   Eval drop: {min(abs(ev['eval_drop_cp'] or 0), 2000) / 100:.1f} pts"
             f"  |  Tactical motif: {ev.get('threat_type', 'unknown').replace('_', ' ')}"
             f"{surprise_note}"
         )

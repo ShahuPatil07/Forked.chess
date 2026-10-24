@@ -12,6 +12,7 @@ export const THUMB_SIZE   = 44
 
 interface NodeRowProps {
   move:         OpeningMove
+  evalStr:      string | null
   path:         string
   depth:        number
   isExpanded:   boolean
@@ -22,7 +23,7 @@ interface NodeRowProps {
 }
 
 function NodeRowInner({
-  move, path, depth, isExpanded, isLoading, isSelected, onSelect, onToggle,
+  move, evalStr, path, depth, isExpanded, isLoading, isSelected, onSelect, onToggle,
 }: NodeRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
 
@@ -33,7 +34,6 @@ function NodeRowInner({
   }, [isSelected])
 
   const canExpand = depth < MAX_DEPTH
-  const evalStr   = move.eval
 
   return (
     <div
@@ -75,12 +75,6 @@ function NodeRowInner({
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-sm font-bold text-text-0">{move.san}</span>
-          {move.eco && (
-            <span className="text-[10px] font-semibold text-text-2 px-1 py-0.5 rounded
-                             bg-bg-2 border border-border">
-              {move.eco}
-            </span>
-          )}
         </div>
         {move.name && (
           <p className="text-[11px] text-text-2 truncate leading-tight mt-0.5">
@@ -91,16 +85,15 @@ function NodeRowInner({
 
       {/* Eval badge */}
       {evalStr ? (
-        <span className={`font-mono text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded
-          ${evalStr.startsWith('+') || evalStr === '0.0' || evalStr === '+0.0'
-            ? 'bg-success/15 text-success'
-            : evalStr.includes('M')
-              ? 'bg-accent/15 text-accent'
-              : 'bg-bg-2 text-text-1'}`}>
-          {evalStr}
+        <span title="Stockfish evaluation, White's point of view (points)"
+          className={`font-mono text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded w-12 text-center flex-shrink-0
+          ${evalStr.includes('M') ? 'bg-accent/15 text-accent'
+            : Math.abs(parseFloat(evalStr)) < 0.35 ? 'bg-bg-2 text-text-1'
+            : parseFloat(evalStr) > 0 ? 'bg-[#F0F0F0]/10 text-text-0' : 'bg-bg-3 text-text-2'}`}>
+          {evalStr.replace('-', '−')}
         </span>
       ) : (
-        <span className="text-[10px] text-text-2 px-1.5 py-0.5">—</span>
+        <span className="w-12 flex-shrink-0 flex justify-center" title="Evaluating…"><span className="w-3 h-3 border border-text-2 border-t-transparent rounded-full animate-spin" /></span>
       )}
 
       {/* Popularity + mini WDL bar */}
@@ -129,6 +122,7 @@ const NodeRow = memo(NodeRowInner)
 
 interface OpeningTreeProps {
   nodes:         OpeningMove[]
+  evals:         Map<string, string>
   parentPath:    string        // UCI path of parent; '' for root
   depth:         number
   expanded:      Set<string>
@@ -140,13 +134,10 @@ interface OpeningTreeProps {
 }
 
 export function OpeningTree({
-  nodes, parentPath, depth, expanded, loading, selectedPath, children_, onSelect, onToggle,
+  nodes, evals, parentPath, depth, expanded, loading, selectedPath, children_, onSelect, onToggle,
 }: OpeningTreeProps) {
   return (
-    <div
-      className={depth > 0 ? 'border-l border-accent/15 pl-2' : ''}
-      style={{ marginLeft: depth > 0 ? `${INDENT_PX}px` : 0 }}
-    >
+    <div className={depth > 0 ? 'border-l border-accent/15 pl-1.5 sm:pl-2 ml-2.5 sm:ml-6' : ''}>
       {nodes.map((move) => {
         const path = parentPath ? `${parentPath} ${move.uci}` : move.uci
 
@@ -159,6 +150,7 @@ export function OpeningTree({
           <div key={path}>
             <NodeRow
               move={move}
+              evalStr={evals.get(move.fen_after) ?? move.eval}
               path={path}
               depth={depth}
               isExpanded={isExpanded}
@@ -194,6 +186,7 @@ export function OpeningTree({
                   ) : kids && kids.length > 0 ? (
                     <OpeningTree
                       nodes={kids}
+                      evals={evals}
                       parentPath={path}
                       depth={depth + 1}
                       expanded={expanded}

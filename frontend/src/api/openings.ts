@@ -18,10 +18,21 @@ export interface OpeningMove {
   fen_after:  string
 }
 
+export type OpeningDb = 'lichess' | 'masters'
+
+/** The game pool the tree is built from. Lichess `ratings` are brackets of the
+ *  AVERAGE rating of both players (lower bounds: 0 = under 1000 … 2500 = 2500+). */
+export interface OpeningPool {
+  db:      OpeningDb
+  ratings: string[]
+  speeds:  string[]
+}
+
 export interface ExploreResponse {
   opening:    { name: string; eco: string } | null
   moves:      OpeningMove[]
   elo_bucket: string
+  pool?:      OpeningPool & { games: number }
 }
 
 export interface EvalResponse {
@@ -99,14 +110,27 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const openingsApi = {
-  explore: (fen?: string, moves?: string, elo?: number | null) => {
+  explore: (fen?: string, moves?: string, elo?: number | null, pool?: OpeningPool) => {
     const params = new URLSearchParams()
     if (fen)              params.set('fen',   fen)
     if (moves)            params.set('moves', moves)
     if (elo != null)      params.set('elo',   String(elo))
+    if (pool) {
+      params.set('db', pool.db)
+      if (pool.db === 'lichess') {
+        if (pool.ratings.length) params.set('ratings', pool.ratings.join(','))
+        if (pool.speeds.length)  params.set('speeds', pool.speeds.join(','))
+      }
+    }
     const qs = params.toString()
     return req<ExploreResponse>(`/api/openings/explore${qs ? '?' + qs : ''}`)
   },
+
+  /** Engine evals (White's view) for several positions; computed + cached server-side. */
+  evals: (fens: string[]) =>
+    req<{ evals: Record<string, string> }>(`/api/openings/evals`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fens }),
+    }),
 
   getEval: (fen: string) =>
     req<EvalResponse>(`/api/openings/eval?fen=${encodeURIComponent(fen)}`),

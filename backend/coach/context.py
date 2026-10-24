@@ -34,10 +34,6 @@ def _settings(username: str) -> dict:
     return _read_json(OUTPUT_DIR / f"{username}_settings.json", {}) or {}
 
 
-def _style(username: str) -> dict:
-    return _read_json(OUTPUT_DIR / f"{username}_style.json", {}) or {}
-
-
 def _clusters(username: str) -> list[dict]:
     return _read_json(OUTPUT_DIR / f"{username}_clusters.json", []) or []
 
@@ -131,13 +127,12 @@ def _drill_summary(username: str) -> str:
 def build_user_context(username: str) -> str:
     """Assemble the Layer-3 context block injected as the first user turn."""
     settings = _settings(username)
-    style    = _style(username)
     profile  = load_coach_profile(username) or {}
     memory   = load_coach_memory(username)
     clusters = _clusters(username)
 
     elo = settings.get("elo") or profile.get("rating_bucket") or "unknown"
-    archetype = style.get("archetype") or profile.get("play_style") or "unknown"
+    archetype = profile.get("play_style") or "unknown"
     goal = profile.get("goal") or "not specified"
     study = profile.get("study_time") or "not specified"
     struggle = profile.get("struggle") or ""

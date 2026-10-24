@@ -249,11 +249,11 @@ def run_agent(*, message: str, history: list[dict], fen: str | None, moves_conte
               game_pgn: str | None = None, level: str = "", style: str = "balanced",
               review: dict | None = None, profile: dict | None = None, spoken: bool = False,
               board_info: dict | None = None, seen_puzzles: list[str] | None = None,
-              maia_elo: int | None = None, force_intent: str | None = None) -> Iterator[dict]:
+              maia_elo: int | None = None, force_intent: str | None = None, username: str = "") -> Iterator[dict]:
     profile = normalize_profile(profile, level, style)
     session = Session(fen=chess.STARTING_FEN, game_pgn=game_pgn or None, level=profile.get("rating_bucket", ""),
                       puzzle_rating=puzzle_rating(profile), seen_puzzles=set(seen_puzzles or []),
-                      maia_elo=max(1100, min(1900, int(maia_elo or 1900))))
+                      maia_elo=max(600, min(2800, int(maia_elo or 1900))), username=username or "")
     try:
         board = chess.Board(fen) if fen else chess.Board()
         if not board.is_valid():

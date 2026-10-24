@@ -82,8 +82,22 @@ app.include_router(replay_router)
 from backend.counterfactual import router as counterfactual_router
 app.include_router(counterfactual_router)
 
-from backend.card import router as card_router
-app.include_router(card_router)
+# Accounts, live platform ratings, the game library (+ background reviews),
+# platform game history and dashboard insights.
+from backend.auth import router as auth_router
+app.include_router(auth_router)
+from backend.ratings import router as ratings_router
+app.include_router(ratings_router)
+from backend.library import router as library_router
+app.include_router(library_router)
+from backend.history import router as history_router
+app.include_router(history_router)
+from backend.insights import router as insights_router
+app.include_router(insights_router)
+from backend.coach_chats import router as coach_chats_router
+app.include_router(coach_chats_router)
+from backend.drills import router as drills_router
+app.include_router(drills_router)
 
 # Forked Coach — persistent agentic chess coach (capstone feature)
 from backend.coach import router as coach_router
@@ -94,6 +108,14 @@ app.include_router(game_review_router)
 # OTB Scanner — scoresheet OCR -> PGN
 from backend.scoresheet import router as scoresheet_router
 app.include_router(scoresheet_router)
+
+# Puzzle Themes — Lichess-style themed puzzles + per-theme ratings, own-game puzzles
+from backend.puzzle_themes import router as puzzle_themes_router
+app.include_router(puzzle_themes_router)
+
+# Warm-Up — pre-game blunder-prevention drills (board-truth generators, offline Stockfish bank)
+from backend.warmup.router import router as warmup_router
+app.include_router(warmup_router)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Feature 1 — Live game sync + blindspot alerts
@@ -454,13 +476,24 @@ class AttemptsRequest(BaseModel):
 class SettingsUpdate(BaseModel):
     elo: Optional[int] = None
     platform: Optional[str] = None
+    elo_manual: Optional[bool] = None
 
 
 class BotGameCreate(BaseModel):
-    username:     str
-    user_color:   str           = "random"   # "white" | "black" | "random"
-    starting_fen: Optional[str] = None        # for endgame practice — start from this FEN
-    target_elo:   Optional[int] = None        # override Maia ELO (e.g. for endgame practice)
+    username:       str
+    user_color:     str           = "random"   # "white" | "black" | "random"
+    starting_fen:   Optional[str] = None        # endgame practice — start from this FEN
+    starting_moves: Optional[list[str]] = None  # opening practice — UCI moves from the start
+    target_elo:     Optional[int] = None        # opponent rating on `rating_scale`
+    rating_scale:   str           = "lichess"   # "chesscom" | "lichess" (converted to Lichess for Maia)
+    engine:         str           = "maia"      # "maia" | "stockfish"
+    annotate:       bool          = False       # analysed mode: every move labelled + live eval
+    context:        Optional[dict] = None       # {"kind": "opening"|"endgame", "name": ..., ...}
+
+
+class AnnotateRequest(BaseModel):
+    fen: str
+    uci: str
 
 
 class AccuracyRequest(BaseModel):
@@ -495,39 +528,49 @@ def _game_meta_path(username: str) -> Path:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/analyse")
-async def analyse_position(fen: str, depth: int = 14):
-    """Run Stockfish on a FEN and return best move + evaluation."""
+async def analyse_position(fen: str, depth: int = 14, multipv: int = 1):
+    """Stockfish on a FEN: best move + evaluation (white POV), and with
+    multipv > 1 the top candidate lines in SAN (Analysis Board)."""
+    depth = max(6, min(24, depth))
+    multipv = max(1, min(5, multipv))
+
     def _run():
         import chess
         import chess.engine
+        try:
+            board = chess.Board(fen)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid FEN: {exc}")
+        if board.is_game_over():
+            outcome = board.outcome()
+            mate = None
+            if outcome.winner is not None:
+                mate = 0
+            return {"best_move": None, "eval_cp": 0 if outcome.winner is None else None, "eval_mate": mate,
+                    "game_over": outcome.termination.name.lower(), "lines": [], "depth": 0}
         with _sf_lock:
             engine = _ensure_engine()
-            try:
-                board = chess.Board(fen)
-            except ValueError as exc:
-                raise RuntimeError(f"Invalid FEN: {exc}")
-            info = engine.analyse(board, chess.engine.Limit(depth=depth))
-
-        best_move: Optional[str] = None
-        pv = info.get("pv", [])
-        if pv:
-            best_move = pv[0].uci()
-
-        eval_cp:   Optional[int] = None
-        eval_mate: Optional[int] = None
-        score = info.get("score")
-        if score is not None:
-            pov = score.white()
-            if pov.is_mate():
-                eval_mate = pov.mate()
-            else:
-                eval_cp = pov.score()
-
-        return {"best_move": best_move, "eval_cp": eval_cp, "eval_mate": eval_mate}
+            infos = engine.analyse(board, chess.engine.Limit(depth=depth, time=4), multipv=multipv)
+        if isinstance(infos, dict):
+            infos = [infos]
+        lines = []
+        for info in infos:
+            pv = info.get("pv", [])
+            sc = info.get("score")
+            pov = sc.white() if sc is not None else None
+            lines.append({
+                "uci": [m.uci() for m in pv[:10]],
+                "san": board.variation_san(pv[:10]) if pv else "",
+                "cp": None if pov is None or pov.is_mate() else pov.score(),
+                "mate": pov.mate() if pov is not None and pov.is_mate() else None,
+                "depth": info.get("depth"),
+            })
+        top = lines[0] if lines else {}
+        return {"best_move": (top.get("uci") or [None])[0], "eval_cp": top.get("cp"), "eval_mate": top.get("mate"),
+                "lines": lines, "depth": top.get("depth")}
 
     try:
-        result = await asyncio.get_event_loop().run_in_executor(None, _run)
-        return result
+        return await asyncio.get_event_loop().run_in_executor(None, _run)
     except Exception as exc:
         raise HTTPException(500, str(exc))
 
@@ -590,18 +633,19 @@ async def ingest_status(job_id: str):
 
 
 def _cluster_enrichment(evts: list, total: int) -> dict:
-    """Per-cluster context derived straight from its mistake events, so it works
-    for every user regardless of whether a profile.json snapshot exists. Surfaces
-    the signals the product cares about: how costly, when (phase), under what
-    conditions (time pressure), and the sub-motif mix within the family."""
+    """Per-cluster context derived straight from its mistake events (Stage-1 v2):
+    how costly (win-probability loss; centipawns kept only for the points display),
+    when (phase), under what conditions (clock) and how recent. Cascade repeats of
+    one oversight are collapsed, exactly like the Stage-2 profile."""
+    evts = [e for e in evts if not e.get("cascade")]
     n = len(evts)
     raw_drops = [max(0, e.get("eval_drop_cp", 0)) for e in evts]
-    # Cap at 1000cp (matches Stage-2 _SEVERITY_CAP) so mate scores (eval_drop
-    # ~30000) don't make the average meaningless.
+    # Cap at 1000cp (matches Stage-2 _SEVERITY_CAP) so mate scores don't dominate the mean.
     drops = [min(1000, d) for d in raw_drops]
     avg_drop = round(sum(drops) / n) if n else 0
     max_drop = max(raw_drops) if raw_drops else 0
-    blunders = sum(1 for d in raw_drops if d >= 300)
+    judged = Counter(e.get("judgement") or "mistake" for e in evts)
+    es = [e.get("es_loss") for e in evts if e.get("es_loss") is not None]
 
     phases  = Counter(e.get("game_phase", "middlegame") for e in evts)
     threats = Counter(e.get("threat_type", "other") for e in evts)
@@ -609,15 +653,18 @@ def _cluster_enrichment(evts: list, total: int) -> dict:
     clocks = [e.get("time_remaining_ms") for e in evts if e.get("time_remaining_ms") is not None]
     tp_share = round(sum(1 for c in clocks if c < 30_000) / len(clocks), 3) if clocks else None
 
-    # Recency: most recent occurrence in days (None if no timestamps).
     ts = [e.get("played_at_unix") for e in evts if e.get("played_at_unix")]
     last_days = round((time.time() - max(ts)) / 86_400, 1) if ts else None
 
     return {
         "frequency":           round(n / total, 4) if total else 0.0,
+        "incidents":           n,
         "avg_drop_cp":         avg_drop,
         "max_drop_cp":         max_drop,
-        "blunder_count":       blunders,
+        "avg_es_loss":         round(sum(es) / len(es), 4) if es else None,
+        "blunder_count":       judged.get("blunder", 0),
+        "mistake_count":       judged.get("mistake", 0),
+        "inaccuracy_count":    judged.get("inaccuracy", 0),
         "phase_breakdown":     dict(phases.most_common()),
         "threat_breakdown":    dict(threats.most_common()),
         "dominant_phase":      phases.most_common(1)[0][0] if phases else "middlegame",
@@ -630,20 +677,26 @@ def _cluster_enrichment(evts: list, total: int) -> dict:
 def get_profile(username: str):
     clusters = _load_json(_clusters_path(username), "Cluster profile")
 
-    # Annotate rank
+    # Rank = the Stage-2 order (score = 0.75 excess-over-peers + 0.25 impact)
+    clusters.sort(key=lambda c: -(c.get("score") or 0))
     for i, c in enumerate(clusters):
         c["rank"] = i + 1
 
-    # Stats + per-cluster enrichment from mistakes
     try:
         mistakes = _load_json(_mistakes_path(username), "")
-        threats = Counter(m["threat_type"] for m in mistakes)
-        phases  = Counter(m["game_phase"]  for m in mistakes)
-        n_games = len(set(m["game_id"] for m in mistakes))
-        total   = len(mistakes)
+        user_evts = [m for m in mistakes if m.get("side", "user") == "user" and not m.get("cascade")]
+        threats = Counter(m.get("threat_type", "other") for m in user_evts)
+        phases  = Counter(m.get("game_phase", "middlegame") for m in user_evts)
+        judged  = Counter(m.get("judgement") or "mistake" for m in user_evts)
+        exposure_path = OUTPUT_DIR / f"{username}_exposure.json"
+        exposure = json.loads(exposure_path.read_text(encoding="utf-8")) if exposure_path.exists() else []
+        n_games = len(exposure) or len(set(m["game_id"] for m in mistakes))
         stats = {
             "total_games":       n_games,
-            "total_mistakes":    total,
+            "total_mistakes":    len(user_evts),
+            "inaccuracies":      judged.get("inaccuracy", 0),
+            "mistakes":          judged.get("mistake", 0),
+            "blunders":          judged.get("blunder", 0),
             "top_threat":        threats.most_common(1)[0][0] if threats else "other",
             "threat_breakdown":  dict(threats.most_common()),
             "phase_breakdown":   dict(phases.most_common()),
@@ -656,12 +709,12 @@ def get_profile(username: str):
         except Exception:
             _family_info = None
         for c in clusters:
-            c["enrichment"] = _cluster_enrichment(by_cluster.get(str(c["cluster_id"]), []), total)
+            c["enrichment"] = _cluster_enrichment(by_cluster.get(str(c["cluster_id"]), []), len(user_evts))
             if _family_info is not None:
                 c["skill"] = _family_info(str(c["cluster_id"])).get("skill")
     except HTTPException:
-        stats = {"total_games": 0, "total_mistakes": 0, "top_threat": "other",
-                 "threat_breakdown": {}, "phase_breakdown": {}}
+        stats = {"total_games": 0, "total_mistakes": 0, "inaccuracies": 0, "mistakes": 0, "blunders": 0,
+                 "top_threat": "other", "threat_breakdown": {}, "phase_breakdown": {}}
 
     return {"username": username, "clusters": clusters, "stats": stats}
 
@@ -907,13 +960,26 @@ def get_session(username: str, elo: int = 1500, n: int = 12, cluster_id: Optiona
         except Exception:
             pass
 
-    # Filter to a specific blindspot if requested
+    # Filter to a specific blindspot if requested (ranks still come from the full profile)
+    all_clusters = list(clusters)
     if cluster_id is not None:
         clusters = [c for c in clusters if str(c.cluster_id) == cluster_id]
 
     from ml.srs.session import build_session
     items = build_session(username=username, clusters=clusters,
-                          user_elo=elo, n_puzzles=n, due_only=False)
+                          user_elo=elo, n_puzzles=n, due_only=False, all_clusters=all_clusters)
+
+    # "N times in your games" = the same incidents the profile scores (your mistakes and
+    # blunders, cascades collapsed) — the cluster `size` also counts inaccuracies
+    try:
+        mistakes = json.loads(_mistakes_path(username).read_text(encoding="utf-8"))
+        incidents = Counter(str(m.get("cluster_id") or "unclassified") for m in mistakes
+                            if m.get("side", "user") == "user" and not m.get("cascade")
+                            and m.get("judgement") in ("mistake", "blunder"))
+        for it in items:
+            it.missed_count = incidents.get(str(it.cluster_id), it.missed_count)
+    except Exception:
+        pass
 
     session_id = str(uuid.uuid4())
     return {
@@ -952,7 +1018,7 @@ def complete_session(req: AttemptsRequest):
 @app.get("/api/settings/{username}")
 def get_settings(username: str):
     path = _settings_path(username)
-    base = {"username": username, "platform": "lichess", "elo": 1500}
+    base = {"username": username, "platform": "lichess", "elo": 1500, "elo_manual": False}
     if path.exists():
         with open(path, encoding="utf-8") as fh:
             base.update(json.load(fh))
@@ -972,6 +1038,8 @@ def update_settings(username: str, req: SettingsUpdate):
         existing["elo"] = req.elo
     if req.platform is not None:
         existing["platform"] = req.platform
+    if req.elo_manual is not None:
+        existing["elo_manual"] = req.elo_manual
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(existing, fh)
     existing["username"] = username
@@ -1056,6 +1124,7 @@ import datetime as _datetime
 import chess as _chess
 
 from backend.bot import maia_engine, thinking_delay
+from backend.bot import engines as bot_engines
 
 # In-memory game store  {game_id -> game_dict}
 _bot_games: dict[str, dict] = {}
@@ -1072,9 +1141,29 @@ def _check_game_over(board: "_chess.Board") -> tuple[bool, Optional[str], Option
         return True, "1/2-1/2", "insufficient_material"
     if board.is_seventyfive_moves():
         return True, "1/2-1/2", "seventy_five_moves"
-    if board.is_fivefold_repetition():
-        return True, "1/2-1/2", "fivefold_repetition"
+    if board.is_fivefold_repetition() or board.can_claim_threefold_repetition():
+        return True, "1/2-1/2", "threefold_repetition"
+    if board.can_claim_fifty_moves():
+        return True, "1/2-1/2", "fifty_moves"
     return False, None, None
+
+
+def _bot_pgn_headers(game: dict) -> dict:
+    ctx = game.get("context") or {}
+    bot = game.get("bot_name") or "Maia"
+    user = game.get("username") or "You"
+    white, black = (user, bot) if game["user_color"] == "white" else (bot, user)
+    elo_user = game.get("user_elo_display")
+    elo_bot = game.get("target_elo_display")
+    h = {"Event": f"Forked practice: {ctx['name']}" if ctx.get("name") else "Forked vs Maia",
+         "Site": "Forked", "Date": _datetime.datetime.utcnow().strftime("%Y.%m.%d"),
+         "White": white, "Black": black, "Result": game.get("result") or "*"}
+    if elo_user and elo_bot:
+        if game["user_color"] == "white":
+            h["WhiteElo"], h["BlackElo"] = str(elo_user), str(elo_bot)
+        else:
+            h["WhiteElo"], h["BlackElo"] = str(elo_bot), str(elo_user)
+    return h
 
 
 def _save_bot_game(game: dict) -> None:
@@ -1087,6 +1176,25 @@ def _save_bot_game(game: dict) -> None:
             json.dump(serialisable, fh, default=str)
     except Exception as exc:
         log.warning("Failed to save bot game %s: %s", game.get("game_id"), exc)
+    # Concluded games join the player's Forked history (Game History -> Forked games).
+    if game.get("status") == "finished" and game.get("move_history") and game.get("username"):
+        try:
+            from backend.library import build_pgn, upsert_game
+            ctx = game.get("context") or {}
+            source = ctx.get("kind") if ctx.get("kind") in ("opening", "endgame") else "maia"
+            pgn = build_pgn(game["starting_fen"], game["move_history"], _bot_pgn_headers(game))
+            bot_name = game.get("bot_name", "Maia")
+            title = f"{ctx['name']} vs {bot_name}" if ctx.get("name") else f"You vs {bot_name}"
+            rec = upsert_game(game["username"], pgn=pgn, source=source, user_color=game["user_color"],
+                              title=title,
+                              meta={"bot_game_id": game["game_id"], "engine": game.get("engine"),
+                                    "target_elo": game.get("target_elo_display"),
+                                    "rating_scale": game.get("rating_scale"), "context": ctx,
+                                    "annotated": game.get("annotate", False)},
+                              played_at=time.time(), time_class="untimed")
+            game["library_id"] = rec["id"]
+        except Exception as exc:
+            log.warning("Could not add bot game %s to the library: %s", game.get("game_id"), exc)
 
 
 async def _cleanup_game_after_delay(game_id: str, delay_s: int = 300) -> None:
@@ -1102,9 +1210,11 @@ async def _make_bot_move(ws: "WebSocket", game: dict) -> None:
 
     loop = asyncio.get_event_loop()
 
-    delay_coro = thinking_delay.think(fen)
+    board_snapshot = game["board"].copy()
+    engine_name = game.get("engine", "maia")
+    delay_coro = thinking_delay.think(fen) if engine_name != "stockfish" else asyncio.sleep(0.3)
     move_coro  = loop.run_in_executor(
-        None, lambda: maia_engine.get_move(fen, target_elo, user_elo)
+        None, lambda: bot_engines.choose_move(board_snapshot, engine_name, target_elo, user_elo)[0]
     )
 
     move_uci, _ = await asyncio.gather(move_coro, delay_coro)
@@ -1140,8 +1250,10 @@ async def _make_bot_move(ws: "WebSocket", game: dict) -> None:
     if over:
         game["status"] = "finished"
         game["result"] = result
-        await ws.send_json({"type": "game_over", "result": result, "reason": reason})
+        game["finished_at"] = _datetime.datetime.utcnow().isoformat()
         _save_bot_game(game)
+        await ws.send_json({"type": "game_over", "result": result, "reason": reason,
+                            "library_id": game.get("library_id")})
 
 
 @app.post("/api/bot-game/create")
@@ -1153,8 +1265,17 @@ async def create_bot_game(req: BotGameCreate):
         with open(settings_path, encoding="utf-8") as fh:
             user_elo = json.load(fh).get("elo", 1500)
 
-    # target_elo: explicit override (endgame practice) > user_elo + 50
-    target_elo = req.target_elo if req.target_elo is not None else user_elo + 50
+    from backend.ratings import to_lichess
+    user_platform = "lichess"
+    if settings_path.exists():
+        with open(settings_path, encoding="utf-8") as fh:
+            user_platform = json.load(fh).get("platform") or "lichess"
+    scale = req.rating_scale if req.rating_scale in ("chesscom", "lichess") else "lichess"
+    # displayed numbers stay on the player's scale; the engine works on the Lichess scale
+    target_display = req.target_elo if req.target_elo is not None else user_elo + 50
+    target_elo = to_lichess(target_display, scale)
+    user_elo_lichess = to_lichess(user_elo, user_platform)
+    engine = req.engine if req.engine in ("maia", "stockfish") else "maia"
 
     # Validate optional starting FEN (endgame practice mode)
     if req.starting_fen:
@@ -1175,19 +1296,42 @@ async def create_bot_game(req: BotGameCreate):
         if color == "random":
             color = _random.choice(["white", "black"])
 
+    root_fen = start_board.fen()
+    prefill: list[str] = []
+    for uci in (req.starting_moves or [])[:60]:
+        try:
+            mv = _chess.Move.from_uci(uci)
+        except ValueError:
+            raise HTTPException(400, f"Invalid opening move {uci!r}")
+        if mv not in start_board.legal_moves:
+            raise HTTPException(400, f"Illegal opening move {uci!r}")
+        start_board.push(mv)
+        prefill.append(uci)
+    if prefill and req.user_color == "random":
+        color = "white" if start_board.turn == _chess.WHITE else "black"
+
+    bot_name = "Stockfish" if engine == "stockfish" else f"Maia {target_display}"
     game_id = str(uuid.uuid4())
     game = {
         "game_id":          game_id,
         "username":         req.username,
         "board":            start_board,
         "user_color":       color,
-        "user_elo":         user_elo,
+        "user_elo":         user_elo_lichess,
+        "user_elo_display": user_elo,
         "target_elo":       target_elo,
+        "target_elo_display": target_display if engine != "stockfish" else None,
+        "rating_scale":     scale,
+        "engine":           engine,
+        "bot_name":         bot_name,
+        "annotate":         bool(req.annotate),
+        "context":          req.context or None,
         "status":           "active",
-        "move_history":     [],
+        "move_history":     list(prefill),
+        "prefill_plies":    len(prefill),
         "position_history": [start_board.fen()],
         "result":           None,
-        "starting_fen":     start_board.fen(),    # remembered for reconnect / replay
+        "starting_fen":     root_fen,    # remembered for reconnect / replay
         "started_at":       _datetime.datetime.utcnow().isoformat(),
         "finished_at":      None,
     }
@@ -1195,8 +1339,13 @@ async def create_bot_game(req: BotGameCreate):
     return {
         "game_id":      game_id,
         "user_color":   color,
-        "target_elo":   target_elo,
-        "starting_fen": start_board.fen(),
+        "target_elo":   target_display,
+        "target_elo_lichess": target_elo,
+        "engine":       engine,
+        "bot_name":     bot_name,
+        "starting_fen": root_fen,
+        "moves":        prefill,
+        "annotate":     bool(req.annotate),
     }
 
 
@@ -1215,11 +1364,85 @@ async def get_bot_game(game_id: str):
         "game_id":      game_id,
         "fen":          game["board"].fen(),
         "user_color":   game["user_color"],
-        "target_elo":   game["target_elo"],
+        "target_elo":   game.get("target_elo_display") or game["target_elo"],
         "status":       game["status"],
         "move_history": game["move_history"],
+        "starting_fen": game.get("starting_fen"),
+        "engine":       game.get("engine", "maia"),
+        "bot_name":     game.get("bot_name"),
+        "annotate":     game.get("annotate", False),
+        "context":      game.get("context"),
         "result":       game["result"],
+        "library_id":   game.get("library_id"),
     }
+
+
+_annotate_cache: dict = {}
+
+
+@app.post("/api/bot-game/annotate")
+async def annotate_move(req: AnnotateRequest):
+    """Label one move the way Game Review does (best ... blunder) and return the
+    evaluation after it. Powers the analysed mode of Play vs Maia."""
+    key = (req.fen, req.uci)
+    if key in _annotate_cache:
+        return _annotate_cache[key]
+
+    def _run() -> dict:
+        import chess.engine
+        from backend.game_review import classify, expected_points
+        board = _chess.Board(req.fen)
+        move = _chess.Move.from_uci(req.uci)
+        if move not in board.legal_moves:
+            raise HTTPException(400, "Illegal move")
+        mover = board.turn
+        san = board.san(move)
+        after = board.copy()
+        after.push(move)
+        with _sf_lock:
+            engine = _ensure_engine()
+            infos = engine.analyse(board, chess.engine.Limit(depth=14, time=1.2), multipv=2)
+            info_after = None if after.is_game_over() else engine.analyse(after, chess.engine.Limit(depth=14, time=1.2))
+        best = infos[0]
+        best_pov = best["score"].pov(mover)
+        best_exp = expected_points(best_pov.score(), best_pov.mate())
+        second = infos[1]["score"].pov(mover) if len(infos) > 1 else None
+        white_cp, white_mate = None, None
+        if after.is_checkmate():
+            played_exp = 1.0
+            white_mate = 0
+        elif after.is_game_over():
+            played_exp, white_cp = 0.5, 0
+        else:
+            sc = info_after["score"]
+            pov = sc.pov(mover)
+            played_exp = expected_points(pov.score(), pov.mate())
+            white_cp, white_mate = sc.white().score(), sc.white().mate()
+        loss = max(0.0, best_exp - played_exp)
+        is_best = bool(best.get("pv")) and best["pv"][0] == move
+        label, reason = classify(loss, best=is_best or loss < .001, expected=played_exp,
+                                 second_expected=expected_points(second.score(), second.mate()) if second else None)
+        best_uci = best["pv"][0].uci() if best.get("pv") else None
+        return {"san": san, "classification": label, "reason": reason, "loss": round(loss, 4),
+                "best_uci": best_uci, "best_san": board.san(best["pv"][0]) if best_uci else None,
+                "white_cp": white_cp, "white_mate": white_mate, "checkmate": after.is_checkmate(),
+                "fen_after": after.fen()}
+
+    try:
+        out = await asyncio.get_event_loop().run_in_executor(None, _run)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+    if len(_annotate_cache) > 5000:
+        _annotate_cache.clear()
+    _annotate_cache[key] = out
+    return out
+
+
+@app.get("/api/bot-engines")
+def bot_engines_info():
+    return bot_engines.engine_info()
 
 
 @app.websocket("/ws/bot-game/{game_id}")
@@ -1234,10 +1457,18 @@ async def bot_game_ws(websocket: WebSocket, game_id: str):
 
     try:
         await websocket.send_json({
-            "type":        "game_start",
-            "fen":         game["board"].fen(),
-            "user_color":  game["user_color"],
-            "target_elo":  game["target_elo"],
+            "type":         "game_start",
+            "fen":          game["board"].fen(),
+            "starting_fen": game.get("starting_fen"),
+            "moves":        game["move_history"],
+            "user_color":   game["user_color"],
+            "target_elo":   game.get("target_elo_display") or game["target_elo"],
+            "engine":       game.get("engine", "maia"),
+            "bot_name":     game.get("bot_name"),
+            "annotate":     game.get("annotate", False),
+            "status":       game["status"],
+            "result":       game["result"],
+            "library_id":   game.get("library_id"),
         })
 
         # Bot moves first whenever the side to move is NOT the user's colour.
@@ -1282,8 +1513,9 @@ async def bot_game_ws(websocket: WebSocket, game_id: str):
                     game["status"] = "finished"
                     game["result"] = result
                     game["finished_at"] = _datetime.datetime.utcnow().isoformat()
-                    await websocket.send_json({"type": "game_over", "result": result, "reason": reason})
                     _save_bot_game(game)
+                    await websocket.send_json({"type": "game_over", "result": result, "reason": reason,
+                                               "library_id": game.get("library_id")})
                     continue
 
                 await _make_bot_move(websocket, game)
@@ -1293,8 +1525,9 @@ async def bot_game_ws(websocket: WebSocket, game_id: str):
                 game["status"]      = "finished"
                 game["result"]      = result
                 game["finished_at"] = _datetime.datetime.utcnow().isoformat()
-                await websocket.send_json({"type": "game_over", "result": result, "reason": "resignation"})
                 _save_bot_game(game)
+                await websocket.send_json({"type": "game_over", "result": result, "reason": "resignation",
+                                           "library_id": game.get("library_id")})
 
             elif msg_type == "offer_draw":
                 await websocket.send_json({"type": "error", "message": "Maia doesn't accept draw offers — keep playing!"})

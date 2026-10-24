@@ -74,21 +74,9 @@ def _read_json(path: Path, default):
 
 
 def _write_json(path: Path, data) -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, default=str)
-    # Windows refuses to replace a file another thread/process has open for a
-    # moment (WinError 5 on the sync state) — retry briefly instead of a 500.
-    for attempt in range(6):
-        try:
-            tmp.replace(path)
-            return
-        except PermissionError:
-            time.sleep(0.05 * (attempt + 1))
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, default=str)
-    tmp.unlink(missing_ok=True)
+    # unique temp file + atomic replace with Windows retry (backend/storage.py)
+    from backend.storage import write_json
+    write_json(path, data, indent=2)
 
 
 def _now_iso() -> str:
@@ -121,8 +109,24 @@ def read_alerts(username: str) -> list[dict]:
     return _read_json(_alerts_path(username), [])
 
 
+def _alert_families(ctx) -> set[str]:
+    """Families worth an alert: confirmed / emerging blindspots (worse than your
+    rating-matched peers). If none are, your two costliest tactical families by
+    Stage-2 score, so a player whose patterns are all "typical" still hears about
+    the ones that cost the most."""
+    tactical = [c for c in ctx.clusters if str(c.get("cluster_id")) not in ("positional", "unclassified")]
+    flagged = {str(c["cluster_id"]) for c in tactical
+               if (c.get("profile") or {}).get("status") in ("confirmed", "emerging")}
+    if flagged:
+        return flagged
+    ranked = sorted(tactical, key=lambda c: c.get("score") or 0, reverse=True)
+    return {str(c["cluster_id"]) for c in ranked[:2] if (c.get("score") or 0) > 0}
+
+
 def unseen_alerts(username: str) -> list[dict]:
-    alerts = [a for a in read_alerts(username) if not a.get("seen")]
+    # alerts written before positional moves stopped matching are skipped, not deleted
+    alerts = [a for a in read_alerts(username)
+              if not a.get("seen") and str(a.get("cluster_id")) not in ("positional", "unclassified")]
     alerts.sort(key=lambda a: a.get("timestamp", ""), reverse=True)
     return alerts
 
@@ -260,6 +264,7 @@ def sync_user(username: str, platform: str = "lichess") -> list[dict]:
             return []
 
         results = match_events(events, ctx)
+        known = _alert_families(ctx)
 
         appended: list[dict] = []
         for ev, res in zip(events, results):
@@ -269,8 +274,8 @@ def sync_user(username: str, platform: str = "lichess") -> list[dict]:
             ev_dict["cluster_id"] = ev.cluster_id or (res.cluster_id if res.matched else "unclassified")
             appended.append(ev_dict)
 
-            if not res.matched or ev.cascade:
-                continue   # non-tactical, or the same root cause as an earlier move
+            if not res.matched or ev.cascade or str(res.cluster_id) not in known:
+                continue   # non-tactical, same root cause as an earlier move, or not a weakness of yours
 
             game = game_map.get(ev.game_id, {})
             reset = reset_cluster_mastery(username, res.cluster_id)

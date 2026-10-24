@@ -1,14 +1,9 @@
 /**
- * Build a WebSocket URL that works in both dev and the single-origin prod build.
- *
- * Dev: the Vite dev server (5173) and the API (8000) are separate origins, so we
- * talk to the backend directly on :8000.
- * Prod: the app is served from the same origin as the API, so derive host +
- * protocol from the page (wss:// under HTTPS).
+ * WebSocket URL for a backend path. Always the page's own origin: in dev the
+ * Vite server proxies /ws to the API (vite.config.ts), in production the API
+ * serves the app itself — so this works on any host or port, behind HTTPS too.
  */
 export function wsUrl(path: string): string {
-  const { protocol, hostname, host, port } = window.location
-  if (port === '5173') return `ws://${hostname}:8000${path}`   // Vite dev
-  const proto = protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${host}${path}`
+  const { protocol, host } = window.location
+  return `${protocol === 'https:' ? 'wss' : 'ws'}://${host}${path}`
 }

@@ -452,6 +452,10 @@ def review_rows(game: chess.pgn.Game, engine, quality: str):
             expected=played_score['expected'], second_expected=second['expected'] if second else None,
             missed_chance=missed_chance, concrete=concrete, obvious=is_obvious(before, move, prev_move),
             endgame=phase == 'endgame', rating=rating)
+        # Book is a prefix of the game: the first move that isn't labelled Book
+        # (even a known-but-dubious one) ends it for every later move, both sides.
+        if label != 'book':
+            in_book = False
         san, best_san = before.san(move), before.san(best_move)
         line = variation(before, played_info.get('pv', [move]))
         best_line = variation(before, best_info['pv'])

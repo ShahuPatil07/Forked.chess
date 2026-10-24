@@ -12,6 +12,9 @@ const PIECES: Record<string, string> = {
   p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚',
 }
 
+/** Filled glyphs for both sides (coloured by CSS); U+FE0E forces text, not emoji, rendering. */
+const SOLID: Record<string, string> = { p: '\u265F\uFE0E', n: '\u265E', b: '\u265D', r: '\u265C', q: '\u265B', k: '\u265A' }
+
 const DARK_SQ  = '#5C5C5C'
 const LIGHT_SQ = '#A9A9A9'
 
@@ -37,10 +40,13 @@ function MiniBoardThumbnailInner({
   fen,
   size       = 44,
   orientation = 'white',
+  solid      = false,
 }: {
   fen: string
   size?: number
   orientation?: 'white' | 'black'
+  /** larger filled pieces with an outline, for bigger thumbnails (Puzzle Themes cards) */
+  solid?: boolean
 }) {
   const cells = useMemo(() => {
     const arr = parseFenBoard(fen)
@@ -48,7 +54,7 @@ function MiniBoardThumbnailInner({
   }, [fen, orientation])
 
   const cellPx  = size / 8
-  const fontPx  = Math.max(8, Math.round(size / 8 * 0.9))
+  const fontPx  = solid ? Math.max(9, Math.round(cellPx * 0.98)) : Math.max(8, Math.round(size / 8 * 0.9))
 
   return (
     <div
@@ -78,9 +84,14 @@ function MiniBoardThumbnailInner({
               textAlign:       'center',
               fontWeight:      900,
               userSelect:      'none',
+              ...(solid && piece ? {
+                textShadow: isWhite
+                  ? '0 0 1px #050505, 0 0 1px #050505, 0 0 2px rgba(5,5,5,0.8)'
+                  : '0 0 1px rgba(245,245,245,0.55)',
+              } : {}),
             }}
           >
-            {piece ? PIECES[piece] : ''}
+            {piece ? (solid ? SOLID[piece.toLowerCase()] : PIECES[piece]) : ''}
           </div>
         )
       })}

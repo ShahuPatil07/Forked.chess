@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { liveApi, type DebriefMatch } from '../api/live'
 import { MiniBoardThumbnail } from './openings/MiniBoardThumbnail'
+import { lossPts } from '../lib/format'
 
 interface Props {
   gameId:   string
@@ -110,7 +111,7 @@ export function BotGameDebrief({ gameId, username }: Props) {
             <p className="text-xs text-text-0">
               Move {m.move_number}: you played <span className="font-mono text-danger">{m.played}</span>,
               best was <span className="font-mono text-success">{m.best.slice(0, 2)}→{m.best.slice(2, 4)}</span>
-              <span className="text-text-2"> (−{m.eval_drop}cp)</span>
+              <span className="text-text-2"> ({lossPts(m.eval_drop)})</span>
             </p>
             <p className="text-[11px] text-accent flex items-center gap-1">
               <AlertTriangle size={10} />

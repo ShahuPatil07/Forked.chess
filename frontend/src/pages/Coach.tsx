@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Sparkles, Send, Loader2, Mic, MicOff, Volume2, VolumeX, RotateCcw, Check, AlertTriangle,
-  GraduationCap, ChevronDown, Square as StopIcon, PanelLeftClose, PanelLeftOpen,
+  Sparkles, Send, Loader2, Mic, MicOff, Volume2, VolumeX, Check, AlertTriangle,
+  GraduationCap, ChevronDown, Square as StopIcon, PanelLeftClose, PanelLeftOpen, History, Plus, Trash2, X,
 } from 'lucide-react'
+import { coachChatsApi, newChatId } from '../api/coachChats'
+import { relativeTime } from '../lib/format'
 import { SectionHeader } from '../components/layout/SectionHeader'
 import { useUserStore } from '../store/userStore'
 import { useAudioCoach } from '../hooks/useAudioCoach'
@@ -62,6 +66,71 @@ function CoachWorkspace() {
   const seenPuzzles = useRef<string[]>([])
 
   const audio = useAudioCoach(text => { if (text.trim()) void send(text) })
+
+  // ── saved conversations ────────────────────────────────────────────────────
+  const qc = useQueryClient()
+  const [params, setParams] = useSearchParams()
+  const [chatId, setChatId] = useState<string>(() => params.get('chat') || newChatId())
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const chatIdRef = useRef(chatId)
+  chatIdRef.current = chatId
+  const { data: chatList } = useQuery({
+    queryKey: ['coach-chats', username], queryFn: () => coachChatsApi.list(username),
+    enabled: !!username, staleTime: 15_000,
+  })
+  const saveChat = useCallback(async () => {
+    const msgs = messagesRef.current.filter(m => m.content || (m.role === 'assistant' && (m.editors.length || m.lines.length)))
+    if (!username || !msgs.length) return
+    try {
+      await coachChatsApi.save(username, chatIdRef.current, {
+        messages: msgs.map(m => (m.role === 'assistant' ? { ...m, streaming: false } : m)),
+        board: boardRef.current.snapshot(),
+      })
+      void qc.invalidateQueries({ queryKey: ['coach-chats', username] })
+    } catch { /* history is best-effort */ }
+  }, [username, qc])
+  async function openChat(id: string) {
+    abortRef.current?.abort()
+    try {
+      const doc = await coachChatsApi.get(username, id)
+      setMessages(doc.messages as unknown as Msg[])
+      boardRef.current.restore(doc.board)
+      setChatId(id); setHistoryOpen(false); setError(null)
+      if (doc.board) setBoardVisible(true)
+      setParams({ chat: id }, { replace: true })
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not open that conversation.') }
+  }
+  function newChat() {
+    abortRef.current?.abort()
+    setMessages([]); setError(null); setChatId(newChatId()); setHistoryOpen(false)
+    setParams({}, { replace: true })
+  }
+  async function deleteChat(id: string) {
+    await coachChatsApi.remove(username, id).catch(() => undefined)
+    void qc.invalidateQueries({ queryKey: ['coach-chats', username] })
+    if (id === chatIdRef.current) newChat()
+  }
+  // deep link: /coach?chat=<id>
+  useEffect(() => {
+    const id = params.get('chat')
+    if (id && username) void openChat(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username])
+
+  // Hand-off from another page (e.g. Puzzle Themes "Ask the Coach"): open the position
+  // in a board tab and pre-fill the question, then drop the router state so a refresh doesn't repeat it.
+  const location = useLocation()
+  const navigate = useNavigate()
+  useEffect(() => {
+    const pos = (location.state as { position?: { fen: string; label: string; question?: string;
+      line?: { san: string[]; fens: string[] } } } | null)?.position
+    if (!pos?.fen) return
+    board.openPosition(pos.fen, pos.label, pos.line ?? null, ['explain', 'play'])
+    setBoardVisible(true)
+    if (pos.question) setInput(pos.question)
+    navigate(location.pathname, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => { scrollRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }) }, [messages])
 
@@ -163,6 +232,13 @@ function CoachWorkspace() {
     }
   }
 
+  // autosave when an answer finishes (messages + every board tab)
+  const wasStreaming = useRef(false)
+  useEffect(() => {
+    if (wasStreaming.current && !streaming) void saveChat()
+    wasStreaming.current = streaming
+  }, [streaming, saveChat])
+
   function handleSubmit(e: FormEvent) { e.preventDefault(); void send(input) }
 
   const isStart = board.fen.split(' ')[0] === START_FEN.split(' ')[0]
@@ -215,13 +291,41 @@ function CoachWorkspace() {
               {audioOn ? <Volume2 size={13} /> : <Mic size={13} />} Audio
             </button>
             <div className="flex-1" />
+            <button onClick={() => setHistoryOpen(o => !o)} aria-expanded={historyOpen}
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs border ${historyOpen ? 'border-accent/40 text-accent bg-accent/10' : 'border-transparent text-text-2 hover:text-text-0 hover:bg-bg-2'}`} title="Previous conversations">
+              <History size={12} /> History{chatList?.chats.length ? ` (${chatList.chats.length})` : ''}
+            </button>
             {messages.length > 0 && (
-              <button onClick={() => { abortRef.current?.abort(); setMessages([]); setError(null) }}
+              <button onClick={newChat}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-text-2 hover:text-text-0 hover:bg-bg-2" title="New conversation">
-                <RotateCcw size={12} /> New chat
+                <Plus size={12} /> New chat
               </button>
             )}
           </div>
+
+          {historyOpen && (
+            <div className="border-b border-border bg-bg-0/60 max-h-[45%] overflow-y-auto">
+              <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                <p className="text-[11px] uppercase tracking-wider text-text-2">Your conversations</p>
+                <button onClick={() => setHistoryOpen(false)} className="text-text-2 hover:text-text-0" aria-label="Close history"><X size={14} /></button>
+              </div>
+              {!chatList?.chats.length ? (
+                <p className="px-4 pb-4 text-xs text-text-2">Conversations are saved automatically after each answer — with their boards.</p>
+              ) : (
+                <ul className="px-2 pb-2">
+                  {chatList.chats.map(c => (
+                    <li key={c.id} className={`group flex items-center gap-2 rounded-lg px-2 py-2 ${c.id === chatId ? 'bg-accent/10' : 'hover:bg-bg-2'}`}>
+                      <button onClick={() => void openChat(c.id)} className="min-w-0 flex-1 text-left">
+                        <p className={`text-sm truncate ${c.id === chatId ? 'text-accent' : 'text-text-0'}`}>{c.title}</p>
+                        <p className="text-[11px] text-text-2 truncate">{relativeTime(c.updated_at)} · {c.messages} messages{c.preview ? ` · ${c.preview}` : ''}</p>
+                      </button>
+                      <button onClick={() => void deleteChat(c.id)} className="p-1.5 rounded text-text-2 opacity-0 group-hover:opacity-100 hover:text-danger" aria-label="Delete conversation"><Trash2 size={12} /></button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             {messages.length === 0 && (

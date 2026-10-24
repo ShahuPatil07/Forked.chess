@@ -66,6 +66,11 @@ def load_match_context(username: str, output_dir: Path) -> Optional[MatchContext
         return None
 
 
+# Families that are never a "known tactical blindspot": the positional bucket and
+# unclassified. A fresh event in them is unmatched (no alert, no debrief hit).
+NON_TACTICAL = {UNCLASSIFIED, "positional"}
+
+
 def _family_for(event) -> str:
     """A fresh event's family = family_of(its Stage-1 threat_type)."""
     return family_of(getattr(event, "threat_type", "") or "other")
@@ -74,14 +79,16 @@ def _family_for(event) -> str:
 def match_events(events: list, ctx: MatchContext) -> list[MatchResult]:
     """
     For each event, match to the user's existing cluster whose family it belongs
-    to. The positional `unclassified` family is treated as unmatched (it is never
-    a tactical blindspot cluster), mirroring the old "below threshold" behaviour.
+    to. The positional / unclassified families are unmatched (never a tactical
+    blindspot cluster), and so are inaccuracies (5-10% losses: Stage 2 counts
+    them as positional only), mirroring the old "below threshold" behaviour.
     """
     out: list[MatchResult] = []
     for ev in events:
         fam = _family_for(ev)
         idx = ctx.family_to_i.get(fam)
-        if fam == UNCLASSIFIED or idx is None:
+        jd = getattr(ev, "judgement", None) or getattr(ev, "eval_drop_category", None)
+        if fam in NON_TACTICAL or idx is None or jd == "inaccuracy":
             out.append(MatchResult(None, None, 0.0, False))
             continue
         c = ctx.clusters[idx]
